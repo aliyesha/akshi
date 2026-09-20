@@ -1,8 +1,9 @@
 # Akshi
 
-Akshi is a local-first Flutter application for monitoring domain-registration
-and TLS-certificate expiry on iOS and Android. It performs checks while the app
-is active and schedules consolidated reminders on the device.
+Akshi is a local-first Flutter application for monitoring domain registration,
+website X.509 certificates, and published email-domain configuration on iOS and
+Android. It performs checks while the app is active and schedules consolidated
+expiry reminders on the device.
 
 The name comes from Sanskrit **akṣi** (अक्षि), meaning **eye**: the app keeps a
 quiet eye on renewal dates and directs attention only when action is useful.
@@ -14,7 +15,12 @@ The product guide is available in [app_usage.md](app_usage.md).
 - No application server, account system, analytics, or advertising.
 - SQLite stores monitored endpoints and their most recent check results.
 - RDAP provides domain-registration expiry data where the registry publishes it.
-- Direct TLS connections provide certificate validity and trust information.
+- Direct TLS connections provide certificate validity, trust, hostname, subject
+  names, algorithms, public-key information, serial number, and fingerprint.
+- The operating system DNS resolver provides MX, SPF, DMARC, MTA-STS, TLS-RPT,
+  and user-selected DKIM records for Email-domain monitors.
+- Website icons are discovered from declared HTML icons and /favicon.ico,
+  decoded if necessary, and cached locally.
 - Checks run at launch, foreground resume, manual refresh, and after endpoint
   changes. Akshi does not perform hidden background network scans.
 - Local notifications are rebuilt from the latest stored results whenever a
@@ -42,6 +48,8 @@ notifications, and Lucide's open-source icon set. Space Grotesk and JetBrains
 Mono are bundled as local variable-font assets; the app never downloads fonts
 at runtime.
 
+The native targets support Android 10 (API 29) or newer and iOS 15 or newer.
+
 ## Getting started
 
 ```sh
@@ -63,7 +71,19 @@ flutter test
 ```
 
 Unit tests cover hostname normalization, expiry boundaries, status precedence,
-settings behavior, persistence mapping, and daily reminder aggregation.
+settings behavior, persistence mapping, DNS record decoding, mail-policy parsing,
+and daily reminder aggregation.
+
+## Monitor profiles
+
+- **Website** checks registration, the live TLS certificate, and the site icon.
+- **Email domain** checks registration and published mail configuration. It
+  reports facts and standards violations; it does not invent an email score.
+- **Domain only** checks registration without probing a network service.
+
+Email monitors can separately declare whether the domain sends and/or receives
+mail. DKIM is checked only for selectors explicitly entered by the user because
+selectors cannot be discovered reliably.
 
 ## Architecture
 
@@ -79,7 +99,7 @@ test/                        pure domain and persistence unit tests
 ```
 
 `MonitorController` coordinates foreground checks and persistence.
-`MonitorEntry` exposes independent domain and certificate findings so the UI can grow with additional check types without changing the monitoring flow.
+`MonitorEntry` stores independent registration, certificate, and Email posture findings so the UI can grow without coupling check types.
 `NotificationService` owns device permission and scheduling. Reminder grouping
 is implemented as pure domain logic in `reminder_digest.dart`, keeping the
 notification policy deterministic and independently testable.
@@ -102,10 +122,34 @@ the window forward.
 
 ## Network and data behavior
 
-RDAP availability and response fields vary by registry, so a domain expiry may
-occasionally be unavailable even when its TLS certificate can be checked.
-Certificate checks connect to the configured hostname and port. Dashboard
-favicons are requested directly from the configured website at `/favicon.ico`;
-Akshi does not use a third-party favicon proxy. Stored data remains in the local
-application database, while normal RDAP, TLS, and favicon requests go directly
-to the relevant public services.
+Akshi has no central server. It sends no monitor list, results, telemetry, or
+account data to aliyesha.com or to an Akshi-operated service. Stored data remains
+in the application's local SQLite database.
+
+The app makes only these task-specific network requests while it is active:
+
+- **https://data.iana.org/rdap/dns.json** to discover the authoritative RDAP
+  base URL for each top-level domain;
+- the HTTPS RDAP URL published by that IANA document, followed by
+  **domain/&lt;registered-domain&gt;**, for registration data;
+- a direct TLS socket to **&lt;configured-hostname&gt;:&lt;configured-port&gt;** for
+  Website certificate inspection;
+- **https://&lt;configured-hostname&gt;[:port]/** to read standard HTML icon
+  declarations, then the declared HTTPS icon URLs and
+  **https://&lt;configured-hostname&gt;[:port]/favicon.ico** as a fallback;
+- MX and TXT lookups through the device-configured system DNS resolver for
+  Email-domain records at the domain, **_dmarc.&lt;domain&gt;**,
+  **_mta-sts.&lt;domain&gt;**, **_smtp._tls.&lt;domain&gt;**, and user-entered
+  **&lt;selector&gt;._domainkey.&lt;domain&gt;** names;
+- **https://mta-sts.&lt;domain&gt;/.well-known/mta-sts.txt** only when an MTA-STS
+  DNS record is published.
+
+Akshi does not use a public DNS-over-HTTPS provider, favicon proxy, analytics
+endpoint, advertising endpoint, font CDN, or remote scoring service. HTTPS icon
+redirects must remain HTTPS. Fonts and interface icons are packaged with the app.
+
+RDAP availability and response fields vary by registry, so a registration
+expiry may be unavailable even when another check succeeds. A failed refresh
+records whether the device is offline, a lookup timed out, DNS failed, or the
+source returned unusable data. Akshi keeps the previous successful values and
+labels them as saved results instead of erasing them or presenting them as fresh.

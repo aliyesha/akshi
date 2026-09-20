@@ -1,4 +1,5 @@
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/monitors/domain/monitor_profile.dart';
 import 'package:akshi/features/monitors/domain/reminder_digest.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ void main() {
   MonitorEntry monitor(
     String hostname, {
     String? label,
+    MonitorProfile profile = MonitorProfile.website,
     DateTime? domainExpiry,
     DateTime? certificateExpiry,
     bool enabled = true,
@@ -16,6 +18,7 @@ void main() {
     id: hostname,
     hostname: hostname,
     port: 443,
+    profile: profile,
     label: label,
     enabled: enabled,
     createdAt: now,
@@ -68,6 +71,22 @@ void main() {
           enabled: false,
         ),
         monitor('past.example', domainExpiry: DateTime(2026, 9, 2)),
+      ],
+      const AppSettings(notificationHour: 9),
+      now: now,
+    );
+
+    expect(digests, isEmpty);
+  });
+
+  test('non-Website profiles never schedule certificate reminders', () {
+    final digests = buildDailyReminderDigests(
+      <MonitorEntry>[
+        monitor(
+          'mail.example',
+          profile: MonitorProfile.email,
+          certificateExpiry: DateTime(2026, 9, 20, 18),
+        ),
       ],
       const AppSettings(notificationHour: 9),
       now: now,

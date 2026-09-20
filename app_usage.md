@@ -71,33 +71,56 @@ as part of your normal maintenance rhythm, and let its consolidated reminders
 bring the next renewal into focus. Akshi is meant to reduce the mental list you
 carry—not create a new service you must babysit.
 
-## Add a website
+## Choose what to monitor
 
-1. Open Akshi and select the **Add** (`+`) button.
-2. Enter a domain or hostname, such as `example.com`. A complete URL is also
+Akshi offers three focused monitor types:
+
+- **Website** combines domain registration, the live X.509 certificate, and a
+  locally cached site icon.
+- **Email domain** combines registration with published MX, SPF, DMARC, MTA-STS,
+  TLS-RPT, and optional user-supplied DKIM selectors. Akshi reports verifiable
+  facts and configuration problems; it does not show a reputation, deliverability,
+  or security score that could become stale.
+- **Domain only** follows registration without assuming a website, mail service,
+  or another network endpoint exists.
+
+For Email domain monitors, tell Akshi whether the domain sends mail, receives
+mail, or both. DKIM selectors are optional and must be entered explicitly because
+there is no reliable universal selector-discovery mechanism.
+
+## Add a monitor
+
+1. Open Akshi and select the **Add** (+) button.
+2. Choose Website, Email, or Domain.
+3. Enter a domain or hostname, such as example.com. A complete URL is also
    accepted; Akshi extracts the hostname.
-3. Keep port `443` for a standard secure website, or enter the TLS port used by
-   the service.
-4. Optionally add a recognizable label such as “Main store.”
-5. Save the monitor. Akshi checks it immediately and may ask for notification
+4. For a Website, keep port 443 for standard HTTPS or enter its TLS port. For an
+   Email domain, choose sending and receiving roles and optionally add known DKIM
+   selectors.
+5. Optionally add a recognizable label and tags.
+6. Save the monitor. Akshi checks it immediately and may ask for notification
    permission.
 
-Each monitor can show two independent dates:
+Website monitors can show two independent dates:
 
 - **Domain expiry** comes from public registration data when the registry makes
   it available.
-- **Certificate expiry** comes directly from the TLS certificate presented by
+- **Certificate expiry** comes directly from the X.509 certificate presented by
   the configured hostname and port.
 
-It is possible for one date to be available while the other is not.
+Email monitors show the published records and explain any concrete issue. A
+missing optional record is informational; an invalid or expected-but-missing
+record needs review. Domain-only monitors show registration data alone.
+
+It is possible for one source to be available while another is not.
 
 ## Read the dashboard
 
-The first screen lists all monitored websites and emphasizes the most urgent
+The first screen lists all monitored domains and emphasizes the most urgent
 status. Use search to find a hostname or label, pull down to refresh everything,
 or use the refresh button and wait for its completion message. Tag chips
 filter the list; tap the selected tag again to clear that filter. Select a
-website for its complete details. Swipe a monitor to the right to request
+monitor for its complete details. Swipe a monitor to the right to request
 deletion; Akshi always asks for confirmation before removing it. Swipe
 it to the left to edit it.
 
@@ -116,31 +139,30 @@ in Settings and remains approximate because the operating system controls the
 exact delivery moment.
 
 Akshi sends at most one scheduled expiry reminder on a calendar day. If several
-websites need attention together, their events are combined. A notification may
+monitors need attention together, their events are combined. A notification may
 look like this:
 
-> 6 websites need attention  
+> 6 monitors need attention
 > example.com, shop.example, status.example, and 3 more
 
-A website is listed only once in the daily notification even when both its
+A monitor is listed only once in the daily notification even when both its
 domain and certificate reach a warning point together. Open Akshi to see every
-website and the precise reason it needs attention.
+monitor and the precise reason it needs attention.
 
 Whenever the app returns to the foreground, it refreshes available information
 and rebuilds future reminders from the latest results. Editing or deleting a
 monitor and changing reminder settings also rebuilds the shared schedule.
 
 Changes discovered during the same refresh are consolidated too. If several
-websites receive renewed certificates or revised domain dates together, Akshi
-reports one change summary rather than notifying once per website.
+monitors receive renewed certificates, revised domain dates, or Email configuration changes together, Akshi
+reports one change summary rather than notifying once per monitor.
 
 ## Respond to a warning
 
-1. Open the affected website in Akshi.
-2. Determine whether the domain registration, TLS certificate, or both require
-   attention.
-3. Renew through the relevant registrar, certificate authority, or hosting
-   provider.
+1. Open the affected monitor in Akshi.
+2. Read the affected registration, certificate, or Email configuration finding.
+3. Correct it through the relevant registrar, certificate authority, hosting,
+   DNS, or mail provider.
 4. Return to Akshi and refresh the monitor.
 5. Confirm that the new expiry information appears. Akshi reports when it
    detects a changed certificate or domain-expiry date.
@@ -153,22 +175,40 @@ Akshi still shows the old date, wait briefly and refresh again.
 In **Settings**, you can:
 
 - choose the two early-warning intervals;
-- create, edit, and remove reusable color tags for grouping websites;
+- create, edit, and remove reusable color tags for grouping monitors;
 - select the preferred local reminder time;
 - request notification permission again;
-- follow the device appearance or choose light or dark mode.
+- follow the device appearance or choose light or dark mode;
+- read the name, philosophy, privacy model, and intended audience in About Akshi.
 
 The first warning must remain earlier than the second. The one-day reminder is
 fixed as a final safety prompt.
 
 ## Privacy and connectivity
 
-Akshi stores its monitor list and results locally. Checking still requires an
-internet connection: the app contacts public registration services and the
-configured website to obtain current information. Those external services can
-observe ordinary network request information such as the requesting IP address.
+Akshi has no central server. Your monitor list, cached site icons, check results,
+tags, and preferences remain in the local application database. Akshi has no
+account, sign-up, analytics, advertising, font download, remote scoring service,
+or Akshi-operated API. Nothing is sent to aliyesha.com.
 
-Removing the app normally removes its local data. If the monitor list is
+Checking still requires network access. While the app is active it can contact:
+
+- **https://data.iana.org/rdap/dns.json**, followed by the registry RDAP HTTPS
+  server listed there and its **domain/&lt;registered-domain&gt;** path;
+- the configured Website through a direct TLS connection and
+  **https://&lt;hostname&gt;[:port]/**, declared HTTPS icon URLs, and
+  **https://&lt;hostname&gt;[:port]/favicon.ico**;
+- the device-configured DNS resolver for MX and TXT records at the domain,
+  **_dmarc.&lt;domain&gt;**, **_mta-sts.&lt;domain&gt;**,
+  **_smtp._tls.&lt;domain&gt;**, and any user-entered
+  **&lt;selector&gt;._domainkey.&lt;domain&gt;**;
+- **https://mta-sts.&lt;domain&gt;/.well-known/mta-sts.txt** when that domain
+  publishes an MTA-STS DNS record.
+
+Akshi does not use a third-party favicon proxy or public DNS-over-HTTPS provider.
+The registries, configured sites, mail-policy sites, and DNS resolver can observe
+ordinary connection information such as the requesting IP address and queried
+names. Removing the app normally removes its local data. If the monitor list is
 important, keep an independent record of the domains you manage.
 
 ## When information is unavailable
@@ -176,5 +216,7 @@ important, keep an independent record of the domains you manage.
 Some domain registries do not publish a usable expiry date through RDAP, and
 temporary network, DNS, firewall, or TLS problems can prevent a check. Akshi
 preserves the last useful result where possible and displays the latest error.
-Try again on a reliable connection before treating an unavailable result as a
-registration or certificate failure.
+If the device is offline, Akshi says so directly and continues to show the last
+saved values. A timeout, DNS failure, unavailable source, invalid response, and TLS
+connection failure are kept distinct. Try again on a reliable connection before
+treating an unavailable result as a registration, certificate, or mail problem.

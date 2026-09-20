@@ -40,7 +40,7 @@ List<DailyReminderDigest> buildDailyReminderDigests(
   for (final monitor in monitors.where((item) => item.enabled)) {
     final expiries = <DateTime?>[
       monitor.domainExpiresAt,
-      monitor.certificateExpiresAt,
+      if (monitor.profile.checksCertificate) monitor.certificateExpiresAt,
     ];
     for (final expiry in expiries.whereType<DateTime>()) {
       final localExpiry = expiry.toLocal();

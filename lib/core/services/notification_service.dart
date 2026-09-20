@@ -35,7 +35,7 @@ class NotificationService {
     android: AndroidNotificationDetails(
       'monitor_changes',
       'Monitor changes',
-      channelDescription: 'Changes to monitored domains and certificates',
+      channelDescription: 'Changes to monitored registration, certificates, and Email configuration',
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_notification',
@@ -128,8 +128,8 @@ class NotificationService {
       await _plugin.zonedSchedule(
         id: _digestIdBase + index,
         title: digest.siteCount == 1
-            ? '1 website needs attention'
-            : '${digest.siteCount} websites need attention',
+            ? '1 monitor needs attention'
+            : '${digest.siteCount} monitors need attention',
         body: body,
         scheduledDate: tz.TZDateTime(
           tz.local,
@@ -157,7 +157,7 @@ class NotificationService {
       'expiry_reminders',
       'Expiry reminders',
       channelDescription:
-          'Consolidated domain and certificate expiry reminders',
+          'Consolidated registration and certificate expiry reminders',
       importance: Importance.high,
       priority: Priority.high,
       icon: 'ic_notification',
@@ -172,17 +172,16 @@ class NotificationService {
   );
 
   Future<void> showChanges(Iterable<MonitorEntry> monitors) async {
-    final monitorsByHostname = <String, MonitorEntry>{};
-    for (final monitor in monitors) {
-      monitorsByHostname.putIfAbsent(monitor.hostname, () => monitor);
-    }
-    final changed = monitorsByHostname.values.toList()
+    final changedById = <String, MonitorEntry>{
+      for (final monitor in monitors) monitor.id: monitor,
+    };
+    final changed = changedById.values.toList()
       ..sort(
         (left, right) =>
             left.hostname.toLowerCase().compareTo(right.hostname.toLowerCase()),
       );
     if (changed.isEmpty) return;
-    final names = changed.map((monitor) => monitor.hostname).toList();
+    final names = changed.map((monitor) => monitor.hostname);
     final destination = NotificationDestination(
       kind: NotificationDestinationKind.changes,
       monitorIds: changed.map((monitor) => monitor.id).toList(),
@@ -191,8 +190,8 @@ class NotificationService {
     await _plugin.show(
       id: _changeNotificationId,
       title: changed.length == 1
-          ? '1 website changed'
-          : '${changed.length} websites changed',
+          ? '1 monitor changed'
+          : '${changed.length} monitors changed',
       body: compactSiteNames(names),
       notificationDetails: _changeDetails,
       payload: destination.toPayload(),

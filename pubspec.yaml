@@ -1,5 +1,5 @@
 name: akshi
-description: A private, local-first domain and TLS expiry monitor.
+description: A private, local-first domain, X.509, and email configuration monitor.
 publish_to: "none"
 version: 1.0.0+1
 
@@ -23,6 +23,11 @@ dependencies:
   crypto: ^3.0.7
   path: ^1.9.1
   uuid: ^4.6.0
+  basic_utils: ^5.8.2
+  connectivity_plus: ^7.3.1
+  flutter_svg: ^2.3.0
+  html: ^0.15.6
+  image: ^4.10.1
 
 dev_dependencies:
   flutter_test:

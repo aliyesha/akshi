@@ -129,8 +129,8 @@ class _AttentionHeader extends StatelessWidget {
               children: <Widget>[
                 Text(
                   changes
-                      ? '$count ${count == 1 ? 'website has' : 'websites have'} recent changes'
-                      : '$count ${count == 1 ? 'website needs' : 'websites need'} attention',
+                      ? '$count ${count == 1 ? 'monitor has' : 'monitors have'} recent changes'
+                      : '$count ${count == 1 ? 'monitor needs' : 'monitors need'} attention',
                   style: Theme.of(context).textTheme.titleLarge
                       ?.copyWith(color: scheme.onPrimaryContainer),
                 ),
@@ -245,6 +245,7 @@ class _FindingRow extends StatelessWidget {
       Icon(switch (finding.kind) {
         MonitorCheckKind.domainRegistration => Icons.public_rounded,
         MonitorCheckKind.tlsCertificate => Icons.verified_user_rounded,
+        MonitorCheckKind.emailConfiguration => LucideIcons.mail_check,
       }, size: 21),
       const SizedBox(width: 10),
       Expanded(

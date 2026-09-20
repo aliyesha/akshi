@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/features/monitors/domain/check_result.dart';
+import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
 
 class TlsCheckService {
@@ -35,6 +36,7 @@ class TlsCheckService {
         );
       }
       final fingerprint = sha256.convert(certificate.der).toString();
+      final details = _certificateDetails(certificate.pem, hostname);
       return CertificateCheckResult(
         validFrom: certificate.startValidity.toLocal(),
         expiresAt: certificate.endValidity.toLocal(),
@@ -42,11 +44,113 @@ class TlsCheckService {
         subject: formatCertificateSubject(certificate.subject),
         fingerprint: fingerprint,
         trusted: trusted,
+        hostnameMatches: details.hostnameMatches ?? (trusted ? true : null),
+        subjectAlternativeNames: details.subjectAlternativeNames,
+        serialNumber: details.serialNumber,
+        signatureAlgorithm: details.signatureAlgorithm,
+        publicKeyAlgorithm: details.publicKeyAlgorithm,
+        publicKeyDetails: details.publicKeyDetails,
       );
     } finally {
       await socket.close();
     }
   }
+}
+
+_ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
+  try {
+    final data = X509Utils.x509CertificateFromPem(pem);
+    final sans =
+        data.subjectAlternativNames ??
+        data.extensions?.subjectAlternativNames ??
+        const <String>[];
+    final normalizedSans = sans
+        .map(_cleanAlternativeName)
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+    final publicKey = Map<String, Object?>.from(data.publicKeyData.toJson());
+    final algorithm = _firstText(publicKey, const <String>[
+      'algorithm',
+      'algorithmName',
+      'type',
+    ]);
+    final bits = _firstText(publicKey, const <String>[
+      'bitLength',
+      'keyLength',
+      'size',
+    ]);
+    final curve = _firstText(publicKey, const <String>[
+      'curve',
+      'curveName',
+      'namedCurve',
+    ]);
+    return _ParsedCertificateDetails(
+      hostnameMatches: normalizedSans.isEmpty
+          ? null
+          : normalizedSans.any((name) => _matchesHostname(hostname, name)),
+      subjectAlternativeNames: normalizedSans,
+      serialNumber: data.serialNumber.toRadixString(16).toUpperCase(),
+      signatureAlgorithm:
+          data.signatureAlgorithmReadableName ?? data.signatureAlgorithm,
+      publicKeyAlgorithm: algorithm,
+      publicKeyDetails: <String>[?bits, ?curve].join(' · ').nullIfEmpty,
+    );
+  } on Object {
+    return const _ParsedCertificateDetails(
+      hostnameMatches: null,
+      subjectAlternativeNames: <String>[],
+    );
+  }
+}
+
+String _cleanAlternativeName(String value) => value
+    .replaceFirst(RegExp(r'^(DNS|DNSName):\s*', caseSensitive: false), '')
+    .trim()
+    .toLowerCase();
+
+bool _matchesHostname(String hostname, String pattern) {
+  final normalizedHost = hostname.toLowerCase();
+  final normalizedPattern = pattern.toLowerCase();
+  if (!normalizedPattern.startsWith('*.')) {
+    return normalizedHost == normalizedPattern;
+  }
+  final suffix = normalizedPattern.substring(1);
+  return normalizedHost.endsWith(suffix) &&
+      normalizedHost.split('.').length == normalizedPattern.split('.').length;
+}
+
+String? _firstText(Map<String, Object?> values, List<String> keys) {
+  for (final key in keys) {
+    final value = values[key];
+    if (value != null && value.toString().trim().isNotEmpty) {
+      return value.toString();
+    }
+  }
+  return null;
+}
+
+extension on String {
+  String? get nullIfEmpty => isEmpty ? null : this;
+}
+
+class _ParsedCertificateDetails {
+  const _ParsedCertificateDetails({
+    required this.hostnameMatches,
+    required this.subjectAlternativeNames,
+    this.serialNumber,
+    this.signatureAlgorithm,
+    this.publicKeyAlgorithm,
+    this.publicKeyDetails,
+  });
+
+  final bool? hostnameMatches;
+  final List<String> subjectAlternativeNames;
+  final String? serialNumber;
+  final String? signatureAlgorithm;
+  final String? publicKeyAlgorithm;
+  final String? publicKeyDetails;
 }
 
 class TlsCheckException implements Exception {

@@ -1,4 +1,6 @@
+import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/monitors/domain/monitor_profile.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -78,5 +80,46 @@ void main() {
   test('copyWith can explicitly clear the latest error', () {
     final monitor = entry().copyWith(domainError: 'Network unavailable');
     expect(monitor.copyWith(domainError: null).domainError, isNull);
+  });
+
+  test('database mapping round trips Email profile and posture', () {
+    final checkedAt = DateTime.utc(2026, 9, 20, 8, 30);
+    final original = MonitorEntry(
+      id: 'email-monitor',
+      hostname: 'mail.example.com',
+      port: 443,
+      profile: MonitorProfile.email,
+      mailSends: true,
+      mailReceives: false,
+      dkimSelectors: const <String>['selector1'],
+      emailPosture: EmailPosture(
+        checkedAt: checkedAt,
+        findings: const <MailFinding>[
+          MailFinding(
+            id: 'spf',
+            title: 'SPF',
+            state: MailFindingState.healthy,
+            summary: 'One SPF policy is published.',
+            facts: <MailFact>[
+              MailFact(label: 'Policy', value: 'v=spf1 -all'),
+            ],
+          ),
+        ],
+      ),
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final restored = MonitorEntry.fromMap(original.toMap());
+
+    expect(restored.profile, MonitorProfile.email);
+    expect(restored.mailSends, isTrue);
+    expect(restored.mailReceives, isFalse);
+    expect(restored.dkimSelectors, <String>['selector1']);
+    expect(restored.emailPosture?.findings.single.id, 'spf');
+    expect(
+      restored.emailPosture?.findings.single.facts.single.value,
+      'v=spf1 -all',
+    );
   });
 }

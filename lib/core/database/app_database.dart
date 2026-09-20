@@ -9,7 +9,7 @@ class AppDatabase {
     if (current != null) return current;
     final root = await getDatabasesPath();
     return _database = await openDatabase(
-      p.join(root, 'akshi.db'),
+      p.join(root, 'akshi_data.db'),
       version: 1,
       onConfigure: (database) async {
         await database.execute('PRAGMA foreign_keys = ON');
@@ -20,8 +20,12 @@ class AppDatabase {
             id TEXT PRIMARY KEY,
             hostname TEXT NOT NULL,
             port INTEGER NOT NULL,
+            profile TEXT NOT NULL,
             label TEXT,
             enabled INTEGER NOT NULL DEFAULT 1,
+            mail_sends INTEGER NOT NULL DEFAULT 1,
+            mail_receives INTEGER NOT NULL DEFAULT 1,
+            dkim_selectors_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             domain_expires_at TEXT,
@@ -35,12 +39,26 @@ class AppDatabase {
             previous_certificate_fingerprint TEXT,
             tls_trusted INTEGER,
             domain_error TEXT,
-            certificate_error TEXT
+            certificate_error TEXT,
+            domain_activity_json TEXT NOT NULL,
+            certificate_activity_json TEXT NOT NULL,
+            email_activity_json TEXT NOT NULL,
+            certificate_hostname_matches INTEGER,
+            certificate_sans_json TEXT NOT NULL,
+            certificate_serial_number TEXT,
+            certificate_signature_algorithm TEXT,
+            certificate_public_key_algorithm TEXT,
+            certificate_public_key_details TEXT,
+            email_posture_json TEXT,
+            site_icon_format TEXT,
+            site_icon_bytes BLOB,
+            site_icon_source_url TEXT,
+            site_icon_checked_at TEXT
           )
         ''');
         await database.execute(
           'CREATE UNIQUE INDEX monitor_endpoint '
-          'ON monitors(hostname, port)',
+          'ON monitors(hostname, port, profile)',
         );
         await database.execute('''
           CREATE TABLE tags (

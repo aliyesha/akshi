@@ -140,21 +140,21 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 30),
             Text('Privacy', style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 14),
-            const _SettingsCard(
+            _SettingsCard(
               children: <Widget>[
-                ListTile(
+                const ListTile(
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 7,
                   ),
                   leading: Icon(LucideIcons.server),
-                  title: Text('Stored on this device'),
+                  title: Text('No Akshi server'),
                   subtitle: Text(
-                    'Your monitor list and history are never uploaded by Akshi.',
+                    'Saved data stays here; checks go directly to registries and configured sources.',
                   ),
                 ),
-                Divider(),
-                ListTile(
+                const Divider(),
+                const ListTile(
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 7,
@@ -165,12 +165,24 @@ class SettingsScreen extends ConsumerWidget {
                     'Akshi connects only when opened, resumed, edited, or refreshed.',
                   ),
                 ),
+                const Divider(),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 7,
+                  ),
+                  leading: const Icon(LucideIcons.info),
+                  title: const Text('About Akshi'),
+                  subtitle: const Text('Name, philosophy, and intended audience'),
+                  trailing: const Icon(LucideIcons.chevron_right),
+                  onTap: () => context.push('/settings/about'),
+                ),
               ],
             ),
             const SizedBox(height: 26),
             Center(
               child: Text(
-                'Akshi 0.1.0',
+                'Akshi · Watch What Matters',
                 style: Theme.of(context).textTheme.labelMedium
                     ?.copyWith(color: Theme.of(context).colorScheme.outline),
               ),

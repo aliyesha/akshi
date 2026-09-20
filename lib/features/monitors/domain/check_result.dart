@@ -6,6 +6,12 @@ class CertificateCheckResult {
     required this.subject,
     required this.fingerprint,
     required this.trusted,
+    required this.hostnameMatches,
+    required this.subjectAlternativeNames,
+    this.serialNumber,
+    this.signatureAlgorithm,
+    this.publicKeyAlgorithm,
+    this.publicKeyDetails,
   });
 
   final DateTime validFrom;
@@ -14,6 +20,12 @@ class CertificateCheckResult {
   final String subject;
   final String fingerprint;
   final bool trusted;
+  final bool? hostnameMatches;
+  final List<String> subjectAlternativeNames;
+  final String? serialNumber;
+  final String? signatureAlgorithm;
+  final String? publicKeyAlgorithm;
+  final String? publicKeyDetails;
 }
 
 class DomainCheckResult {

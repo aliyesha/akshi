@@ -2,6 +2,7 @@ import 'package:akshi/features/monitors/presentation/attention_screen.dart';
 import 'package:akshi/features/monitors/presentation/home_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_detail_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_form_screen.dart';
+import 'package:akshi/features/settings/presentation/about_screen.dart';
 import 'package:akshi/features/settings/presentation/settings_screen.dart';
 import 'package:akshi/features/tags/presentation/tags_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -46,6 +47,7 @@ final appRouter = GoRouter(
       builder: (context, state) => const SettingsScreen(),
       routes: <RouteBase>[
         GoRoute(path: 'tags', builder: (context, state) => const TagsScreen()),
+        GoRoute(path: 'about', builder: (context, state) => const AboutScreen()),
       ],
     ),
   ],

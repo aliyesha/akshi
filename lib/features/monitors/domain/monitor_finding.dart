@@ -3,7 +3,8 @@ import 'package:akshi/features/monitors/domain/monitor_status.dart';
 
 enum MonitorCheckKind {
   domainRegistration('domain-registration', 'Domain registration'),
-  tlsCertificate('tls-certificate', 'TLS certificate');
+  tlsCertificate('tls-certificate', 'TLS certificate'),
+  emailConfiguration('email-configuration', 'Email configuration');
 
   const MonitorCheckKind(this.id, this.label);
 
@@ -58,6 +59,9 @@ List<MonitorFinding> findingsForMonitor(
   if (domainUnavailable) domainStatus = MonitorStatus.unavailable;
   if (certificateUnavailable) certificateStatus = MonitorStatus.unavailable;
   if (monitor.tlsTrusted == false) certificateStatus = MonitorStatus.critical;
+  if (monitor.certificateHostnameMatches == false) {
+    certificateStatus = MonitorStatus.critical;
+  }
 
   return <MonitorFinding>[
     MonitorFinding(
@@ -68,10 +72,11 @@ List<MonitorFinding> findingsForMonitor(
           : _summary(domainStatus, monitor.domainExpiresAt, referenceTime),
       expiresAt: monitor.domainExpiresAt,
     ),
-    MonitorFinding(
-      kind: MonitorCheckKind.tlsCertificate,
-      status: certificateStatus,
-      summary: monitor.tlsTrusted == false
+    if (monitor.profile.checksCertificate)
+      MonitorFinding(
+        kind: MonitorCheckKind.tlsCertificate,
+        status: certificateStatus,
+        summary: monitor.tlsTrusted == false
           ? 'Certificate trust could not be verified'
           : certificateUnavailable
           ? 'Latest certificate check unavailable'
@@ -80,8 +85,26 @@ List<MonitorFinding> findingsForMonitor(
               monitor.certificateExpiresAt,
               referenceTime,
             ),
-      expiresAt: monitor.certificateExpiresAt,
+        expiresAt: monitor.certificateExpiresAt,
     ),
+    if (monitor.profile.checksEmail)
+      MonitorFinding(
+        kind: MonitorCheckKind.emailConfiguration,
+        status: monitor.emailActivity.failure != null
+            ? MonitorStatus.unavailable
+            : monitor.emailPosture == null
+            ? MonitorStatus.unknown
+            : monitor.emailPosture!.needsAttention
+            ? MonitorStatus.warning
+            : MonitorStatus.healthy,
+        summary: monitor.emailActivity.failure != null
+            ? 'Latest Email-domain check unavailable'
+            : monitor.emailPosture == null
+            ? 'Email configuration not checked yet'
+            : monitor.emailPosture!.needsAttention
+            ? 'Published Email configuration needs review'
+            : 'Published Email configuration looks consistent',
+      ),
   ];
 }
 

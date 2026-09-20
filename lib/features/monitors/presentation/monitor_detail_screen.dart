@@ -2,6 +2,7 @@ import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
+import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
@@ -114,7 +115,8 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
               ),
             ],
             if (monitor.domainError != null ||
-                monitor.certificateError != null) ...<Widget>[
+                monitor.certificateError != null ||
+                monitor.emailActivity.failure != null) ...<Widget>[
               const SizedBox(height: 18),
               _Notice(
                 icon: LucideIcons.circle_alert,
@@ -124,6 +126,8 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                     'Domain: ${monitor.domainError}',
                   if (monitor.certificateError != null)
                     'Certificate: ${monitor.certificateError}',
+                  if (monitor.emailActivity.failure != null)
+                    'Email: ${monitor.emailActivity.failure!.message}',
                 ].join(String.fromCharCode(10)),
                 error: true,
               ),
@@ -137,51 +141,113 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   ? 'No registry date available'
                   : 'Verified through ${monitor.domainSource}',
             ),
-            const SizedBox(height: 12),
-            _ExpiryPanel(
-              icon: Icons.verified_user_rounded,
-              title: 'TLS certificate',
-              date: monitor.certificateExpiresAt,
-              source: monitor.certificateIssuer == null
-                  ? 'No certificate data available'
-                  : 'Issued by ${formatCertificateIssuer(monitor.certificateIssuer!)}',
-            ),
-            const SizedBox(height: 26),
-            Text(
-              'Certificate details',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            _InfoCard(
-              children: <Widget>[
-                _InfoRow(
-                  label: 'Trust',
-                  value: _trustLabel(monitor.tlsTrusted),
+            if (monitor.profile.checksCertificate) ...<Widget>[
+              const SizedBox(height: 12),
+              _ExpiryPanel(
+                icon: Icons.verified_user_rounded,
+                title: 'TLS certificate',
+                date: monitor.certificateExpiresAt,
+                source: monitor.certificateIssuer == null
+                    ? 'No certificate data available'
+                    : 'Issued by ${formatCertificateIssuer(monitor.certificateIssuer!)}',
+              ),
+              const SizedBox(height: 26),
+              Text(
+                'Certificate details',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              _InfoCard(
+                children: <Widget>[
+                  _InfoRow(
+                    icon: LucideIcons.shield_check,
+                    label: 'Trust',
+                    value: _trustLabel(monitor.tlsTrusted),
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.badge_check,
+                    label: 'Hostname match',
+                    value: _hostnameMatchLabel(
+                      monitor.certificateHostnameMatches,
+                    ),
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.id_card,
+                    label: 'Subject',
+                    value: monitor.certificateSubject ?? '—',
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.landmark,
+                    label: 'Issuer',
+                    value: monitor.certificateIssuer ?? '—',
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.list,
+                    label: 'Subject alternative names',
+                    value: monitor.certificateSubjectAlternativeNames.isEmpty
+                        ? '—'
+                        : monitor.certificateSubjectAlternativeNames.join('\n'),
+                    monospace: true,
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.calendar_check,
+                    label: 'Valid from',
+                    value: _formatDate(context, monitor.certificateValidFrom),
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.binary,
+                    label: 'Serial number',
+                    value: monitor.certificateSerialNumber ?? '—',
+                    monospace: true,
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.file_key,
+                    label: 'Signature algorithm',
+                    value: monitor.certificateSignatureAlgorithm ?? '—',
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.key_round,
+                    label: 'Public key',
+                    value: _publicKeyLabel(monitor),
+                  ),
+                  _InfoRow(
+                    icon: LucideIcons.fingerprint,
+                    label: 'SHA-256 fingerprint',
+                    value: _formatFingerprint(monitor.certificateFingerprint),
+                    monospace: true,
+                    last: true,
+                  ),
+                ],
+              ),
+            ],
+            if (monitor.profile.checksEmail) ...<Widget>[
+              const SizedBox(height: 26),
+              Text(
+                'Email posture',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 5),
+              Text(
+                'Published configuration, not a delivery or reputation score.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
-                _InfoRow(
-                  label: 'Subject',
-                  value: monitor.certificateSubject == null
-                      ? '—'
-                      : formatCertificateSubject(monitor.certificateSubject!),
+              ),
+              const SizedBox(height: 12),
+              if (monitor.emailPosture == null)
+                const _Notice(
+                  icon: LucideIcons.mail_warning,
+                  title: 'Email information unavailable',
+                  message: 'Run a check to inspect published mail configuration.',
+                )
+              else
+                ...monitor.emailPosture!.findings.map(
+                  (finding) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _MailFindingCard(finding: finding),
+                  ),
                 ),
-                _InfoRow(
-                  label: 'Issuer',
-                  value: monitor.certificateIssuer == null
-                      ? '—'
-                      : formatCertificateIssuer(monitor.certificateIssuer!),
-                ),
-                _InfoRow(
-                  label: 'Valid from',
-                  value: _formatDate(context, monitor.certificateValidFrom),
-                ),
-                _InfoRow(
-                  label: 'Fingerprint',
-                  value: _formatFingerprint(monitor.certificateFingerprint),
-                  monospace: true,
-                  last: true,
-                ),
-              ],
-            ),
+            ],
             const SizedBox(height: 26),
             Text('Freshness', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
@@ -342,12 +408,14 @@ class _InfoRow extends StatelessWidget {
   const _InfoRow({
     required this.label,
     required this.value,
+    this.icon,
     this.last = false,
     this.monospace = false,
   });
 
   final String label;
   final String value;
+  final IconData? icon;
   final bool last;
   final bool monospace;
 
@@ -362,13 +430,23 @@ class _InfoRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+              Row(
+                children: <Widget>[
+                  if (icon != null) ...<Widget>[
+                    Icon(icon, size: 15, color: theme.colorScheme.primary),
+                    const SizedBox(width: 7),
+                  ],
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
               SelectableText(
@@ -390,6 +468,82 @@ class _InfoRow extends StatelessWidget {
         ),
         if (!last) const Divider(),
       ],
+    );
+  }
+}
+
+class _MailFindingCard extends StatelessWidget {
+  const _MailFindingCard({required this.finding});
+
+  final MailFinding finding;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color) = switch (finding.state) {
+      MailFindingState.healthy => (LucideIcons.circle_check, scheme.primary),
+      MailFindingState.informational => (LucideIcons.info, scheme.secondary),
+      MailFindingState.warning => (LucideIcons.triangle_alert, scheme.tertiary),
+      MailFindingState.invalid => (LucideIcons.circle_x, scheme.error),
+      MailFindingState.unavailable => (LucideIcons.cloud_off, scheme.error),
+    };
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        border: Border.all(color: color.withValues(alpha: .24)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 19, color: color),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Text(
+                  finding.title,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(finding.summary),
+          if (finding.facts.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 6),
+            for (final fact in finding.facts) ...<Widget>[
+              Text(
+                fact.label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 3),
+              SelectableText(
+                fact.value,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontFamily: AkshiTheme.monoFontFamily,
+                  fontFeatures: const <FontFeature>[FontFeature.slashedZero()],
+                ),
+              ),
+              const SizedBox(height: 9),
+            ],
+          ],
+        ],
+      ),
     );
   }
 }
@@ -458,6 +612,20 @@ String _trustLabel(bool? value) => switch (value) {
   false => 'Certificate warning',
   null => 'Not checked',
 };
+
+String _hostnameMatchLabel(bool? value) => switch (value) {
+  true => 'Matches the monitored hostname',
+  false => 'Does not match the monitored hostname',
+  null => 'Not available',
+};
+
+String _publicKeyLabel(MonitorEntry monitor) {
+  final parts = <String>[
+    ?monitor.certificatePublicKeyAlgorithm,
+    ?monitor.certificatePublicKeyDetails,
+  ];
+  return parts.isEmpty ? '—' : parts.join(' · ');
+}
 
 String _formatFingerprint(String? value) {
   if (value == null || value.isEmpty) return '—';

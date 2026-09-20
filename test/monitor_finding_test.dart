@@ -1,5 +1,7 @@
+import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
+import 'package:akshi/features/monitors/domain/monitor_profile.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -65,5 +67,41 @@ void main() {
 
     expect(findings[0].status, MonitorStatus.unavailable);
     expect(findings[1].status, MonitorStatus.healthy);
+  });
+
+  test('Email profile returns registration and Email findings without TLS', () {
+    final findings = findingsForMonitor(
+      MonitorEntry(
+        id: 'email-monitor',
+        hostname: 'example.com',
+        port: 443,
+        profile: MonitorProfile.email,
+        createdAt: now,
+        updatedAt: now,
+        lastCheckedAt: now,
+        domainExpiresAt: now.add(const Duration(days: 90)),
+        emailPosture: EmailPosture(
+          checkedAt: now,
+          findings: const <MailFinding>[
+            MailFinding(
+              id: 'spf',
+              title: 'SPF',
+              state: MailFindingState.warning,
+              summary: 'No SPF policy is published.',
+            ),
+          ],
+        ),
+      ),
+      now: now,
+    );
+
+    expect(
+      findings.map((finding) => finding.kind),
+      <MonitorCheckKind>[
+        MonitorCheckKind.domainRegistration,
+        MonitorCheckKind.emailConfiguration,
+      ],
+    );
+    expect(findings.last.status, MonitorStatus.warning);
   });
 }
