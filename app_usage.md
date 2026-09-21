@@ -73,44 +73,59 @@ carry—not create a new service you must babysit.
 
 ## Choose what to monitor
 
-Akshi offers three focused monitor types:
+Akshi treats a domain as one asset. Domain registration is always checked. On
+that same asset, independently enable either or both of:
 
-- **Website** combines domain registration, the live X.509 certificate, and a
-  locally cached site icon.
-- **Email domain** combines registration with published MX, SPF, DMARC, MTA-STS,
+- **TLS certificate**, using the domain itself or a separate TLS hostname and
+  port. When enabled, Akshi also discovers and locally caches the site's icon.
+- **Email configuration**, covering published MX, SPF, DMARC, MTA-STS,
   TLS-RPT, and optional user-supplied DKIM selectors. Akshi reports verifiable
   facts and configuration problems; it does not show a reputation, deliverability,
   or security score that could become stale.
-- **Domain only** follows registration without assuming a website, mail service,
-  or another network endpoint exists.
 
-For Email domain monitors, tell Akshi whether the domain sends mail, receives
-mail, or both. DKIM selectors are optional and must be entered explicitly because
-there is no reliable universal selector-discovery mechanism.
+TLS and Email start off; leave both off to monitor registration alone. The
+service icon remains visible, while the circle at the end of each row shows
+whether that optional check is selected. For Email checks, tell Akshi whether
+the domain sends mail, receives mail, or both. DKIM selectors
+are optional and must be entered explicitly because there is no reliable
+universal selector-discovery mechanism.
 
 ## Add a monitor
 
 1. Open Akshi and select the **Add** (+) button.
-2. Choose Website, Email, or Domain.
-3. Enter a domain or hostname, such as example.com. A complete URL is also
+2. Enter a domain or hostname, such as example.com. A complete URL is also
    accepted; Akshi extracts the hostname.
-4. For a Website, keep port 443 for standard HTTPS or enter its TLS port. For an
-   Email domain, choose sending and receiving roles and optionally add known DKIM
-   selectors.
-5. Optionally add a recognizable label and tags.
-6. Save the monitor. Akshi checks it immediately and may ask for notification
+3. Enable **TLS certificate**, **Email configuration**, both, or neither.
+4. For TLS, leave the hostname blank to use the domain and keep port 443 for
+   standard HTTPS, or enter the actual TLS endpoint. For Email, choose sending
+   and receiving roles and optionally add known DKIM selectors.
+5. Optionally add a recognizable **Name**, such as “Production mail”, and
+   tags. The name appears prominently while the domain remains visible; tags only organize
+   monitors and never change which checks run.
+6. Save the asset. Akshi checks it immediately and may ask for notification
    permission.
 
-Website monitors can show two independent dates:
+Each domain can show separate results:
 
 - **Domain expiry** comes from public registration data when the registry makes
-  it available.
+  it available. The details screen also shows the registrar, registration and
+  change dates, nameservers, and public registrant when those fields are
+  published.
 - **Certificate expiry** comes directly from the X.509 certificate presented by
-  the configured hostname and port.
+  the configured TLS hostname and port when TLS checking is enabled.
+- **Email configuration** shows published records and concrete issues when Email
+  checking is enabled. Email configuration has no expiry date.
 
-Email monitors show the published records and explain any concrete issue. A
-missing optional record is informational; an invalid or expected-but-missing
-record needs review. Domain-only monitors show registration data alone.
+A missing optional Email record is informational; an invalid or
+expected-but-missing record needs review. Records are read through the device's
+configured DNS resolver. An offline device, timeout, or resolver failure is
+reported as a lookup failure—not as proof that records are missing. The dashboard
+uses the most urgent enabled result as the asset's overall status, while the
+Attention screen always names the exact component or components involved.
+
+Public registration records vary. “Public registrant” can be missing, redacted,
+or name a privacy service, so Akshi does not present it as verified legal
+ownership and does not scrape legacy WHOIS data to fill an unpublished field.
 
 It is possible for one source to be available while another is not.
 
@@ -195,9 +210,9 @@ Checking still requires network access. While the app is active it can contact:
 
 - **https://data.iana.org/rdap/dns.json**, followed by the registry RDAP HTTPS
   server listed there and its **domain/&lt;registered-domain&gt;** path;
-- the configured Website through a direct TLS connection and
-  **https://&lt;hostname&gt;[:port]/**, declared HTTPS icon URLs, and
-  **https://&lt;hostname&gt;[:port]/favicon.ico**;
+- the configured TLS endpoint through a direct TLS connection and
+  **https://&lt;TLS-hostname&gt;[:port]/**, declared HTTPS icon URLs, and
+  **https://&lt;TLS-hostname&gt;[:port]/favicon.ico** when TLS checking is enabled;
 - the device-configured DNS resolver for MX and TXT records at the domain,
   **_dmarc.&lt;domain&gt;**, **_mta-sts.&lt;domain&gt;**,
   **_smtp._tls.&lt;domain&gt;**, and any user-entered
