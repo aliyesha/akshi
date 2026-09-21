@@ -2,7 +2,7 @@ import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  final now = DateTime.utc(2026, 9, 19, 12);
+  final now = DateTime.utc(2026, 6, 1, 12);
 
   test('unknown is used when no expiry date exists', () {
     expect(statusForExpiry(null, now: now), MonitorStatus.unknown);

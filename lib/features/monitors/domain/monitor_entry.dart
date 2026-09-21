@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
-import 'package:akshi/features/monitors/domain/monitor_profile.dart';
 import 'package:akshi/features/monitors/domain/site_icon.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 
@@ -14,14 +13,21 @@ class MonitorEntry {
   const MonitorEntry({
     required this.id,
     required this.hostname,
-    required this.port,
-    this.profile = MonitorProfile.website,
+    required this.tlsHostname,
+    required this.tlsPort,
+    this.checksCertificate = false,
+    this.checksEmail = false,
     required this.createdAt,
     required this.updatedAt,
     this.label,
     this.enabled = true,
     this.tags = const <MonitorTag>[],
     this.domainExpiresAt,
+    this.domainRegisteredAt,
+    this.domainUpdatedAt,
+    this.domainRegistrar,
+    this.domainPublicRegistrant,
+    this.domainNameServers = const <String>[],
     this.certificateExpiresAt,
     this.certificateValidFrom,
     this.lastCheckedAt,
@@ -51,14 +57,21 @@ class MonitorEntry {
 
   final String id;
   final String hostname;
-  final int port;
-  final MonitorProfile profile;
+  final String tlsHostname;
+  final int tlsPort;
+  final bool checksCertificate;
+  final bool checksEmail;
   final String? label;
   final bool enabled;
   final List<MonitorTag> tags;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? domainExpiresAt;
+  final DateTime? domainRegisteredAt;
+  final DateTime? domainUpdatedAt;
+  final String? domainRegistrar;
+  final String? domainPublicRegistrant;
+  final List<String> domainNameServers;
   final DateTime? certificateExpiresAt;
   final DateTime? certificateValidFrom;
   final DateTime? lastCheckedAt;
@@ -94,36 +107,47 @@ class MonitorEntry {
 
   DateTime? get latestAttemptedAt => latestCheckTime(<CheckActivity>[
     domainActivity,
-    if (profile.checksCertificate) certificateActivity,
-    if (profile.checksEmail) emailActivity,
+    if (checksCertificate) certificateActivity,
+    if (checksEmail) emailActivity,
   ]);
 
   int? daysUntil(DateTime? value) => value?.difference(DateTime.now()).inDays;
 
-  MonitorStatus overallStatus({int warningDays = 10, int criticalDays = 5}) {
+  MonitorStatus overallStatus({
+    int warningDays = 10,
+    int criticalDays = 5,
+    DateTime? now,
+  }) {
     if (lastCheckedAt == null &&
-        (domainError != null || certificateError != null)) {
+        (domainError != null ||
+            (checksCertificate && certificateError != null) ||
+            (checksEmail && emailActivity.failure != null))) {
       return MonitorStatus.failed;
     }
     var domain = statusForExpiry(
       domainExpiresAt,
       warningDays: warningDays,
       criticalDays: criticalDays,
+      now: now,
     );
-    var certificate = statusForExpiry(
-      certificateExpiresAt,
-      warningDays: warningDays,
-      criticalDays: criticalDays,
-    );
-    if (!profile.checksCertificate) certificate = MonitorStatus.unknown;
     if (domainError != null) domain = MonitorStatus.unavailable;
-    if (certificateError != null) certificate = MonitorStatus.unavailable;
-    if (tlsTrusted == false) certificate = MonitorStatus.critical;
-    if (certificateHostnameMatches == false) {
-      certificate = MonitorStatus.critical;
+
+    var certificate = MonitorStatus.unknown;
+    if (checksCertificate) {
+      certificate = statusForExpiry(
+        certificateExpiresAt,
+        warningDays: warningDays,
+        criticalDays: criticalDays,
+        now: now,
+      );
+      if (certificateError != null) certificate = MonitorStatus.unavailable;
+      if (tlsTrusted == false || certificateHostnameMatches == false) {
+        certificate = MonitorStatus.critical;
+      }
     }
+
     var email = MonitorStatus.unknown;
-    if (profile.checksEmail) {
+    if (checksEmail) {
       email = emailActivity.failure != null
           ? MonitorStatus.unavailable
           : emailPosture == null
@@ -148,13 +172,20 @@ class MonitorEntry {
 
   MonitorEntry copyWith({
     String? hostname,
-    int? port,
-    MonitorProfile? profile,
+    String? tlsHostname,
+    int? tlsPort,
+    bool? checksCertificate,
+    bool? checksEmail,
     Object? label = _unset,
     bool? enabled,
     List<MonitorTag>? tags,
     DateTime? updatedAt,
-    DateTime? domainExpiresAt,
+    Object? domainExpiresAt = _unset,
+    Object? domainRegisteredAt = _unset,
+    Object? domainUpdatedAt = _unset,
+    Object? domainRegistrar = _unset,
+    Object? domainPublicRegistrant = _unset,
+    List<String>? domainNameServers,
     DateTime? certificateExpiresAt,
     DateTime? certificateValidFrom,
     DateTime? lastCheckedAt,
@@ -183,14 +214,31 @@ class MonitorEntry {
   }) => MonitorEntry(
     id: id,
     hostname: hostname ?? this.hostname,
-    port: port ?? this.port,
-    profile: profile ?? this.profile,
+    tlsHostname: tlsHostname ?? this.tlsHostname,
+    tlsPort: tlsPort ?? this.tlsPort,
+    checksCertificate: checksCertificate ?? this.checksCertificate,
+    checksEmail: checksEmail ?? this.checksEmail,
     label: identical(label, _unset) ? this.label : label as String?,
     enabled: enabled ?? this.enabled,
     tags: tags ?? this.tags,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
-    domainExpiresAt: domainExpiresAt ?? this.domainExpiresAt,
+    domainExpiresAt: identical(domainExpiresAt, _unset)
+        ? this.domainExpiresAt
+        : domainExpiresAt as DateTime?,
+    domainRegisteredAt: identical(domainRegisteredAt, _unset)
+        ? this.domainRegisteredAt
+        : domainRegisteredAt as DateTime?,
+    domainUpdatedAt: identical(domainUpdatedAt, _unset)
+        ? this.domainUpdatedAt
+        : domainUpdatedAt as DateTime?,
+    domainRegistrar: identical(domainRegistrar, _unset)
+        ? this.domainRegistrar
+        : domainRegistrar as String?,
+    domainPublicRegistrant: identical(domainPublicRegistrant, _unset)
+        ? this.domainPublicRegistrant
+        : domainPublicRegistrant as String?,
+    domainNameServers: domainNameServers ?? this.domainNameServers,
     certificateExpiresAt: certificateExpiresAt ?? this.certificateExpiresAt,
     certificateValidFrom: certificateValidFrom ?? this.certificateValidFrom,
     lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
@@ -238,13 +286,20 @@ class MonitorEntry {
   Map<String, Object?> toMap() => <String, Object?>{
     'id': id,
     'hostname': hostname,
-    'port': port,
-    'profile': profile.storageValue,
+    'tls_hostname': tlsHostname,
+    'tls_port': tlsPort,
+    'checks_certificate': checksCertificate ? 1 : 0,
+    'checks_email': checksEmail ? 1 : 0,
     'label': label,
     'enabled': enabled ? 1 : 0,
     'created_at': createdAt.toUtc().toIso8601String(),
     'updated_at': updatedAt.toUtc().toIso8601String(),
     'domain_expires_at': domainExpiresAt?.toUtc().toIso8601String(),
+    'domain_registered_at': domainRegisteredAt?.toUtc().toIso8601String(),
+    'domain_updated_at': domainUpdatedAt?.toUtc().toIso8601String(),
+    'domain_registrar': domainRegistrar,
+    'domain_public_registrant': domainPublicRegistrant,
+    'domain_nameservers_json': jsonEncode(domainNameServers),
     'certificate_expires_at': certificateExpiresAt?.toUtc().toIso8601String(),
     'certificate_valid_from': certificateValidFrom?.toUtc().toIso8601String(),
     'last_checked_at': lastCheckedAt?.toUtc().toIso8601String(),
@@ -260,14 +315,12 @@ class MonitorEntry {
     'mail_receives': mailReceives ? 1 : 0,
     'dkim_selectors_json': jsonEncode(dkimSelectors),
     'domain_activity_json': jsonEncode(domainActivity.toJson()),
-    'certificate_activity_json':
-        jsonEncode(certificateActivity.toJson()),
+    'certificate_activity_json': jsonEncode(certificateActivity.toJson()),
     'email_activity_json': jsonEncode(emailActivity.toJson()),
     'certificate_hostname_matches': certificateHostnameMatches == null
         ? null
         : (certificateHostnameMatches! ? 1 : 0),
-    'certificate_sans_json':
-        jsonEncode(certificateSubjectAlternativeNames),
+    'certificate_sans_json': jsonEncode(certificateSubjectAlternativeNames),
     'certificate_serial_number': certificateSerialNumber,
     'certificate_signature_algorithm': certificateSignatureAlgorithm,
     'certificate_public_key_algorithm': certificatePublicKeyAlgorithm,
@@ -278,8 +331,7 @@ class MonitorEntry {
     'site_icon_format': siteIcon?.format.storageValue,
     'site_icon_bytes': siteIcon?.bytes,
     'site_icon_source_url': siteIcon?.sourceUrl,
-    'site_icon_checked_at':
-        siteIcon?.checkedAt.toUtc().toIso8601String(),
+    'site_icon_checked_at': siteIcon?.checkedAt.toUtc().toIso8601String(),
   };
 
   factory MonitorEntry.fromMap(Map<String, Object?> map) {
@@ -331,13 +383,20 @@ class MonitorEntry {
     return MonitorEntry(
       id: map['id']! as String,
       hostname: map['hostname']! as String,
-      port: map['port']! as int,
-      profile: MonitorProfile.fromStorage(map['profile'] as String?),
+      tlsHostname: map['tls_hostname']! as String,
+      tlsPort: map['tls_port']! as int,
+      checksCertificate: (map['checks_certificate']! as int) == 1,
+      checksEmail: (map['checks_email']! as int) == 1,
       label: map['label'] as String?,
       enabled: (map['enabled']! as int) == 1,
       createdAt: date('created_at')!,
       updatedAt: date('updated_at')!,
       domainExpiresAt: date('domain_expires_at'),
+      domainRegisteredAt: date('domain_registered_at'),
+      domainUpdatedAt: date('domain_updated_at'),
+      domainRegistrar: map['domain_registrar'] as String?,
+      domainPublicRegistrant: map['domain_public_registrant'] as String?,
+      domainNameServers: stringList('domain_nameservers_json'),
       certificateExpiresAt: date('certificate_expires_at'),
       certificateValidFrom: date('certificate_valid_from'),
       lastCheckedAt: date('last_checked_at'),
@@ -360,12 +419,10 @@ class MonitorEntry {
         jsonMap('certificate_activity_json'),
       ),
       emailActivity: CheckActivity.fromJson(jsonMap('email_activity_json')),
-      certificateHostnameMatches:
-          map['certificate_hostname_matches'] == null
+      certificateHostnameMatches: map['certificate_hostname_matches'] == null
           ? null
           : (map['certificate_hostname_matches']! as int) == 1,
-      certificateSubjectAlternativeNames:
-          stringList('certificate_sans_json'),
+      certificateSubjectAlternativeNames: stringList('certificate_sans_json'),
       certificateSerialNumber: map['certificate_serial_number'] as String?,
       certificateSignatureAlgorithm:
           map['certificate_signature_algorithm'] as String?,

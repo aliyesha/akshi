@@ -64,10 +64,8 @@ class CheckActivity {
   bool get hasCurrentFailure => failure != null;
   bool get hasSavedResult => lastSucceededAt != null;
 
-  CheckActivity succeeded(DateTime at) => CheckActivity(
-    lastAttemptedAt: at,
-    lastSucceededAt: at,
-  );
+  CheckActivity succeeded(DateTime at) =>
+      CheckActivity(lastAttemptedAt: at, lastSucceededAt: at);
 
   CheckActivity failed(CheckFailure value) => CheckActivity(
     lastAttemptedAt: value.occurredAt,

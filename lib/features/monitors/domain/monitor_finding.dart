@@ -72,22 +72,24 @@ List<MonitorFinding> findingsForMonitor(
           : _summary(domainStatus, monitor.domainExpiresAt, referenceTime),
       expiresAt: monitor.domainExpiresAt,
     ),
-    if (monitor.profile.checksCertificate)
+    if (monitor.checksCertificate)
       MonitorFinding(
         kind: MonitorCheckKind.tlsCertificate,
         status: certificateStatus,
         summary: monitor.tlsTrusted == false
-          ? 'Certificate trust could not be verified'
-          : certificateUnavailable
-          ? 'Latest certificate check unavailable'
-          : _summary(
-              certificateStatus,
-              monitor.certificateExpiresAt,
-              referenceTime,
-            ),
+            ? 'Certificate trust could not be verified'
+            : monitor.certificateHostnameMatches == false
+            ? 'Certificate does not match the TLS hostname'
+            : certificateUnavailable
+            ? 'Latest certificate check unavailable'
+            : _summary(
+                certificateStatus,
+                monitor.certificateExpiresAt,
+                referenceTime,
+              ),
         expiresAt: monitor.certificateExpiresAt,
-    ),
-    if (monitor.profile.checksEmail)
+      ),
+    if (monitor.checksEmail)
       MonitorFinding(
         kind: MonitorCheckKind.emailConfiguration,
         status: monitor.emailActivity.failure != null

@@ -1,7 +1,7 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
-import 'package:akshi/features/monitors/domain/monitor_profile.dart';
+import 'package:akshi/features/monitors/domain/site_icon.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,8 +21,10 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
 
   Future<MonitorEntry> add({
     required String hostname,
-    required int port,
-    MonitorProfile profile = MonitorProfile.website,
+    required String tlsHostname,
+    required int tlsPort,
+    bool checksCertificate = false,
+    bool checksEmail = false,
     bool mailSends = true,
     bool mailReceives = true,
     List<String> dkimSelectors = const <String>[],
@@ -30,11 +32,17 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     Iterable<String> tagIds = const <String>[],
   }) async {
     final now = DateTime.now();
+    final normalizedHostname = normalizeHostname(hostname);
+    final normalizedTlsHostname = normalizeHostname(tlsHostname);
     final monitor = MonitorEntry(
       id: const Uuid().v4(),
-      hostname: normalizeHostname(hostname),
-      port: port,
-      profile: profile,
+      hostname: normalizedHostname,
+      tlsHostname: normalizedTlsHostname.isEmpty
+          ? normalizedHostname
+          : normalizedTlsHostname,
+      tlsPort: tlsPort,
+      checksCertificate: checksCertificate,
+      checksEmail: checksEmail,
       mailSends: mailSends,
       mailReceives: mailReceives,
       dkimSelectors: dkimSelectors,
@@ -42,7 +50,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       createdAt: now,
       updatedAt: now,
     );
-    await ref.read(monitorRepositoryProvider).save(monitor, tagIds: tagIds);
+    await ref.read(monitorRepositoryProvider).create(monitor, tagIds: tagIds);
     await ref.read(notificationServiceProvider).requestPermission();
     await _reload();
     return check(monitor.id);
@@ -57,8 +65,10 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     final checkDefinitionChanged =
         existing != null &&
         (existing.hostname != monitor.hostname ||
-            existing.port != monitor.port ||
-            existing.profile != monitor.profile ||
+            existing.tlsHostname != monitor.tlsHostname ||
+            existing.tlsPort != monitor.tlsPort ||
+            existing.checksCertificate != monitor.checksCertificate ||
+            existing.checksEmail != monitor.checksEmail ||
             existing.mailSends != monitor.mailSends ||
             existing.mailReceives != monitor.mailReceives ||
             !_sameStrings(existing.dkimSelectors, monitor.dkimSelectors));
@@ -66,8 +76,10 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         ? MonitorEntry(
             id: monitor.id,
             hostname: monitor.hostname,
-            port: monitor.port,
-            profile: monitor.profile,
+            tlsHostname: monitor.tlsHostname,
+            tlsPort: monitor.tlsPort,
+            checksCertificate: monitor.checksCertificate,
+            checksEmail: monitor.checksEmail,
             mailSends: monitor.mailSends,
             mailReceives: monitor.mailReceives,
             dkimSelectors: monitor.dkimSelectors,
@@ -78,7 +90,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
             updatedAt: DateTime.now(),
           )
         : monitor.copyWith(updatedAt: DateTime.now());
-    await repository.save(updated, tagIds: tagIds);
+    await repository.update(updated, tagIds: tagIds);
     await _reload();
     return check(updated.id);
   }
@@ -107,10 +119,15 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
 
   Future<MonitorEntry> check(String id) async {
     final monitor = await ref.read(monitorRepositoryProvider).byId(id);
-    if (monitor == null) throw StateError('Monitor no longer exists');
+    if (monitor == null) {
+      throw StateError('Monitor no longer exists');
+    }
     final outcome = await _performCheck(monitor);
     await _reload();
     await _rescheduleReminders();
+    if (!outcome.persisted) {
+      throw StateError('Monitor no longer exists');
+    }
     await _notifyChanges(<_CheckOutcome>[outcome]);
     return outcome.monitor;
   }
@@ -119,11 +136,11 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     final attemptedAt = DateTime.now();
     var updated = monitor;
 
-    if (monitor.profile.checksCertificate) {
+    if (monitor.checksCertificate) {
       try {
         final certificate = await ref
             .read(tlsCheckServiceProvider)
-            .check(monitor.hostname, monitor.port);
+            .check(monitor.tlsHostname, monitor.tlsPort);
         updated = updated.copyWith(
           certificateValidFrom: certificate.validFrom,
           certificateExpiresAt: certificate.expiresAt,
@@ -139,8 +156,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
           certificateSignatureAlgorithm: certificate.signatureAlgorithm,
           certificatePublicKeyAlgorithm: certificate.publicKeyAlgorithm,
           certificatePublicKeyDetails: certificate.publicKeyDetails,
-          certificateActivity:
-              monitor.certificateActivity.succeeded(attemptedAt),
+          certificateActivity: monitor.certificateActivity.succeeded(
+            attemptedAt,
+          ),
           certificateError: null,
         );
       } on Object catch (error) {
@@ -164,10 +182,15 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
           .read(rdapServiceProvider)
           .check(monitor.hostname);
       if (domain == null) {
-        throw const FormatException('No registration expiry was published');
+        throw const FormatException('No registration record was published');
       }
       updated = updated.copyWith(
         domainExpiresAt: domain.expiresAt,
+        domainRegisteredAt: domain.registeredAt,
+        domainUpdatedAt: domain.updatedAt,
+        domainRegistrar: domain.registrar,
+        domainPublicRegistrant: domain.publicRegistrant,
+        domainNameServers: domain.nameServers,
         domainSource: domain.source,
         domainActivity: monitor.domainActivity.succeeded(attemptedAt),
         domainError: null,
@@ -186,17 +209,19 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       );
     }
 
-    if (monitor.profile.discoversSiteIcon &&
+    if (monitor.checksCertificate &&
         (monitor.siteIcon == null ||
+            (monitor.siteIcon!.format != SiteIconFormat.png &&
+                monitor.siteIcon!.format != SiteIconFormat.svg) ||
             attemptedAt.difference(monitor.siteIcon!.checkedAt) >=
                 const Duration(days: 7))) {
       final icon = await ref
           .read(siteIconServiceProvider)
-          .discover(monitor.hostname, monitor.port);
+          .discover(monitor.tlsHostname, monitor.tlsPort);
       if (icon != null) updated = updated.copyWith(siteIcon: icon);
     }
 
-    if (monitor.profile.checksEmail) {
+    if (monitor.checksEmail) {
       try {
         final email = await ref
             .read(emailPostureServiceProvider)
@@ -228,7 +253,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       updatedAt: attemptedAt,
       lastCheckedAt: attemptedAt,
     );
-    await ref.read(monitorRepositoryProvider).save(updated);
+    final persisted = await ref
+        .read(monitorRepositoryProvider)
+        .updateIfPresent(updated);
 
     final certificateChanged =
         monitor.certificateFingerprint != null &&
@@ -242,13 +269,15 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
             updated.emailPosture?.changeSignature;
     return (
       monitor: updated,
-      changed: certificateChanged || domainChanged || emailChanged,
+      changed:
+          persisted && (certificateChanged || domainChanged || emailChanged),
+      persisted: persisted,
     );
   }
 
   Future<void> _notifyChanges(Iterable<_CheckOutcome> outcomes) async {
     final changed = outcomes
-        .where((outcome) => outcome.changed)
+        .where((outcome) => outcome.persisted && outcome.changed)
         .map((outcome) => outcome.monitor);
     await ref.read(notificationServiceProvider).showChanges(changed);
   }
@@ -265,7 +294,6 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   Future<void> _reload() async {
     state = AsyncData(await ref.read(monitorRepositoryProvider).all());
   }
-
 }
 
 bool _sameStrings(List<String> left, List<String> right) {
@@ -275,4 +303,4 @@ bool _sameStrings(List<String> left, List<String> right) {
       leftValues.every(rightValues.contains);
 }
 
-typedef _CheckOutcome = ({MonitorEntry monitor, bool changed});
+typedef _CheckOutcome = ({MonitorEntry monitor, bool changed, bool persisted});

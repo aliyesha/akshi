@@ -31,60 +31,93 @@ class MonitorRepository {
       whereArgs: <Object?>[id],
       limit: 1,
     );
-    if (rows.isEmpty) return null;
+    if (rows.isEmpty) {
+      return null;
+    }
     final tags = await _tagMap(database, monitorId: id);
     return MonitorEntry.fromMap(rows.single)
         .copyWith(tags: tags[id] ?? const []);
   }
 
-  Future<void> save(MonitorEntry monitor, {Iterable<String>? tagIds}) async {
+  Future<void> create(
+    MonitorEntry monitor, {
+    Iterable<String> tagIds = const <String>[],
+  }) async {
     final database = await _database.instance;
     await database.transaction((transaction) async {
-      final existing = await transaction.query(
+      await transaction.insert(
         'monitors',
-        columns: const <String>['id'],
+        monitor.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+      await _replaceTags(transaction, monitor.id, tagIds);
+    });
+  }
+
+  Future<void> update(MonitorEntry monitor, {Iterable<String>? tagIds}) async {
+    final database = await _database.instance;
+    await database.transaction((transaction) async {
+      final changed = await transaction.update(
+        'monitors',
+        monitor.toMap(),
         where: 'id = ?',
         whereArgs: <Object?>[monitor.id],
-        limit: 1,
+        conflictAlgorithm: ConflictAlgorithm.abort,
       );
-      if (existing.isEmpty) {
-        await transaction.insert(
-          'monitors',
-          monitor.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.abort,
-        );
-      } else {
-        await transaction.update(
-          'monitors',
-          monitor.toMap(),
-          where: 'id = ?',
-          whereArgs: <Object?>[monitor.id],
-          conflictAlgorithm: ConflictAlgorithm.abort,
-        );
+      if (changed != 1) {
+        throw StateError('Monitor no longer exists');
       }
       if (tagIds != null) {
-        await transaction.delete(
-          'monitor_tags',
-          where: 'monitor_id = ?',
-          whereArgs: <Object?>[monitor.id],
-        );
-        for (final tagId in tagIds.toSet()) {
-          await transaction.insert('monitor_tags', <String, Object?>{
-            'monitor_id': monitor.id,
-            'tag_id': tagId,
-          }, conflictAlgorithm: ConflictAlgorithm.abort);
-        }
+        await _replaceTags(transaction, monitor.id, tagIds);
       }
     });
   }
 
-  Future<void> delete(String id) async {
+  Future<bool> updateIfPresent(MonitorEntry monitor) async {
     final database = await _database.instance;
-    await database.delete(
+    final changed = await database.update(
       'monitors',
+      monitor.toMap(),
       where: 'id = ?',
-      whereArgs: <Object?>[id],
+      whereArgs: <Object?>[monitor.id],
+      conflictAlgorithm: ConflictAlgorithm.abort,
     );
+    return changed == 1;
+  }
+
+  Future<bool> delete(String id) async {
+    final database = await _database.instance;
+    return database.transaction((transaction) async {
+      await transaction.delete(
+        'monitor_tags',
+        where: 'monitor_id = ?',
+        whereArgs: <Object?>[id],
+      );
+      final deleted = await transaction.delete(
+        'monitors',
+        where: 'id = ?',
+        whereArgs: <Object?>[id],
+      );
+      return deleted == 1;
+    });
+  }
+
+  Future<void> _replaceTags(
+    DatabaseExecutor database,
+    String monitorId,
+    Iterable<String> tagIds,
+  ) async {
+    await database.delete(
+      'monitor_tags',
+      where: 'monitor_id = ?',
+      whereArgs: <Object?>[monitorId],
+    );
+    for (final tagId in tagIds.toSet()) {
+      await database.insert('monitor_tags', <String, Object?>{
+        'monitor_id': monitorId,
+        'tag_id': tagId,
+      }, conflictAlgorithm: ConflictAlgorithm.abort);
+    }
   }
 
   Future<Map<String, List<MonitorTag>>> _tagMap(

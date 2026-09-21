@@ -19,8 +19,10 @@ class AppDatabase {
           CREATE TABLE monitors (
             id TEXT PRIMARY KEY,
             hostname TEXT NOT NULL,
-            port INTEGER NOT NULL,
-            profile TEXT NOT NULL,
+            tls_hostname TEXT NOT NULL,
+            tls_port INTEGER NOT NULL,
+            checks_certificate INTEGER NOT NULL DEFAULT 0,
+            checks_email INTEGER NOT NULL DEFAULT 0,
             label TEXT,
             enabled INTEGER NOT NULL DEFAULT 1,
             mail_sends INTEGER NOT NULL DEFAULT 1,
@@ -29,6 +31,11 @@ class AppDatabase {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             domain_expires_at TEXT,
+            domain_registered_at TEXT,
+            domain_updated_at TEXT,
+            domain_registrar TEXT,
+            domain_public_registrant TEXT,
+            domain_nameservers_json TEXT NOT NULL,
             certificate_expires_at TEXT,
             certificate_valid_from TEXT,
             last_checked_at TEXT,
@@ -57,8 +64,7 @@ class AppDatabase {
           )
         ''');
         await database.execute(
-          'CREATE UNIQUE INDEX monitor_endpoint '
-          'ON monitors(hostname, port, profile)',
+          'CREATE UNIQUE INDEX monitor_domain ON monitors(hostname)',
         );
         await database.execute('''
           CREATE TABLE tags (

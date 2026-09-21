@@ -1,12 +1,11 @@
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
-import 'package:akshi/features/monitors/domain/monitor_profile.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  final now = DateTime.utc(2026, 9, 19, 12);
+  final now = DateTime.utc(2026, 5, 1, 12);
 
   MonitorEntry monitor({
     DateTime? domainExpiry,
@@ -16,7 +15,9 @@ void main() {
   }) => MonitorEntry(
     id: 'monitor-id',
     hostname: 'example.com',
-    port: 443,
+    tlsHostname: 'example.com',
+    tlsPort: 443,
+    checksCertificate: true,
     createdAt: now,
     updatedAt: now,
     lastCheckedAt: now,
@@ -69,17 +70,21 @@ void main() {
     expect(findings[1].status, MonitorStatus.healthy);
   });
 
-  test('Email profile returns registration and Email findings without TLS', () {
+  test('TLS and Email can be enabled together on one domain', () {
     final findings = findingsForMonitor(
       MonitorEntry(
         id: 'email-monitor',
         hostname: 'example.com',
-        port: 443,
-        profile: MonitorProfile.email,
+        tlsHostname: 'mail.example.com',
+        tlsPort: 465,
+        checksCertificate: true,
+        checksEmail: true,
         createdAt: now,
         updatedAt: now,
         lastCheckedAt: now,
         domainExpiresAt: now.add(const Duration(days: 90)),
+        certificateExpiresAt: now.add(const Duration(days: 60)),
+        tlsTrusted: true,
         emailPosture: EmailPosture(
           checkedAt: now,
           findings: const <MailFinding>[
@@ -95,13 +100,70 @@ void main() {
       now: now,
     );
 
-    expect(
-      findings.map((finding) => finding.kind),
-      <MonitorCheckKind>[
-        MonitorCheckKind.domainRegistration,
-        MonitorCheckKind.emailConfiguration,
-      ],
-    );
+    expect(findings.map((finding) => finding.kind), <MonitorCheckKind>[
+      MonitorCheckKind.domainRegistration,
+      MonitorCheckKind.tlsCertificate,
+      MonitorCheckKind.emailConfiguration,
+    ]);
     expect(findings.last.status, MonitorStatus.warning);
+  });
+
+  test('domain, TLS, and Email attention states remain independent', () {
+    final referenceTime = DateTime.utc(2026, 5, 1, 12);
+    for (var mask = 0; mask < 8; mask++) {
+      final domainNeedsAttention = mask & 1 != 0;
+      final certificateNeedsAttention = mask & 2 != 0;
+      final emailNeedsAttention = mask & 4 != 0;
+      final entry = MonitorEntry(
+        id: 'combination-$mask',
+        hostname: 'example.com',
+        tlsHostname: 'example.com',
+        tlsPort: 443,
+        checksCertificate: true,
+        checksEmail: true,
+        createdAt: now,
+        updatedAt: now,
+        lastCheckedAt: now,
+        domainExpiresAt: referenceTime.add(
+          Duration(days: domainNeedsAttention ? 3 : 90),
+        ),
+        certificateExpiresAt: referenceTime.add(
+          Duration(days: certificateNeedsAttention ? 3 : 90),
+        ),
+        tlsTrusted: true,
+        emailPosture: EmailPosture(
+          checkedAt: now,
+          findings: <MailFinding>[
+            MailFinding(
+              id: 'spf',
+              title: 'SPF',
+              state: emailNeedsAttention
+                  ? MailFindingState.warning
+                  : MailFindingState.healthy,
+              summary: emailNeedsAttention
+                  ? 'SPF needs review.'
+                  : 'SPF is published.',
+            ),
+          ],
+        ),
+      );
+
+      final findings = findingsForMonitor(entry, now: referenceTime);
+      expect(findings, hasLength(3), reason: 'combination $mask');
+      expect(findings.map((finding) => finding.needsAttention), <bool>[
+        domainNeedsAttention,
+        certificateNeedsAttention,
+        emailNeedsAttention,
+      ], reason: 'combination $mask');
+      expect(
+        entry.overallStatus(now: referenceTime),
+        domainNeedsAttention || certificateNeedsAttention
+            ? MonitorStatus.critical
+            : emailNeedsAttention
+            ? MonitorStatus.warning
+            : MonitorStatus.healthy,
+        reason: 'combination $mask',
+      );
+    }
   });
 }
