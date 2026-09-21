@@ -60,42 +60,35 @@ class TlsCheckService {
 _ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
   try {
     final data = X509Utils.x509CertificateFromPem(pem);
+    final tbsCertificate = data.tbsCertificate;
     final sans =
-        data.subjectAlternativNames ??
-        data.extensions?.subjectAlternativNames ??
-        const <String>[];
-    final normalizedSans = sans
-        .map(_cleanAlternativeName)
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList(growable: false)
-      ..sort();
-    final publicKey = Map<String, Object?>.from(data.publicKeyData.toJson());
-    final algorithm = _firstText(publicKey, const <String>[
-      'algorithm',
-      'algorithmName',
-      'type',
-    ]);
-    final bits = _firstText(publicKey, const <String>[
-      'bitLength',
-      'keyLength',
-      'size',
-    ]);
-    final curve = _firstText(publicKey, const <String>[
-      'curve',
-      'curveName',
-      'namedCurve',
-    ]);
+        tbsCertificate?.extensions?.subjectAlternativNames ?? const <String>[];
+    final normalizedSans =
+        sans
+            .map(_cleanAlternativeName)
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+    final publicKey = tbsCertificate?.subjectPublicKeyInfo;
+    final algorithm = publicKey?.algorithmReadableName ?? publicKey?.algorithm;
+    final keyLength = publicKey?.length;
+    final parameter = publicKey?.parameterReadableName ?? publicKey?.parameter;
     return _ParsedCertificateDetails(
       hostnameMatches: normalizedSans.isEmpty
           ? null
           : normalizedSans.any((name) => _matchesHostname(hostname, name)),
       subjectAlternativeNames: normalizedSans,
-      serialNumber: data.serialNumber.toRadixString(16).toUpperCase(),
+      serialNumber: tbsCertificate?.serialNumber
+          .toRadixString(16)
+          .toUpperCase(),
       signatureAlgorithm:
           data.signatureAlgorithmReadableName ?? data.signatureAlgorithm,
       publicKeyAlgorithm: algorithm,
-      publicKeyDetails: <String>[?bits, ?curve].join(' · ').nullIfEmpty,
+      publicKeyDetails: <String>[
+        if (keyLength != null) '$keyLength bit',
+        ?parameter,
+      ].join(' · ').nullIfEmpty,
     );
   } on Object {
     return const _ParsedCertificateDetails(
@@ -119,16 +112,6 @@ bool _matchesHostname(String hostname, String pattern) {
   final suffix = normalizedPattern.substring(1);
   return normalizedHost.endsWith(suffix) &&
       normalizedHost.split('.').length == normalizedPattern.split('.').length;
-}
-
-String? _firstText(Map<String, Object?> values, List<String> keys) {
-  for (final key in keys) {
-    final value = values[key];
-    if (value != null && value.toString().trim().isNotEmpty) {
-      return value.toString();
-    }
-  }
-  return null;
 }
 
 extension on String {

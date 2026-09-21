@@ -17,11 +17,10 @@ class SiteIconService {
 
   final HttpClient _client;
 
-  Future<SiteIcon?> discover(String hostname, int port) =>
-      _discover(hostname, port).timeout(
-        _operationTimeout,
-        onTimeout: () => null,
-      );
+  Future<SiteIcon?> discover(String hostname, int port) => _discover(
+    hostname,
+    port,
+  ).timeout(_operationTimeout, onTimeout: () => null);
 
   Future<SiteIcon?> _discover(String hostname, int port) async {
     final origin = Uri(
@@ -56,10 +55,7 @@ class SiteIconService {
       if (!attempted.add(candidate.uri.toString())) continue;
       try {
         final response = await _fetch(candidate.uri, _maxIconBytes);
-        final icon = _decode(
-          response.bytes,
-          source: response.uri,
-        );
+        final icon = _decode(response.bytes, source: response.uri);
         if (icon != null) return icon;
       } on Object {
         // Try the next declared icon without affecting monitor health.
@@ -121,10 +117,7 @@ class SiteIconService {
       }
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
-        throw HttpException(
-          'HTTP ${response.statusCode}',
-          uri: uri,
-        );
+        throw HttpException('HTTP ${response.statusCode}', uri: uri);
       }
       final builder = BytesBuilder(copy: false);
       var length = 0;
@@ -144,26 +137,26 @@ class SiteIconService {
     throw const HttpException('Too many redirects');
   }
 
-  SiteIcon? _decode(
-    Uint8List bytes, {
-    required Uri source,
-  }) {
+  SiteIcon? _decode(Uint8List bytes, {required Uri source}) {
     if (bytes.isEmpty) return null;
     final format = _detectFormat(bytes);
     if (format == null) return null;
-    if (format == SiteIconFormat.ico) {
-      final decoded = image_codec.decodeIco(bytes);
-      if (decoded == null) return null;
+    if (format == SiteIconFormat.svg) {
       return SiteIcon(
-        format: SiteIconFormat.png,
-        bytes: Uint8List.fromList(image_codec.encodePng(decoded)),
+        format: format,
+        bytes: bytes,
         sourceUrl: source.toString(),
         checkedAt: DateTime.now(),
       );
     }
+
+    final decoded = image_codec.decodeImage(bytes, frame: 0);
+    if (decoded == null) return null;
     return SiteIcon(
-      format: format,
-      bytes: bytes,
+      format: SiteIconFormat.png,
+      bytes: Uint8List.fromList(
+        image_codec.encodePng(decoded, singleFrame: true),
+      ),
       sourceUrl: source.toString(),
       checkedAt: DateTime.now(),
     );
@@ -204,7 +197,8 @@ int _compareCandidates(_IconCandidate left, _IconCandidate right) {
 }
 
 int _formatPreference(_IconCandidate candidate) {
-  final hint = '${candidate.declaredType ?? ''} ${candidate.uri.path}'.toLowerCase();
+  final hint = '${candidate.declaredType ?? ''} ${candidate.uri.path}'
+      .toLowerCase();
   if (hint.contains('svg')) return 4;
   if (hint.contains('png')) return 3;
   if (hint.contains('icon') || hint.endsWith('.ico')) return 2;
@@ -251,7 +245,10 @@ SiteIconFormat? _detectFormat(Uint8List bytes) {
     return SiteIconFormat.webp;
   }
   final prefix = utf8
-      .decode(bytes.sublist(0, bytes.length < 512 ? bytes.length : 512), allowMalformed: true)
+      .decode(
+        bytes.sublist(0, bytes.length < 512 ? bytes.length : 512),
+        allowMalformed: true,
+      )
       .trimLeft()
       .toLowerCase();
   if (prefix.contains('<svg')) {

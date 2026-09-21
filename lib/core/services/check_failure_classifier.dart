@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 
 class CheckFailureClassifier {
   CheckFailureClassifier({Connectivity? connectivity})
-      : _connectivity = connectivity ?? Connectivity();
+    : _connectivity = connectivity ?? Connectivity();
 
   final Connectivity _connectivity;
 
@@ -50,13 +50,12 @@ class CheckFailureClassifier {
     }
     if (error is SocketException) {
       final message = error.message.toLowerCase();
-      final dns = message.contains('failed host lookup') ||
+      final dns =
+          message.contains('failed host lookup') ||
           message.contains('name or service not known') ||
           message.contains('nodename nor servname');
       return CheckFailure(
-        kind: dns
-            ? CheckFailureKind.dns
-            : CheckFailureKind.internetUnavailable,
+        kind: dns ? CheckFailureKind.dns : CheckFailureKind.internetUnavailable,
         message: dns
             ? '$source could not be resolved through DNS.'
             : 'Internet access appears unavailable or restricted.',
@@ -79,7 +78,10 @@ class CheckFailureClassifier {
     }
     return CheckFailure(
       kind: CheckFailureKind.sourceUnavailable,
-      message: _cleanMessage(error, fallback: '$source is currently unavailable.'),
+      message: _cleanMessage(
+        error,
+        fallback: '$source is currently unavailable.',
+      ),
       occurredAt: occurredAt,
     );
   }

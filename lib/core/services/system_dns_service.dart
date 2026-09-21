@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
@@ -20,7 +19,7 @@ class MxRecord {
 
 class SystemDnsService {
   const SystemDnsService({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel('app.akshi.monitor/dns');
+    : _channel = channel ?? const MethodChannel('app.akshi.monitor/dns');
 
   final MethodChannel _channel;
 

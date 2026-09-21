@@ -7,8 +7,8 @@ import 'package:akshi/features/monitors/domain/email_posture.dart';
 
 class EmailPostureService {
   EmailPostureService({SystemDnsService? dns, HttpClient? client})
-      : _dns = dns ?? const SystemDnsService(),
-        _client = client ?? HttpClient();
+    : _dns = dns ?? const SystemDnsService(),
+      _client = client ?? HttpClient();
 
   final SystemDnsService _dns;
   final HttpClient _client;
@@ -21,9 +21,7 @@ class EmailPostureService {
   }) async {
     final mx = receives ? await _dns.mx(domain) : const <MxRecord>[];
     final rootTxt = sends ? await _dns.txt(domain) : const <String>[];
-    final dmarc = sends
-        ? await _dns.txt('_dmarc.$domain')
-        : const <String>[];
+    final dmarc = sends ? await _dns.txt('_dmarc.$domain') : const <String>[];
     final mtaSts = receives
         ? await _dns.txt('_mta-sts.$domain')
         : const <String>[];
@@ -56,7 +54,8 @@ class EmailPostureService {
         id: 'mta-sts',
         title: 'MTA-STS',
         state: MailFindingState.informational,
-        summary: 'Not checked because this domain is not marked for receiving mail.',
+        summary:
+            'Not checked because this domain is not marked for receiving mail.',
       );
     }
     final policies = records.where(_isMtaSts).toList(growable: false);
@@ -93,7 +92,11 @@ class EmailPostureService {
       final mode = values['mode'];
       final maxAge = int.tryParse(values['max_age'] ?? '');
       final versionValid = values['version']?.toUpperCase() == 'STSV1';
-      final modeValid = const <String>{'none', 'testing', 'enforce'}.contains(mode);
+      final modeValid = const <String>{
+        'none',
+        'testing',
+        'enforce',
+      }.contains(mode);
       final mxPatterns = policy
           .split(RegExp(r'\r?\n'))
           .where((line) => line.trimLeft().toLowerCase().startsWith('mx:'))
@@ -118,8 +121,12 @@ class EmailPostureService {
       final unmatched = mode == 'none'
           ? const <String>[]
           : currentExchanges
-          .where((exchange) => !mxPatterns.any((pattern) => _matchesMx(exchange, pattern)))
-          .toList(growable: false);
+                .where(
+                  (exchange) => !mxPatterns.any(
+                    (pattern) => _matchesMx(exchange, pattern),
+                  ),
+                )
+                .toList(growable: false);
       return MailFinding(
         id: 'mta-sts',
         title: 'MTA-STS',
@@ -148,7 +155,9 @@ class EmailPostureService {
   }
 
   Future<String> _fetchText(Uri uri) async {
-    final request = await _client.getUrl(uri).timeout(const Duration(seconds: 10));
+    final request = await _client
+        .getUrl(uri)
+        .timeout(const Duration(seconds: 10));
     request
       ..followRedirects = false
       ..headers.set(HttpHeaders.acceptHeader, 'text/plain')
@@ -186,7 +195,9 @@ MailFinding _mxFinding(List<MxRecord> records, {required bool receives}) {
       summary: 'No MX records were found.',
     );
   }
-  if (records.any((record) => record.preference == 0 && record.exchange == '.')) {
+  if (records.any(
+    (record) => record.preference == 0 && record.exchange == '.',
+  )) {
     return const MailFinding(
       id: 'mx',
       title: 'Mail exchange',
@@ -198,7 +209,8 @@ MailFinding _mxFinding(List<MxRecord> records, {required bool receives}) {
     id: 'mx',
     title: 'Mail exchange',
     state: MailFindingState.healthy,
-    summary: '${records.length} receiving host${records.length == 1 ? '' : 's'} published.',
+    summary:
+        '${records.length} receiving host${records.length == 1 ? '' : 's'} published.',
     facts: records
         .map(
           (record) => MailFact(
@@ -249,7 +261,9 @@ MailFinding _spfFinding(List<String> values, {required bool sends}) {
   return MailFinding(
     id: 'spf',
     title: 'SPF',
-    state: lookupTerms > 10 ? MailFindingState.invalid : MailFindingState.healthy,
+    state: lookupTerms > 10
+        ? MailFindingState.invalid
+        : MailFindingState.healthy,
     summary: lookupTerms > 10
         ? 'The policy declares more than the 10 permitted DNS-lookup terms.'
         : 'One SPF policy is published.',
@@ -348,16 +362,19 @@ MailFinding _tlsRptFinding(List<String> values, {required bool receives}) {
         ? 'The TLS reporting record has no rua destination.'
         : 'An SMTP TLS reporting destination is published.',
     facts: <MailFact>[
-      if (destination != null) MailFact(label: 'Reports to', value: destination),
+      if (destination != null)
+        MailFact(label: 'Reports to', value: destination),
     ],
   );
 }
 
 MailFinding _dkimFinding(String selector, List<String> values) {
-  final records = values.where((value) {
-    final version = _tagValues(value)['v'];
-    return version == null || version.toUpperCase() == 'DKIM1';
-  }).toList(growable: false);
+  final records = values
+      .where((value) {
+        final version = _tagValues(value)['v'];
+        return version == null || version.toUpperCase() == 'DKIM1';
+      })
+      .toList(growable: false);
   if (records.isEmpty) {
     return MailFinding(
       id: 'dkim-$selector',
@@ -407,8 +424,9 @@ Map<String, String> _tagValues(String record) {
   for (final part in record.split(';')) {
     final separator = part.indexOf('=');
     if (separator < 1) continue;
-    result[part.substring(0, separator).trim().toLowerCase()] =
-        part.substring(separator + 1).trim();
+    result[part.substring(0, separator).trim().toLowerCase()] = part
+        .substring(separator + 1)
+        .trim();
   }
   return result;
 }
@@ -418,8 +436,10 @@ Map<String, String> _lineValues(String policy) {
   for (final line in policy.split(RegExp(r'\r?\n'))) {
     final separator = line.indexOf(':');
     if (separator < 1) continue;
-    result[line.substring(0, separator).trim().toLowerCase()] =
-        line.substring(separator + 1).trim().toLowerCase();
+    result[line.substring(0, separator).trim().toLowerCase()] = line
+        .substring(separator + 1)
+        .trim()
+        .toLowerCase();
   }
   return result;
 }

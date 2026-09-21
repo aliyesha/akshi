@@ -33,9 +33,19 @@ class DomainCheckResult {
     required this.expiresAt,
     required this.source,
     required this.registeredDomain,
+    this.registeredAt,
+    this.updatedAt,
+    this.registrar,
+    this.publicRegistrant,
+    this.nameServers = const <String>[],
   });
 
-  final DateTime expiresAt;
+  final DateTime? expiresAt;
   final String source;
   final String registeredDomain;
+  final DateTime? registeredAt;
+  final DateTime? updatedAt;
+  final String? registrar;
+  final String? publicRegistrant;
+  final List<String> nameServers;
 }

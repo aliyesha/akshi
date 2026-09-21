@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:akshi/core/services/system_dns_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,10 +38,7 @@ void main() {
       return Uint8List.fromList(<int>[
         preference >> 8,
         preference & 0xff,
-        for (final label in labels) ...<int>[
-          label.length,
-          ...label.codeUnits,
-        ],
+        for (final label in labels) ...<int>[label.length, ...label.codeUnits],
         0,
       ]);
     }

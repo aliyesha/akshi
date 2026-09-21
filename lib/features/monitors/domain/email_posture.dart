@@ -99,9 +99,7 @@ class EmailPosture {
     findings: ((json['findings'] as List<Object?>?) ?? const <Object?>[])
         .whereType<Map>()
         .map(
-          (finding) => MailFinding.fromJson(
-            Map<String, Object?>.from(finding),
-          ),
+          (finding) => MailFinding.fromJson(Map<String, Object?>.from(finding)),
         )
         .toList(growable: false),
   );
