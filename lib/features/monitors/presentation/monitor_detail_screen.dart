@@ -1,3 +1,4 @@
+import 'package:akshi/core/formatters/certificate_algorithm_formatter.dart';
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
@@ -10,7 +11,7 @@ import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class MonitorDetailScreen extends ConsumerStatefulWidget {
   const MonitorDetailScreen({required this.monitorId, super.key});
@@ -51,12 +52,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
           IconButton(
             tooltip: 'Edit',
             onPressed: () => context.push('/monitor/${monitor.id}/edit'),
-            icon: const Icon(LucideIcons.pencil),
+            icon: const PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
           ),
           IconButton(
             tooltip: 'Delete',
             onPressed: () => _delete(monitor),
-            icon: const Icon(LucideIcons.trash),
+            icon: const PhosphorIcon(PhosphorIconsDuotone.trash),
           ),
           const SizedBox(width: 8),
         ],
@@ -72,9 +73,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              monitor.port == 443
-                  ? monitor.hostname
-                  : '${monitor.hostname}:${monitor.port}',
+              monitor.hostname,
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontFamily: AkshiTheme.monoFontFamily,
@@ -101,7 +100,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                           dimension: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(LucideIcons.refresh_cw, size: 17),
+                      : const PhosphorIcon(
+                          PhosphorIconsRegular.arrowsClockwise,
+                          size: 17,
+                        ),
                   label: Text(_checking ? 'Checking' : 'Check now'),
                 ),
               ],
@@ -109,24 +111,28 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             if (monitor.certificateChanged) ...<Widget>[
               const SizedBox(height: 18),
               _Notice(
-                icon: LucideIcons.sparkle,
+                icon: PhosphorIconsDuotone.sparkle,
                 title: 'Renewal detected',
                 message: 'The live certificate fingerprint changed on the latest check.',
               ),
             ],
             if (monitor.domainError != null ||
-                monitor.certificateError != null ||
-                monitor.emailActivity.failure != null) ...<Widget>[
+                (monitor.checksCertificate &&
+                    monitor.certificateError != null) ||
+                (monitor.checksEmail &&
+                    monitor.emailActivity.failure != null)) ...<Widget>[
               const SizedBox(height: 18),
               _Notice(
-                icon: LucideIcons.circle_alert,
+                icon: PhosphorIconsDuotone.warningCircle,
                 title: 'Some data could not be verified',
                 message: [
                   if (monitor.domainError != null)
                     'Domain: ${monitor.domainError}',
-                  if (monitor.certificateError != null)
+                  if (monitor.checksCertificate &&
+                      monitor.certificateError != null)
                     'Certificate: ${monitor.certificateError}',
-                  if (monitor.emailActivity.failure != null)
+                  if (monitor.checksEmail &&
+                      monitor.emailActivity.failure != null)
                     'Email: ${monitor.emailActivity.failure!.message}',
                 ].join(String.fromCharCode(10)),
                 error: true,
@@ -134,17 +140,67 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             ],
             const SizedBox(height: 26),
             _ExpiryPanel(
-              icon: Icons.public_rounded,
+              icon: PhosphorIconsDuotone.globeHemisphereWest,
               title: 'Domain registration',
               date: monitor.domainExpiresAt,
               source: monitor.domainSource == null
                   ? 'No registry date available'
                   : 'Verified through ${monitor.domainSource}',
             ),
-            if (monitor.profile.checksCertificate) ...<Widget>[
+            const SizedBox(height: 26),
+            Text(
+              'Domain details',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            _InfoCard(
+              children: <Widget>[
+                _InfoRow(
+                  icon: PhosphorIconsDuotone.bank,
+                  label: 'Registrar',
+                  value: _domainText(monitor, monitor.domainRegistrar),
+                ),
+                _InfoRow(
+                  icon: PhosphorIconsDuotone.identificationCard,
+                  label: 'Public registrant',
+                  value: _domainText(
+                    monitor,
+                    monitor.domainPublicRegistrant,
+                    unpublished: 'Not publicly disclosed',
+                  ),
+                ),
+                _InfoRow(
+                  icon: PhosphorIconsDuotone.calendarCheck,
+                  label: 'Registered',
+                  value: _domainDate(
+                    context,
+                    monitor,
+                    monitor.domainRegisteredAt,
+                  ),
+                ),
+                _InfoRow(
+                  icon: PhosphorIconsRegular.clock,
+                  label: 'Last changed',
+                  value: _domainDate(context, monitor, monitor.domainUpdatedAt),
+                ),
+                _InfoRow(
+                  icon: PhosphorIconsRegular.network,
+                  label: 'Name servers',
+                  value: _domainText(
+                    monitor,
+                    monitor.domainNameServers.isEmpty
+                        ? null
+                        : monitor.domainNameServers.join('\n'),
+                  ),
+                  monospace: true,
+                  last: true,
+                ),
+              ],
+            ),
+            if (monitor.checksCertificate) ...<Widget>[
               const SizedBox(height: 12),
               _ExpiryPanel(
-                icon: Icons.verified_user_rounded,
+                icon: PhosphorIconsDuotone.certificate,
                 title: 'TLS certificate',
                 date: monitor.certificateExpiresAt,
                 source: monitor.certificateIssuer == null
@@ -160,29 +216,35 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
               _InfoCard(
                 children: <Widget>[
                   _InfoRow(
-                    icon: LucideIcons.shield_check,
+                    icon: PhosphorIconsRegular.network,
+                    label: 'TLS endpoint',
+                    value: _tlsEndpoint(monitor),
+                    monospace: true,
+                  ),
+                  _InfoRow(
+                    icon: PhosphorIconsDuotone.shieldCheck,
                     label: 'Trust',
                     value: _trustLabel(monitor.tlsTrusted),
                   ),
                   _InfoRow(
-                    icon: LucideIcons.badge_check,
+                    icon: PhosphorIconsDuotone.sealCheck,
                     label: 'Hostname match',
                     value: _hostnameMatchLabel(
                       monitor.certificateHostnameMatches,
                     ),
                   ),
                   _InfoRow(
-                    icon: LucideIcons.id_card,
+                    icon: PhosphorIconsDuotone.identificationCard,
                     label: 'Subject',
                     value: monitor.certificateSubject ?? '—',
                   ),
                   _InfoRow(
-                    icon: LucideIcons.landmark,
+                    icon: PhosphorIconsDuotone.bank,
                     label: 'Issuer',
                     value: monitor.certificateIssuer ?? '—',
                   ),
                   _InfoRow(
-                    icon: LucideIcons.list,
+                    icon: PhosphorIconsDuotone.listBullets,
                     label: 'Subject alternative names',
                     value: monitor.certificateSubjectAlternativeNames.isEmpty
                         ? '—'
@@ -190,28 +252,30 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                     monospace: true,
                   ),
                   _InfoRow(
-                    icon: LucideIcons.calendar_check,
+                    icon: PhosphorIconsDuotone.calendarCheck,
                     label: 'Valid from',
                     value: _formatDate(context, monitor.certificateValidFrom),
                   ),
                   _InfoRow(
-                    icon: LucideIcons.binary,
+                    icon: PhosphorIconsRegular.binary,
                     label: 'Serial number',
                     value: monitor.certificateSerialNumber ?? '—',
                     monospace: true,
                   ),
                   _InfoRow(
-                    icon: LucideIcons.file_key,
+                    icon: PhosphorIconsDuotone.fileLock,
                     label: 'Signature algorithm',
-                    value: monitor.certificateSignatureAlgorithm ?? '—',
+                    value: formatSignatureAlgorithm(
+                      monitor.certificateSignatureAlgorithm,
+                    ),
                   ),
                   _InfoRow(
-                    icon: LucideIcons.key_round,
+                    icon: PhosphorIconsDuotone.key,
                     label: 'Public key',
                     value: _publicKeyLabel(monitor),
                   ),
                   _InfoRow(
-                    icon: LucideIcons.fingerprint,
+                    icon: PhosphorIconsDuotone.fingerprint,
                     label: 'SHA-256 fingerprint',
                     value: _formatFingerprint(monitor.certificateFingerprint),
                     monospace: true,
@@ -220,7 +284,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 ],
               ),
             ],
-            if (monitor.profile.checksEmail) ...<Widget>[
+            if (monitor.checksEmail) ...<Widget>[
               const SizedBox(height: 26),
               Text(
                 'Email posture',
@@ -233,12 +297,26 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
+              if (monitor.emailPosture != null) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  'DNS data checked ${_formatDateTime(context, monitor.emailPosture!.checkedAt)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               if (monitor.emailPosture == null)
-                const _Notice(
-                  icon: LucideIcons.mail_warning,
-                  title: 'Email information unavailable',
-                  message: 'Run a check to inspect published mail configuration.',
+                _Notice(
+                  icon: monitor.emailActivity.failure == null
+                      ? PhosphorIconsDuotone.info
+                      : PhosphorIconsDuotone.cloudSlash,
+                  title: monitor.emailActivity.failure == null
+                      ? 'Email not checked yet'
+                      : 'Email DNS lookup unavailable',
+                  message: monitor.emailActivity.failure?.message ?? 'Run a check to inspect the domain’s public mail records.',
+                  error: monitor.emailActivity.failure != null,
                 )
               else
                 ...monitor.emailPosture!.findings.map(
@@ -254,10 +332,11 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             _InfoCard(
               children: <Widget>[
                 _InfoRow(
+                  icon: PhosphorIconsRegular.clock,
                   label: 'Last checked',
                   value: monitor.lastCheckedAt == null
                       ? 'Never'
-                      : '${_formatDate(context, monitor.lastCheckedAt)} at ${TimeOfDay.fromDateTime(monitor.lastCheckedAt!).format(context)}',
+                      : _formatDateTime(context, monitor.lastCheckedAt!),
                   last: true,
                 ),
               ],
@@ -270,18 +349,24 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
 
   MonitorEntry? _find(List<MonitorEntry> items) {
     for (final item in items) {
-      if (item.id == widget.monitorId) return item;
+      if (item.id == widget.monitorId) {
+        return item;
+      }
     }
     return null;
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
-    if (_checking) return;
+    if (_checking) {
+      return;
+    }
     setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
     } finally {
-      if (mounted) setState(() => _checking = false);
+      if (mounted) {
+        setState(() => _checking = false);
+      }
     }
   }
 
@@ -289,7 +374,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.delete_outline_rounded, size: 34),
+        icon: const PhosphorIcon(PhosphorIconsDuotone.trash, size: 34),
         title: const Text('Delete this monitor?'),
         content: Text(
           '${monitor.displayName} and its local reminders will be removed.',
@@ -310,9 +395,13 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      return;
+    }
     await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
-    if (mounted) context.go('/');
+    if (mounted) {
+      context.go('/');
+    }
   }
 }
 
@@ -352,7 +441,7 @@ class _ExpiryPanel extends StatelessWidget {
                   color: scheme.primaryContainer,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(
+                child: PhosphorIcon(
                   icon,
                   size: 23,
                   color: scheme.onPrimaryContainer,
@@ -422,6 +511,7 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final rowIcon = icon;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -432,8 +522,12 @@ class _InfoRow extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  if (icon != null) ...<Widget>[
-                    Icon(icon, size: 15, color: theme.colorScheme.primary),
+                  if (rowIcon != null) ...<Widget>[
+                    PhosphorIcon(
+                      rowIcon,
+                      size: 15,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 7),
                   ],
                   Expanded(
@@ -481,11 +575,23 @@ class _MailFindingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final (icon, color) = switch (finding.state) {
-      MailFindingState.healthy => (LucideIcons.circle_check, scheme.primary),
-      MailFindingState.informational => (LucideIcons.info, scheme.secondary),
-      MailFindingState.warning => (LucideIcons.triangle_alert, scheme.tertiary),
-      MailFindingState.invalid => (LucideIcons.circle_x, scheme.error),
-      MailFindingState.unavailable => (LucideIcons.cloud_off, scheme.error),
+      MailFindingState.healthy => (
+        PhosphorIconsDuotone.checkCircle,
+        scheme.primary,
+      ),
+      MailFindingState.informational => (
+        PhosphorIconsDuotone.info,
+        scheme.secondary,
+      ),
+      MailFindingState.warning => (
+        PhosphorIconsDuotone.warning,
+        scheme.tertiary,
+      ),
+      MailFindingState.invalid => (PhosphorIconsDuotone.xCircle, scheme.error),
+      MailFindingState.unavailable => (
+        PhosphorIconsDuotone.cloudSlash,
+        scheme.error,
+      ),
     };
     return Container(
       padding: const EdgeInsets.all(16),
@@ -507,7 +613,7 @@ class _MailFindingCard extends StatelessWidget {
                   color: color.withValues(alpha: .1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 19, color: color),
+                child: PhosphorIcon(icon, size: 19, color: color),
               ),
               const SizedBox(width: 11),
               Expanded(
@@ -527,9 +633,8 @@ class _MailFindingCard extends StatelessWidget {
             for (final fact in finding.facts) ...<Widget>[
               Text(
                 fact.label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 3),
               SelectableText(
@@ -573,7 +678,7 @@ class _Notice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(icon, color: color, size: 24),
+          PhosphorIcon(icon, color: color, size: 24),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -600,12 +705,39 @@ Widget _backButton(BuildContext context) => IconButton(
       context.go('/');
     }
   },
-  icon: const Icon(LucideIcons.chevron_left),
+  icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
 );
 
 String _formatDate(BuildContext context, DateTime? value) => value == null
     ? '—'
-    : MaterialLocalizations.of(context).formatMediumDate(value.toLocal());
+    : MaterialLocalizations.of(context).formatFullDate(value.toLocal());
+
+String _domainText(
+  MonitorEntry monitor,
+  String? value, {
+  String unpublished = 'Not published',
+}) {
+  if (monitor.domainSource == null) {
+    return 'Not available';
+  }
+  return value ?? unpublished;
+}
+
+String _domainDate(
+  BuildContext context,
+  MonitorEntry monitor,
+  DateTime? value,
+) {
+  if (monitor.domainSource == null) {
+    return 'Not available';
+  }
+  return value == null ? 'Not published' : _formatDate(context, value);
+}
+
+String _formatDateTime(BuildContext context, DateTime value) {
+  final local = value.toLocal();
+  return '${_formatDate(context, local)} at ${TimeOfDay.fromDateTime(local).format(context)}';
+}
 
 String _trustLabel(bool? value) => switch (value) {
   true => 'Trusted',
@@ -620,15 +752,24 @@ String _hostnameMatchLabel(bool? value) => switch (value) {
 };
 
 String _publicKeyLabel(MonitorEntry monitor) {
+  final algorithm = formatPublicKeyAlgorithm(
+    monitor.certificatePublicKeyAlgorithm,
+  );
   final parts = <String>[
-    ?monitor.certificatePublicKeyAlgorithm,
+    if (algorithm != '—') algorithm,
     ?monitor.certificatePublicKeyDetails,
   ];
   return parts.isEmpty ? '—' : parts.join(' · ');
 }
 
+String _tlsEndpoint(MonitorEntry monitor) => monitor.tlsPort == 443
+    ? monitor.tlsHostname
+    : '${monitor.tlsHostname}:${monitor.tlsPort}';
+
 String _formatFingerprint(String? value) {
-  if (value == null || value.isEmpty) return '—';
+  if (value == null || value.isEmpty) {
+    return '—';
+  }
   final normalized = value
       .replaceAll(':', '')
       .replaceAll(' ', '')

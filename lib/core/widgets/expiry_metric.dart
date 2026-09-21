@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class ExpiryMetric extends StatelessWidget {
   const ExpiryMetric({
@@ -38,7 +39,7 @@ class ExpiryMetric extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                Icon(icon, size: 16, color: scheme.onSurfaceVariant),
+                PhosphorIcon(icon, size: 16, color: scheme.onSurfaceVariant),
                 const SizedBox(width: 7),
                 Flexible(
                   child: Text(
