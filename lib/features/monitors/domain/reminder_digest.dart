@@ -1,27 +1,47 @@
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 
-class ReminderSite {
-  const ReminderSite({required this.monitorId, required this.hostname});
+enum ExpiryReminderKind {
+  domainRegistration('domain'),
+  tlsCertificate('TLS certificate');
+
+  const ExpiryReminderKind(this.label);
+
+  final String label;
+}
+
+class ReminderAsset {
+  const ReminderAsset({
+    required this.monitorId,
+    required this.hostname,
+    required this.kinds,
+  });
 
   final String monitorId;
   final String hostname;
+  final Set<ExpiryReminderKind> kinds;
 }
 
 class DailyReminderDigest {
-  const DailyReminderDigest({required this.scheduledAt, required this.sites});
+  const DailyReminderDigest({required this.scheduledAt, required this.assets});
 
   final DateTime scheduledAt;
-  final List<ReminderSite> sites;
+  final List<ReminderAsset> assets;
 
-  int get siteCount => sites.length;
+  int get assetCount => assets.length;
   List<String> get monitorIds =>
-      sites.map((site) => site.monitorId).toList(growable: false);
-  List<String> get siteNames =>
-      sites.map((site) => site.hostname).toList(growable: false);
+      assets.map((asset) => asset.monitorId).toList(growable: false);
+  List<String> get hostnames =>
+      assets.map((asset) => asset.hostname).toList(growable: false);
 
-  String preview({int visibleNames = 3}) =>
-      compactSiteNames(siteNames, visibleNames: visibleNames);
+  String preview({int visibleNames = 3}) {
+    final shown = assets
+        .take(visibleNames)
+        .map(_formatReminderAsset)
+        .join('; ');
+    final remaining = assets.length - visibleNames;
+    return remaining > 0 ? '$shown; and $remaining more' : shown;
+  }
 }
 
 List<DailyReminderDigest> buildDailyReminderDigests(
@@ -35,14 +55,16 @@ List<DailyReminderDigest> buildDailyReminderDigests(
     settings.secondWarningDays,
     1,
   };
-  final grouped = <DateTime, Map<String, ReminderSite>>{};
+  final grouped = <DateTime, Map<String, ReminderAsset>>{};
 
   for (final monitor in monitors.where((item) => item.enabled)) {
-    final expiries = <DateTime?>[
-      monitor.domainExpiresAt,
-      if (monitor.profile.checksCertificate) monitor.certificateExpiresAt,
+    final expiries = <(DateTime?, ExpiryReminderKind)>[
+      (monitor.domainExpiresAt, ExpiryReminderKind.domainRegistration),
+      if (monitor.checksCertificate)
+        (monitor.certificateExpiresAt, ExpiryReminderKind.tlsCertificate),
     ];
-    for (final expiry in expiries.whereType<DateTime>()) {
+    for (final (expiry, kind) in expiries) {
+      if (expiry == null) continue;
       final localExpiry = expiry.toLocal();
       for (final days in warningDays) {
         final scheduledAt = DateTime(
@@ -53,15 +75,16 @@ List<DailyReminderDigest> buildDailyReminderDigests(
           settings.notificationMinute,
         );
         if (!scheduledAt.isAfter(referenceTime)) continue;
-        grouped
-            .putIfAbsent(scheduledAt, () => <String, ReminderSite>{})
-            .putIfAbsent(
-              monitor.hostname,
-              () => ReminderSite(
-                monitorId: monitor.id,
-                hostname: monitor.hostname,
-              ),
-            );
+        final dailyAssets = grouped.putIfAbsent(
+          scheduledAt,
+          () => <String, ReminderAsset>{},
+        );
+        final existing = dailyAssets[monitor.hostname];
+        dailyAssets[monitor.hostname] = ReminderAsset(
+          monitorId: monitor.id,
+          hostname: monitor.hostname,
+          kinds: <ExpiryReminderKind>{...?existing?.kinds, kind},
+        );
       }
     }
   }
@@ -69,18 +92,26 @@ List<DailyReminderDigest> buildDailyReminderDigests(
   final dates = grouped.keys.toList()..sort();
   return dates
       .map((date) {
-        final sites = grouped[date]!.values.toList()
+        final assets = grouped[date]!.values.toList()
           ..sort(
             (left, right) => left.hostname.toLowerCase().compareTo(
               right.hostname.toLowerCase(),
             ),
           );
-        return DailyReminderDigest(scheduledAt: date, sites: sites);
+        return DailyReminderDigest(scheduledAt: date, assets: assets);
       })
       .toList(growable: false);
 }
 
-String compactSiteNames(Iterable<String> names, {int visibleNames = 3}) {
+String _formatReminderAsset(ReminderAsset asset) {
+  final labels = ExpiryReminderKind.values
+      .where(asset.kinds.contains)
+      .map((kind) => kind.label)
+      .join(' + ');
+  return labels.isEmpty ? asset.hostname : '${asset.hostname} · $labels';
+}
+
+String compactMonitorNames(Iterable<String> names, {int visibleNames = 3}) {
   final uniqueNames = <String>[];
   final seen = <String>{};
   for (final name in names) {

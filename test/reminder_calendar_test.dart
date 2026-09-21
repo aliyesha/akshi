@@ -12,7 +12,9 @@ void main() {
   }) => MonitorEntry(
     id: hostname,
     hostname: hostname,
-    port: 443,
+    tlsHostname: hostname,
+    tlsPort: 443,
+    checksCertificate: true,
     label: label,
     createdAt: now,
     updatedAt: now,
@@ -20,13 +22,13 @@ void main() {
   );
 
   test('warning dates cross month boundaries by local calendar day', () {
-    final now = DateTime(2027, 2, 1, 12);
+    final now = DateTime(2026, 2, 1, 12);
     final digests = buildDailyReminderDigests(
       <MonitorEntry>[
         monitor(
           hostname: 'month.example',
           now: now,
-          expiry: DateTime(2027, 3, 5, 18),
+          expiry: DateTime(2026, 3, 5, 18),
         ),
       ],
       const AppSettings(notificationHour: 9),
@@ -35,25 +37,25 @@ void main() {
 
     expect(
       digests.map((digest) => digest.scheduledAt),
-      contains(DateTime(2027, 2, 23, 9)),
+      contains(DateTime(2026, 2, 23, 9)),
     );
   });
 
   test('notification identity remains the unique hostname, not its label', () {
-    final now = DateTime(2027, 2, 1, 12);
+    final now = DateTime(2026, 2, 1, 12);
     final digests = buildDailyReminderDigests(
       <MonitorEntry>[
         monitor(
           hostname: 'shop-one.example',
           label: 'Production',
           now: now,
-          expiry: DateTime(2027, 3, 5),
+          expiry: DateTime(2026, 3, 5),
         ),
         monitor(
           hostname: 'shop-two.example',
           label: 'Production',
           now: now,
-          expiry: DateTime(2027, 3, 5),
+          expiry: DateTime(2026, 3, 5),
         ),
       ],
       const AppSettings(notificationHour: 9),
@@ -61,8 +63,8 @@ void main() {
     );
 
     final firstDigest = digests.first;
-    expect(firstDigest.siteCount, 2);
-    expect(firstDigest.siteNames, <String>[
+    expect(firstDigest.assetCount, 2);
+    expect(firstDigest.hostnames, <String>[
       'shop-one.example',
       'shop-two.example',
     ]);

@@ -47,7 +47,10 @@ final appRouter = GoRouter(
       builder: (context, state) => const SettingsScreen(),
       routes: <RouteBase>[
         GoRoute(path: 'tags', builder: (context, state) => const TagsScreen()),
-        GoRoute(path: 'about', builder: (context, state) => const AboutScreen()),
+        GoRoute(
+          path: 'about',
+          builder: (context, state) => const AboutScreen(),
+        ),
       ],
     ),
   ],

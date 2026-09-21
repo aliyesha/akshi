@@ -4,12 +4,14 @@ import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  final now = DateTime(2026, 9, 1, 12);
+  final now = DateTime(2026, 8, 1, 12);
 
   MonitorEntry monitor(String hostname, DateTime expiry) => MonitorEntry(
     id: hostname,
     hostname: hostname,
-    port: 443,
+    tlsHostname: hostname,
+    tlsPort: 443,
+    checksCertificate: true,
     createdAt: now,
     updatedAt: now,
     certificateExpiresAt: expiry,
@@ -18,28 +20,28 @@ void main() {
   test('combines different warning thresholds that land on the same day', () {
     final digests = buildDailyReminderDigests(
       <MonitorEntry>[
-        monitor('ten-day.example', DateTime(2026, 9, 20)),
-        monitor('five-day.example', DateTime(2026, 9, 15)),
-        monitor('one-day.example', DateTime(2026, 9, 11)),
+        monitor('ten-day.example', DateTime(2026, 8, 20)),
+        monitor('five-day.example', DateTime(2026, 8, 15)),
+        monitor('one-day.example', DateTime(2026, 8, 11)),
       ],
       const AppSettings(notificationHour: 9),
       now: now,
     );
 
-    final septemberTenth = digests.singleWhere(
-      (digest) => digest.scheduledAt == DateTime(2026, 9, 10, 9),
+    final augustTenth = digests.singleWhere(
+      (digest) => digest.scheduledAt == DateTime(2026, 8, 10, 9),
     );
-    expect(septemberTenth.siteCount, 3);
-    expect(septemberTenth.siteNames, <String>[
+    expect(augustTenth.assetCount, 3);
+    expect(augustTenth.hostnames, <String>[
       'five-day.example',
       'one-day.example',
       'ten-day.example',
     ]);
   });
 
-  test('six websites produce three visible names and a remainder count', () {
+  test('six assets produce three visible names and a remainder count', () {
     expect(
-      compactSiteNames(<String>[
+      compactMonitorNames(<String>[
         'alpha.io',
         'beta.io',
         'gamma.io',

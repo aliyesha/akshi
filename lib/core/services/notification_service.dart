@@ -127,9 +127,9 @@ class NotificationService {
       );
       await _plugin.zonedSchedule(
         id: _digestIdBase + index,
-        title: digest.siteCount == 1
+        title: digest.assetCount == 1
             ? '1 monitor needs attention'
-            : '${digest.siteCount} monitors need attention',
+            : '${digest.assetCount} monitors need attention',
         body: body,
         scheduledDate: tz.TZDateTime(
           tz.local,
@@ -192,7 +192,7 @@ class NotificationService {
       title: changed.length == 1
           ? '1 monitor changed'
           : '${changed.length} monitors changed',
-      body: compactSiteNames(names),
+      body: compactMonitorNames(names),
       notificationDetails: _changeDetails,
       payload: destination.toPayload(),
     );

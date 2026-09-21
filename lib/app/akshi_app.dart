@@ -8,6 +8,7 @@ import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class AkshiApp extends ConsumerStatefulWidget {
   const AkshiApp({super.key});
@@ -69,6 +70,10 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
       theme: AkshiTheme.light,
       darkTheme: AkshiTheme.dark,
       themeMode: themeMode,
+      builder: (context, child) => PhosphorDuotoneTheme(
+        data: const PhosphorDuotoneThemeData(secondaryOpacity: .3),
+        child: child ?? const SizedBox.shrink(),
+      ),
       routerConfig: appRouter,
     );
   }
