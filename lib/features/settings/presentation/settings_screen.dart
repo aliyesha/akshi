@@ -5,7 +5,7 @@ import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -58,7 +58,7 @@ class SettingsScreen extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 4,
                   ),
-                  leading: const Icon(LucideIcons.clock),
+                  leading: const PhosphorIcon(PhosphorIconsDuotone.clock),
                   title: const Text('Reminder time'),
                   subtitle: const Text(
                     'Approximate delivery in your local time',
@@ -77,7 +77,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: () => _requestPermission(context, ref),
-              icon: const Icon(LucideIcons.bell_ring),
+              icon: const PhosphorIcon(PhosphorIconsDuotone.bellRinging),
               label: const Text('Enable notifications'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
@@ -96,12 +96,15 @@ class SettingsScreen extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 7,
                   ),
-                  leading: const Icon(LucideIcons.tag),
+                  leading: const PhosphorIcon(PhosphorIconsDuotone.tag),
                   title: const Text('Tags'),
                   subtitle: const Text(
-                    'Create reusable colored labels for your websites',
+                    'Create reusable colored labels for your monitors',
                   ),
-                  trailing: const Icon(LucideIcons.chevron_right, size: 17),
+                  trailing: const PhosphorIcon(
+                    PhosphorIconsDuotone.caretRight,
+                    size: 17,
+                  ),
                   onTap: () => context.push('/settings/tags'),
                 ),
               ],
@@ -116,17 +119,17 @@ class SettingsScreen extends ConsumerWidget {
               segments: const <ButtonSegment<AkshiThemeMode>>[
                 ButtonSegment(
                   value: AkshiThemeMode.system,
-                  icon: Icon(LucideIcons.smartphone),
+                  icon: PhosphorIcon(PhosphorIconsDuotone.deviceMobile),
                   label: Text('System'),
                 ),
                 ButtonSegment(
                   value: AkshiThemeMode.light,
-                  icon: Icon(LucideIcons.sun),
+                  icon: PhosphorIcon(PhosphorIconsDuotone.sun),
                   label: Text('Light'),
                 ),
                 ButtonSegment(
                   value: AkshiThemeMode.dark,
-                  icon: Icon(LucideIcons.moon),
+                  icon: PhosphorIcon(PhosphorIconsDuotone.moonStars),
                   label: Text('Dark'),
                 ),
               ],
@@ -147,7 +150,7 @@ class SettingsScreen extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 7,
                   ),
-                  leading: Icon(LucideIcons.server),
+                  leading: PhosphorIcon(PhosphorIconsDuotone.hardDrives),
                   title: Text('No Akshi server'),
                   subtitle: Text(
                     'Saved data stays here; checks go directly to registries and configured sources.',
@@ -159,7 +162,7 @@ class SettingsScreen extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 7,
                   ),
-                  leading: Icon(LucideIcons.wifi),
+                  leading: PhosphorIcon(PhosphorIconsDuotone.wifiHigh),
                   title: Text('Checks happen while active'),
                   subtitle: Text(
                     'Akshi connects only when opened, resumed, edited, or refreshed.',
@@ -171,10 +174,12 @@ class SettingsScreen extends ConsumerWidget {
                     horizontal: 16,
                     vertical: 7,
                   ),
-                  leading: const Icon(LucideIcons.info),
+                  leading: const PhosphorIcon(PhosphorIconsDuotone.info),
                   title: const Text('About Akshi'),
-                  subtitle: const Text('Name, philosophy, and intended audience'),
-                  trailing: const Icon(LucideIcons.chevron_right),
+                  subtitle: const Text(
+                    'Name, philosophy, and intended audience',
+                  ),
+                  trailing: const PhosphorIcon(PhosphorIconsDuotone.caretRight),
                   onTap: () => context.push('/settings/about'),
                 ),
               ],
@@ -287,12 +292,12 @@ class _DayControl extends StatelessWidget {
         ),
         IconButton.filledTonal(
           onPressed: value > minimum ? () => onChanged(value - 1) : null,
-          icon: const Icon(LucideIcons.minus, size: 17),
+          icon: const PhosphorIcon(PhosphorIconsRegular.minus, size: 17),
         ),
         const SizedBox(width: 7),
         IconButton.filledTonal(
           onPressed: value < maximum ? () => onChanged(value + 1) : null,
-          icon: const Icon(LucideIcons.plus, size: 17),
+          icon: const PhosphorIcon(PhosphorIconsRegular.plus, size: 17),
         ),
       ],
     ),

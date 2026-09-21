@@ -5,7 +5,7 @@ import 'package:akshi/features/tags/presentation/tag_editor_sheet.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class TagsScreen extends ConsumerWidget {
   const TagsScreen({super.key});
@@ -17,7 +17,7 @@ class TagsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Tags')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _create(context, ref),
-        icon: const Icon(LucideIcons.plus),
+        icon: const PhosphorIcon(PhosphorIconsRegular.plus),
         label: const Text('Create tag'),
       ),
       body: tags.when(
@@ -106,7 +106,7 @@ class TagsScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         title: Text('Delete “${tag.name}”?'),
         content: const Text(
-          'The tag will be removed from every website. No website will be deleted.',
+          'The tag will be removed from every monitor. No monitor will be deleted.',
         ),
         actions: <Widget>[
           TextButton(
@@ -147,8 +147,8 @@ class _EmptyTags extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(
-            LucideIcons.tag,
+          PhosphorIcon(
+            PhosphorIconsDuotone.tag,
             size: 58,
             color: Theme.of(context).colorScheme.primary,
           ),

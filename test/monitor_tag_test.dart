@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('tag mapping round trips its stable source color', () {
-    final createdAt = DateTime.utc(2026, 9, 19);
+    final createdAt = DateTime.utc(2026, 8, 19);
     final tag = MonitorTag(
       id: 'tag-id',
       name: 'Production',

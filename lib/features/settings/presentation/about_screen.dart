@@ -1,5 +1,5 @@
 import 'package:akshi/core/widgets/akshi_mark.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -11,8 +11,9 @@ class AboutScreen extends StatelessWidget {
     appBar: AppBar(
       leading: IconButton(
         tooltip: 'Back to settings',
-        onPressed: () => context.canPop() ? context.pop() : context.go('/settings'),
-        icon: const Icon(LucideIcons.chevron_left),
+        onPressed: () =>
+            context.canPop() ? context.pop() : context.go('/settings'),
+        icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
       ),
       title: const Text('About Akshi'),
     ),
@@ -31,13 +32,12 @@ class AboutScreen extends StatelessWidget {
           Text(
             'Watch What Matters',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(color: Theme.of(context).colorScheme.primary),
           ),
           const SizedBox(height: 28),
           const _AboutCard(
-            icon: LucideIcons.scan_search,
+            icon: PhosphorIconsDuotone.scan,
             title: 'An attentive eye',
             body:
                 'Akshi comes from the Sanskrit akṣi (अक्षि), meaning eye. '
@@ -47,7 +47,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const _AboutCard(
-            icon: LucideIcons.smartphone,
+            icon: PhosphorIconsDuotone.deviceMobile,
             title: 'Local by design',
             body:
                 'There is no Akshi account or central monitoring server. '
@@ -56,7 +56,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const _AboutCard(
-            icon: LucideIcons.code_2,
+            icon: PhosphorIconsDuotone.code,
             title: 'For hands-on builders',
             body:
                 'Akshi is made for indie developers, consultants, small teams, '
@@ -108,7 +108,11 @@ class _AboutCard extends StatelessWidget {
               color: scheme.primaryContainer,
               borderRadius: BorderRadius.circular(13),
             ),
-            child: Icon(icon, size: 21, color: scheme.onPrimaryContainer),
+            child: PhosphorIcon(
+              icon,
+              size: 21,
+              color: scheme.onPrimaryContainer,
+            ),
           ),
           const SizedBox(width: 13),
           Expanded(
@@ -119,10 +123,8 @@ class _AboutCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   body,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    height: 1.45,
-                    color: scheme.onSurfaceVariant,
-                  ),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(height: 1.45, color: scheme.onSurfaceVariant),
                 ),
               ],
             ),

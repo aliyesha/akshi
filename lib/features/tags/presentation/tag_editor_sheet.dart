@@ -1,7 +1,7 @@
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class TagDraft {
   const TagDraft({required this.name, required this.colorArgb});
@@ -93,7 +93,7 @@ class _TagEditorSheetState extends State<_TagEditorSheet> {
                 decoration: const InputDecoration(
                   labelText: 'Tag name',
                   hintText: 'Production',
-                  prefixIcon: Icon(LucideIcons.tag),
+                  prefixIcon: PhosphorIcon(PhosphorIconsDuotone.tag),
                 ),
                 onChanged: (_) => setState(() {}),
                 validator: (value) {
@@ -264,7 +264,11 @@ class _ColorChoice extends StatelessWidget {
           ),
         ),
         child: selected
-            ? const Icon(LucideIcons.check, size: 19, color: Colors.white)
+            ? const PhosphorIcon(
+                PhosphorIconsDuotone.check,
+                size: 19,
+                color: Colors.white,
+              )
             : null,
       ),
     ),
