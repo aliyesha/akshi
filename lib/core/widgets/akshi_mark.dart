@@ -1,5 +1,6 @@
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class AkshiMark extends StatelessWidget {
   const AkshiMark({super.key, this.size = 42});
@@ -42,10 +43,11 @@ class AkshiMark extends StatelessWidget {
             ],
             stops: <double>[0, .48, 1],
           ).createShader(bounds),
-          child: Icon(
-            Icons.radar_rounded,
+          child: PhosphorIcon(
+            PhosphorIconsDuotone.scan,
             color: Colors.white,
             size: size * .54,
+            duotoneSecondaryOpacity: .42,
           ),
         ),
       ),

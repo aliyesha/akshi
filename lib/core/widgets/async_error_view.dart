@@ -1,5 +1,5 @@
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class AsyncErrorView extends StatelessWidget {
   const AsyncErrorView({required this.error, required this.onRetry, super.key});
@@ -14,7 +14,7 @@ class AsyncErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(LucideIcons.circle_alert, size: 48),
+          const PhosphorIcon(PhosphorIconsDuotone.warningCircle, size: 48),
           const SizedBox(height: 16),
           Text(
             'Something went wrong',
@@ -31,7 +31,7 @@ class AsyncErrorView extends StatelessWidget {
           const SizedBox(height: 20),
           FilledButton.icon(
             onPressed: onRetry,
-            icon: const Icon(LucideIcons.refresh_cw),
+            icon: const PhosphorIcon(PhosphorIconsRegular.arrowsClockwise),
             label: const Text('Try again'),
           ),
         ],

@@ -1,6 +1,6 @@
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 Color monitorStatusColor(ColorScheme scheme, MonitorStatus status) =>
     switch (status) {
@@ -21,13 +21,13 @@ class StatusPill extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final color = monitorStatusColor(scheme, status);
     final icon = switch (status) {
-      MonitorStatus.healthy => LucideIcons.circle_check,
-      MonitorStatus.warning => LucideIcons.timer,
-      MonitorStatus.critical => LucideIcons.triangle_alert,
-      MonitorStatus.expired => LucideIcons.circle_x,
-      MonitorStatus.failed => LucideIcons.circle_alert,
-      MonitorStatus.unavailable => LucideIcons.circle_minus,
-      MonitorStatus.unknown => LucideIcons.circle_question_mark,
+      MonitorStatus.healthy => PhosphorIconsDuotone.checkCircle,
+      MonitorStatus.warning => PhosphorIconsDuotone.timer,
+      MonitorStatus.critical => PhosphorIconsDuotone.warning,
+      MonitorStatus.expired => PhosphorIconsDuotone.xCircle,
+      MonitorStatus.failed => PhosphorIconsDuotone.warningCircle,
+      MonitorStatus.unavailable => PhosphorIconsDuotone.minusCircle,
+      MonitorStatus.unknown => PhosphorIconsDuotone.question,
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -38,7 +38,7 @@ class StatusPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 14, color: color),
+          PhosphorIcon(icon, size: 14, color: color),
           const SizedBox(width: 6),
           Text(
             status.label,

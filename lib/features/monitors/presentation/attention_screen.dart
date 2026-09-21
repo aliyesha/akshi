@@ -9,7 +9,7 @@ import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class AttentionScreen extends ConsumerWidget {
   const AttentionScreen({
@@ -117,8 +117,10 @@ class _AttentionHeader extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Icon(
-            changes ? LucideIcons.sparkle : LucideIcons.circle_alert,
+          PhosphorIcon(
+            changes
+                ? PhosphorIconsDuotone.sparkle
+                : PhosphorIconsDuotone.warningCircle,
             size: 32,
             color: scheme.onPrimaryContainer,
           ),
@@ -198,7 +200,7 @@ class _AttentionCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const Icon(LucideIcons.chevron_right, size: 17),
+                  const PhosphorIcon(PhosphorIconsDuotone.caretRight, size: 17),
                 ],
               ),
               if (monitor.tags.isNotEmpty) ...<Widget>[
@@ -242,10 +244,12 @@ class _FindingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: <Widget>[
-      Icon(switch (finding.kind) {
-        MonitorCheckKind.domainRegistration => Icons.public_rounded,
-        MonitorCheckKind.tlsCertificate => Icons.verified_user_rounded,
-        MonitorCheckKind.emailConfiguration => LucideIcons.mail_check,
+      PhosphorIcon(switch (finding.kind) {
+        MonitorCheckKind.domainRegistration =>
+          PhosphorIconsDuotone.globeHemisphereWest,
+        MonitorCheckKind.tlsCertificate => PhosphorIconsDuotone.certificate,
+        MonitorCheckKind.emailConfiguration =>
+          PhosphorIconsDuotone.envelopeSimpleOpen,
       }, size: 21),
       const SizedBox(width: 10),
       Expanded(
@@ -280,8 +284,8 @@ class _ClearState extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 72, horizontal: 24),
     child: Column(
       children: <Widget>[
-        Icon(
-          LucideIcons.shield_check,
+        PhosphorIcon(
+          PhosphorIconsDuotone.shieldCheck,
           size: 58,
           color: Theme.of(context).colorScheme.primary,
         ),

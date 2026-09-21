@@ -7,6 +7,7 @@ import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
+import 'package:akshi/features/monitors/domain/site_icon.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
@@ -15,7 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_lucide/flutter_lucide.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -38,7 +39,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       floatingActionButton: FloatingActionButton(
         tooltip: 'Add monitor',
         onPressed: () => context.push('/monitor/new'),
-        child: const Icon(Icons.add_rounded),
+        child: const PhosphorIcon(PhosphorIconsRegular.plus),
       ),
       body: SafeArea(
         bottom: false,
@@ -111,8 +112,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     strokeWidth: 2.2,
                                   ),
                                 )
-                              : const Icon(
-                                  LucideIcons.refresh_cw,
+                              : const PhosphorIcon(
+                                  PhosphorIconsRegular.arrowsClockwise,
                                   key: ValueKey<String>('refresh-icon'),
                                 ),
                         ),
@@ -120,7 +121,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       IconButton(
                         tooltip: 'Settings',
                         onPressed: () => context.push('/settings'),
-                        icon: const Icon(LucideIcons.sliders_horizontal),
+                        icon: const PhosphorIcon(
+                          PhosphorIconsDuotone.slidersHorizontal,
+                        ),
                       ),
                       const SizedBox(width: 8),
                     ],
@@ -144,7 +147,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           hintText: 'Search domains, labels, or tags',
                           leading: const Padding(
                             padding: EdgeInsets.only(left: 4),
-                            child: Icon(LucideIcons.search),
+                            child: PhosphorIcon(
+                              PhosphorIconsDuotone.magnifyingGlass,
+                            ),
                           ),
                           onChanged: (value) => setState(() => _query = value),
                         ),
@@ -194,6 +199,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         itemCount: visible.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 12),
                         itemBuilder: (context, index) => _SwipeableMonitorCard(
+                          key: ValueKey<String>(visible[index].id),
                           monitor: visible[index],
                           settings: settings,
                         ),
@@ -222,7 +228,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             .length;
     try {
       await controller.refreshAll();
-      if (!mounted || !announce) return;
+      if (!mounted || !announce) {
+        return;
+      }
       final message = enabledCount == 0
           ? 'No enabled monitors to check.'
           : enabledCount == 1
@@ -238,7 +246,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ..showSnackBar(SnackBar(content: Text('Refresh failed: $error')));
       }
     } finally {
-      if (mounted) setState(() => _refreshing = false);
+      if (mounted) {
+        setState(() => _refreshing = false);
+      }
     }
   }
 
@@ -272,14 +282,17 @@ class _OfflineNotice extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Icon(LucideIcons.wifi_off, size: 19, color: scheme.onSecondaryContainer),
+          PhosphorIcon(
+            PhosphorIconsDuotone.wifiSlash,
+            size: 19,
+            color: scheme.onSecondaryContainer,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'You are offline · showing saved results',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: scheme.onSecondaryContainer,
-              ),
+              style: Theme.of(context).textTheme.labelLarge
+                  ?.copyWith(color: scheme.onSecondaryContainer),
             ),
           ),
         ],
@@ -339,8 +352,10 @@ class _PortfolioCard extends StatelessWidget {
                     color: scheme.surface.withValues(alpha: (180) / 255),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
-                    allGood ? LucideIcons.shield_check : LucideIcons.activity,
+                  child: PhosphorIcon(
+                    allGood
+                        ? PhosphorIconsDuotone.shieldCheck
+                        : PhosphorIconsDuotone.pulse,
                     size: 22,
                     color: scheme.onSurface,
                   ),
@@ -376,8 +391,8 @@ class _PortfolioCard extends StatelessWidget {
                   ),
                 ),
                 if (attention > 0)
-                  Icon(
-                    LucideIcons.chevron_right,
+                  PhosphorIcon(
+                    PhosphorIconsDuotone.caretRight,
                     size: 18,
                     color: scheme.onPrimaryContainer,
                   ),
@@ -391,7 +406,11 @@ class _PortfolioCard extends StatelessWidget {
 }
 
 class _SwipeableMonitorCard extends ConsumerWidget {
-  const _SwipeableMonitorCard({required this.monitor, required this.settings});
+  const _SwipeableMonitorCard({
+    required this.monitor,
+    required this.settings,
+    super.key,
+  });
 
   final MonitorEntry monitor;
   final AppSettings settings;
@@ -410,14 +429,14 @@ class _SwipeableMonitorCard extends ConsumerWidget {
         alignment: Alignment.centerLeft,
         backgroundColor: scheme.errorContainer,
         foregroundColor: scheme.onErrorContainer,
-        icon: Icons.delete_outline_rounded,
+        icon: PhosphorIconsDuotone.trash,
         label: 'Delete',
       ),
       secondaryBackground: _SwipeActionBackground(
         alignment: Alignment.centerRight,
         backgroundColor: scheme.primaryContainer,
         foregroundColor: scheme.onPrimaryContainer,
-        icon: Icons.edit_rounded,
+        icon: PhosphorIconsDuotone.pencilSimple,
         label: 'Edit',
       ),
       confirmDismiss: (direction) => _handleSwipe(context, ref, direction),
@@ -434,12 +453,14 @@ class _SwipeableMonitorCard extends ConsumerWidget {
       await context.push<void>('/monitor/${monitor.id}/edit');
       return false;
     }
-    if (direction != DismissDirection.startToEnd) return false;
+    if (direction != DismissDirection.startToEnd) {
+      return false;
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.delete_outline_rounded, size: 34),
+        icon: const PhosphorIcon(PhosphorIconsDuotone.trash, size: 34),
         title: const Text('Delete this monitor?'),
         content: Text(
           '${monitor.displayName} and its local reminders will be removed.',
@@ -460,7 +481,9 @@ class _SwipeableMonitorCard extends ConsumerWidget {
         ],
       ),
     );
-    if (confirmed != true || !context.mounted) return false;
+    if (confirmed != true || !context.mounted) {
+      return false;
+    }
 
     try {
       await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
@@ -501,7 +524,7 @@ class _SwipeActionBackground extends StatelessWidget {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(icon, color: foregroundColor),
+        PhosphorIcon(icon, color: foregroundColor),
         const SizedBox(width: 8),
         Text(
           label,
@@ -565,9 +588,7 @@ class _MonitorCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          monitor.port == 443
-                              ? monitor.hostname
-                              : '${monitor.hostname}:${monitor.port}',
+                          _monitorSubtitle(monitor),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall
@@ -602,25 +623,33 @@ class _MonitorCard extends StatelessWidget {
                   ExpiryMetric(
                     label: 'Domain',
                     date: monitor.domainExpiresAt,
-                    icon: Icons.public_rounded,
+                    icon: PhosphorIconsDuotone.globeHemisphereWest,
                   ),
-                  if (monitor.profile.checksCertificate) ...<Widget>[
+                  if (monitor.checksCertificate) ...<Widget>[
                     const SizedBox(width: 10),
                     ExpiryMetric(
                       label: 'Certificate',
                       date: monitor.certificateExpiresAt,
-                      icon: Icons.verified_user_rounded,
+                      icon: PhosphorIconsDuotone.certificate,
                     ),
-                  ] else if (monitor.profile.checksEmail) ...<Widget>[
+                  ] else if (monitor.checksEmail) ...<Widget>[
                     const SizedBox(width: 10),
                     _EmailMetric(monitor: monitor),
                   ],
                 ],
               ),
+              if (monitor.checksCertificate && monitor.checksEmail) ...<Widget>[
+                const SizedBox(height: 10),
+                Row(children: <Widget>[_EmailMetric(monitor: monitor)]),
+              ],
               const SizedBox(height: 13),
               Row(
                 children: <Widget>[
-                  Icon(LucideIcons.clock, size: 15, color: scheme.outline),
+                  PhosphorIcon(
+                    PhosphorIconsDuotone.clock,
+                    size: 15,
+                    color: scheme.outline,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     _freshness(monitor.lastCheckedAt),
@@ -628,8 +657,8 @@ class _MonitorCard extends StatelessWidget {
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
                   const Spacer(),
-                  Icon(
-                    LucideIcons.chevron_right,
+                  PhosphorIcon(
+                    PhosphorIconsDuotone.caretRight,
                     size: 16,
                     color: scheme.outline,
                   ),
@@ -650,35 +679,46 @@ class _SiteIdentity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final fallbackColor = dark
-        ? const Color(0xFFD1D5DB)
-        : const Color(0xFF59616B);
-    Widget content;
-    if (monitor.profile.checksEmail) {
-      content = Icon(LucideIcons.mail, size: 23, color: fallbackColor);
-    } else if (!monitor.profile.discoversSiteIcon) {
-      content = Icon(LucideIcons.scan_search, size: 23, color: fallbackColor);
-    } else if (monitor.siteIcon case final icon?) {
-      content = icon.format.name == 'svg'
+    final siteIcon = monitor.checksCertificate ? monitor.siteIcon : null;
+    if (siteIcon != null) {
+      final image = siteIcon.format == SiteIconFormat.svg
           ? SvgPicture.memory(
-              icon.bytes,
+              siteIcon.bytes,
               width: 28,
               height: 28,
               fit: BoxFit.contain,
             )
           : Image.memory(
-              icon.bytes,
+              siteIcon.bytes,
               width: 28,
               height: 28,
               fit: BoxFit.contain,
               filterQuality: FilterQuality.medium,
               gaplessPlayback: true,
             );
-    } else {
-      content = Icon(LucideIcons.globe_2, size: 23, color: fallbackColor);
+      return _IdentityFrame(child: image);
     }
+
+    final color = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFFD1D5DB)
+        : const Color(0xFF59616B);
+    final fallback = monitor.checksEmail && !monitor.checksCertificate
+        ? PhosphorIconsDuotone.envelopeSimple
+        : PhosphorIconsRegular.globeHemisphereWest;
+    return _IdentityFrame(
+      child: PhosphorIcon(fallback, size: 23, color: color),
+    );
+  }
+}
+
+class _IdentityFrame extends StatelessWidget {
+  const _IdentityFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: 44,
       height: 44,
@@ -692,7 +732,7 @@ class _SiteIdentity extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(15),
       ),
-      child: content,
+      child: child,
     );
   }
 }
@@ -729,7 +769,11 @@ class _EmailMetric extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            Icon(LucideIcons.mail_check, size: 19, color: color),
+            PhosphorIcon(
+              PhosphorIconsDuotone.envelopeSimpleOpen,
+              size: 19,
+              color: color,
+            ),
             const SizedBox(width: 9),
             Expanded(
               child: Column(
@@ -784,19 +828,38 @@ class _EmptyState extends StatelessWidget {
 bool _hasOfflineFailure(MonitorEntry monitor) {
   final failures = <CheckFailure?>[
     monitor.domainActivity.failure,
-    if (monitor.profile.checksCertificate) monitor.certificateActivity.failure,
-    if (monitor.profile.checksEmail) monitor.emailActivity.failure,
+    if (monitor.checksCertificate) monitor.certificateActivity.failure,
+    if (monitor.checksEmail) monitor.emailActivity.failure,
   ];
-  return failures.any(
-    (failure) => failure?.kind == CheckFailureKind.offline,
-  );
+  return failures.any((failure) => failure?.kind == CheckFailureKind.offline);
 }
 
 String _freshness(DateTime? date) {
-  if (date == null) return 'Never checked';
+  if (date == null) {
+    return 'Never checked';
+  }
   final elapsed = DateTime.now().difference(date);
-  if (elapsed.inMinutes < 1) return 'Checked just now';
-  if (elapsed.inHours < 1) return 'Checked ${elapsed.inMinutes}m ago';
-  if (elapsed.inDays < 1) return 'Checked ${elapsed.inHours}h ago';
+  if (elapsed.inMinutes < 1) {
+    return 'Checked just now';
+  }
+  if (elapsed.inHours < 1) {
+    return 'Checked ${elapsed.inMinutes}m ago';
+  }
+  if (elapsed.inDays < 1) {
+    return 'Checked ${elapsed.inHours}h ago';
+  }
   return 'Checked ${elapsed.inDays}d ago';
+}
+
+String _monitorSubtitle(MonitorEntry monitor) {
+  if (!monitor.checksCertificate) {
+    return monitor.hostname;
+  }
+  final endpoint = monitor.tlsPort == 443
+      ? monitor.tlsHostname
+      : '${monitor.tlsHostname}:${monitor.tlsPort}';
+  if (monitor.tlsHostname == monitor.hostname && monitor.tlsPort == 443) {
+    return monitor.hostname;
+  }
+  return '${monitor.hostname} · TLS $endpoint';
 }
