@@ -166,4 +166,12 @@ void main() {
       );
     }
   });
+
+  test('check kinds parse stable attention route identifiers', () {
+    for (final kind in MonitorCheckKind.values) {
+      expect(MonitorCheckKind.fromId(kind.id), kind);
+    }
+    expect(MonitorCheckKind.fromId(null), isNull);
+    expect(MonitorCheckKind.fromId('unknown-check'), isNull);
+  });
 }

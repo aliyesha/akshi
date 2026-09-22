@@ -1,3 +1,4 @@
+import 'package:akshi/features/monitors/domain/monitor_finding.dart';
 import 'package:akshi/features/monitors/presentation/attention_screen.dart';
 import 'package:akshi/features/monitors/presentation/home_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_detail_screen.dart';
@@ -30,8 +31,12 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/monitor/:id',
-      builder: (context, state) =>
-          MonitorDetailScreen(monitorId: state.pathParameters['id']!),
+      builder: (context, state) => MonitorDetailScreen(
+        monitorId: state.pathParameters['id']!,
+        focusKind: MonitorCheckKind.fromId(
+          state.uri.queryParameters['focus'],
+        ),
+      ),
       routes: <RouteBase>[
         GoRoute(
           path: 'edit',

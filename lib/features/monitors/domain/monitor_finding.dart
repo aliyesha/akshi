@@ -10,6 +10,15 @@ enum MonitorCheckKind {
 
   final String id;
   final String label;
+
+  static MonitorCheckKind? fromId(String? id) {
+    for (final kind in values) {
+      if (kind.id == id) {
+        return kind;
+      }
+    }
+    return null;
+  }
 }
 
 class MonitorFinding {

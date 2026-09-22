@@ -5,6 +5,8 @@ import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/monitors/domain/monitor_finding.dart';
+import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
@@ -14,8 +16,14 @@ import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
 class MonitorDetailScreen extends ConsumerStatefulWidget {
-  const MonitorDetailScreen({required this.monitorId, super.key});
+  const MonitorDetailScreen({
+    required this.monitorId,
+    this.focusKind,
+    super.key,
+  });
+
   final String monitorId;
+  final MonitorCheckKind? focusKind;
 
   @override
   ConsumerState<MonitorDetailScreen> createState() =>
@@ -23,7 +31,19 @@ class MonitorDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
+  final _domainSectionKey = GlobalKey();
+  final _tlsSectionKey = GlobalKey();
+  final _emailSectionKey = GlobalKey();
   var _checking = false;
+  var _focusScrollScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant MonitorDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusKind != widget.focusKind) {
+      _focusScrollScheduled = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +65,13 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
       warningDays: settings.firstWarningDays,
       criticalDays: settings.secondWarningDays,
     );
+    final findings = findingsForMonitor(
+      monitor,
+      warningDays: settings.firstWarningDays,
+      criticalDays: settings.secondWarningDays,
+    );
+    final focusedFinding = _focusedFinding(findings);
+    _scheduleFocusScroll();
     return Scaffold(
       appBar: AppBar(
         leading: _backButton(context),
@@ -67,18 +94,34 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
           children: <Widget>[
-            Text(
-              monitor.displayName,
-              style: Theme.of(context).textTheme.displaySmall,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              monitor.hostname,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontFamily: AkshiTheme.monoFontFamily,
-                fontFeatures: const <FontFeature>[FontFeature.slashedZero()],
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                SiteIdentity(monitor: monitor, size: 56),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        monitor.displayName,
+                        style: Theme.of(context).textTheme.displaySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        monitor.hostname,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontFamily: AkshiTheme.monoFontFamily,
+                          fontFeatures: const <FontFeature>[
+                            FontFeature.slashedZero(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             if (monitor.tags.isNotEmpty) ...<Widget>[
               const SizedBox(height: 12),
@@ -140,12 +183,17 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             ],
             const SizedBox(height: 26),
             _ExpiryPanel(
+              key: _domainSectionKey,
               icon: PhosphorIconsDuotone.globeHemisphereWest,
               title: 'Domain registration',
               date: monitor.domainExpiresAt,
               source: monitor.domainSource == null
                   ? 'No registry date available'
                   : 'Verified through ${monitor.domainSource}',
+              focus: _focusFor(
+                MonitorCheckKind.domainRegistration,
+                focusedFinding,
+              ),
             ),
             const SizedBox(height: 26),
             Text(
@@ -200,12 +248,17 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             if (monitor.checksCertificate) ...<Widget>[
               const SizedBox(height: 12),
               _ExpiryPanel(
+                key: _tlsSectionKey,
                 icon: PhosphorIconsDuotone.certificate,
                 title: 'TLS certificate',
                 date: monitor.certificateExpiresAt,
                 source: monitor.certificateIssuer == null
                     ? 'No certificate data available'
                     : 'Issued by ${formatCertificateIssuer(monitor.certificateIssuer!)}',
+                focus: _focusFor(
+                  MonitorCheckKind.tlsCertificate,
+                  focusedFinding,
+                ),
               ),
               const SizedBox(height: 26),
               Text(
@@ -286,6 +339,11 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             ],
             if (monitor.checksEmail) ...<Widget>[
               const SizedBox(height: 26),
+              if (widget.focusKind == MonitorCheckKind.emailConfiguration &&
+                  focusedFinding != null) ...<Widget>[
+                _FocusReason(key: _emailSectionKey, finding: focusedFinding),
+                const SizedBox(height: 14),
+              ],
               Text(
                 'Email posture',
                 style: Theme.of(context).textTheme.titleLarge,
@@ -345,6 +403,53 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ),
       ),
     );
+  }
+
+  MonitorFinding? _focusedFinding(List<MonitorFinding> findings) {
+    final focusKind = widget.focusKind;
+    if (focusKind == null) {
+      return null;
+    }
+    for (final finding in findings) {
+      if (finding.kind == focusKind) {
+        return finding;
+      }
+    }
+    return null;
+  }
+
+  MonitorFinding? _focusFor(
+    MonitorCheckKind kind,
+    MonitorFinding? finding,
+  ) => widget.focusKind == kind ? finding : null;
+
+  void _scheduleFocusScroll() {
+    final focusKind = widget.focusKind;
+    if (focusKind == null || _focusScrollScheduled) {
+      return;
+    }
+    final targetKey = switch (focusKind) {
+      MonitorCheckKind.domainRegistration => _domainSectionKey,
+      MonitorCheckKind.tlsCertificate => _tlsSectionKey,
+      MonitorCheckKind.emailConfiguration => _emailSectionKey,
+    };
+    _focusScrollScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final targetContext = targetKey.currentContext;
+      if (targetContext == null) {
+        _focusScrollScheduled = false;
+        return;
+      }
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+        alignment: .08,
+      );
+    });
   }
 
   MonitorEntry? _find(List<MonitorEntry> items) {
@@ -411,26 +516,42 @@ class _ExpiryPanel extends StatelessWidget {
     required this.title,
     required this.date,
     required this.source,
+    this.focus,
+    super.key,
   });
 
   final IconData icon;
   final String title;
   final DateTime? date;
   final String source;
+  final MonitorFinding? focus;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final days = date?.difference(DateTime.now()).inDays;
+    final focusedFinding = focus;
+    final accent = focusedFinding == null
+        ? scheme.primary
+        : monitorStatusColor(scheme, focusedFinding.status);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest,
+        color: focusedFinding == null
+            ? scheme.surfaceContainerLowest
+            : Color.lerp(scheme.surfaceContainerLowest, accent, .08),
+        border: focusedFinding == null
+            ? null
+            : Border.all(color: accent.withValues(alpha: .58), width: 1.4),
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          if (focusedFinding != null) ...<Widget>[
+            _FocusReason(finding: focusedFinding),
+            const SizedBox(height: 16),
+          ],
           Row(
             children: <Widget>[
               Container(
@@ -472,6 +593,56 @@ class _ExpiryPanel extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: scheme.onSurfaceVariant),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusReason extends StatelessWidget {
+  const _FocusReason({required this.finding, super.key});
+
+  final MonitorFinding finding;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = monitorStatusColor(scheme, finding.status);
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: .11),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          PhosphorIcon(
+            PhosphorIconsDuotone.warningCircle,
+            size: 21,
+            color: accent,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  finding.needsAttention
+                      ? 'Why this needs attention'
+                      : 'Current result',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: accent,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(finding.summary),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          StatusPill(status: finding.status),
         ],
       ),
     );

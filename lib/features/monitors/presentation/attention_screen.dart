@@ -177,7 +177,7 @@ class _AttentionCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(24),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => context.push('/monitor/${monitor.id}'),
+        onTap: () => context.push(_detailLocation(monitor.id, findings)),
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -302,4 +302,16 @@ class _ClearState extends StatelessWidget {
       ],
     ),
   );
+}
+
+String _detailLocation(String monitorId, List<MonitorFinding> findings) {
+  MonitorFinding? focus;
+  for (final finding in findings) {
+    if (finding.needsAttention) {
+      focus = finding;
+      break;
+    }
+  }
+  focus ??= findings.isEmpty ? null : findings.first;
+  return '/monitor/$monitorId?focus=${focus?.kind.id ?? ''}';
 }

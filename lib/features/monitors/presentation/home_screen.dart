@@ -7,13 +7,12 @@ import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
-import 'package:akshi/features/monitors/domain/site_icon.dart';
+import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
@@ -26,9 +25,16 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  final _searchController = TextEditingController();
   var _query = '';
   String? _selectedTagId;
   var _refreshing = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +67,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               final matchesQuery =
                   query.isEmpty ||
                   item.hostname.contains(query) ||
-                  (item.label?.toLowerCase().contains(query) ?? false) ||
+                  item.displayName.toLowerCase().contains(query) ||
                   item.tags.any(
                     (tag) => tag.name.toLowerCase().contains(query),
                   );
@@ -144,13 +150,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
                       sliver: SliverToBoxAdapter(
                         child: SearchBar(
-                          hintText: 'Search domains, labels, or tags',
+                          controller: _searchController,
+                          hintText: 'Search domains, names, or tags',
                           leading: const Padding(
                             padding: EdgeInsets.only(left: 4),
                             child: PhosphorIcon(
                               PhosphorIconsDuotone.magnifyingGlass,
                             ),
                           ),
+                          trailing: _query.isEmpty
+                              ? null
+                              : <Widget>[
+                                  IconButton(
+                                    tooltip: 'Clear search',
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() => _query = '');
+                                    },
+                                    icon: const PhosphorIcon(
+                                      PhosphorIconsRegular.x,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ],
                           onChanged: (value) => setState(() => _query = value),
                         ),
                       ),
@@ -164,6 +186,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           padding: const EdgeInsets.only(right: 18),
                           child: Row(
                             children: <Widget>[
+                              PhosphorIcon(
+                                PhosphorIconsDuotone.funnelSimple,
+                                size: 17,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 7),
+                              Text(
+                                'Filter by tag',
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                              ),
+                              const SizedBox(width: 10),
                               for (final tag in tags) ...<Widget>[
                                 TagPill(
                                   tag: tag,
@@ -574,7 +614,7 @@ class _MonitorCard extends StatelessWidget {
             children: <Widget>[
               Row(
                 children: <Widget>[
-                  _SiteIdentity(monitor: monitor),
+                  SiteIdentity(monitor: monitor),
                   const SizedBox(width: 13),
                   Expanded(
                     child: Column(
@@ -668,71 +708,6 @@ class _MonitorCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _SiteIdentity extends StatelessWidget {
-  const _SiteIdentity({required this.monitor});
-
-  final MonitorEntry monitor;
-
-  @override
-  Widget build(BuildContext context) {
-    final siteIcon = monitor.checksCertificate ? monitor.siteIcon : null;
-    if (siteIcon != null) {
-      final image = siteIcon.format == SiteIconFormat.svg
-          ? SvgPicture.memory(
-              siteIcon.bytes,
-              width: 28,
-              height: 28,
-              fit: BoxFit.contain,
-            )
-          : Image.memory(
-              siteIcon.bytes,
-              width: 28,
-              height: 28,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.medium,
-              gaplessPlayback: true,
-            );
-      return _IdentityFrame(child: image);
-    }
-
-    final color = Theme.of(context).brightness == Brightness.dark
-        ? const Color(0xFFD1D5DB)
-        : const Color(0xFF59616B);
-    final fallback = monitor.checksEmail && !monitor.checksCertificate
-        ? PhosphorIconsDuotone.envelopeSimple
-        : PhosphorIconsRegular.globeHemisphereWest;
-    return _IdentityFrame(
-      child: PhosphorIcon(fallback, size: 23, color: color),
-    );
-  }
-}
-
-class _IdentityFrame extends StatelessWidget {
-  const _IdentityFrame({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: 44,
-      height: 44,
-      padding: const EdgeInsets.all(8),
-      alignment: Alignment.center,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: dark ? Colors.black : Colors.white,
-        border: Border.all(
-          color: dark ? const Color(0xFF656B73) : const Color(0xFFD6DAE0),
-        ),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: child,
     );
   }
 }
