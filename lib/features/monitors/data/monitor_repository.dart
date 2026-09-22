@@ -3,11 +3,13 @@ import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 import 'package:sqflite/sqflite.dart';
 
+/// Translates monitor domain objects to SQLite rows and back.
 class MonitorRepository {
   MonitorRepository(this._database);
 
   final AppDatabase _database;
 
+  /// Returns monitors in expiry-first order with their tag objects attached.
   Future<List<MonitorEntry>> all() async {
     final database = await _database.instance;
     final rows = await database.query(
@@ -23,6 +25,7 @@ class MonitorRepository {
         .toList(growable: false);
   }
 
+  /// Reads one monitor and its tags, or returns null when it was deleted.
   Future<MonitorEntry?> byId(String id) async {
     final database = await _database.instance;
     final rows = await database.query(
@@ -39,6 +42,7 @@ class MonitorRepository {
         .copyWith(tags: tags[id] ?? const []);
   }
 
+  /// Inserts a monitor and all tag links atomically.
   Future<void> create(
     MonitorEntry monitor, {
     Iterable<String> tagIds = const <String>[],
@@ -54,6 +58,7 @@ class MonitorRepository {
     });
   }
 
+  /// Updates a monitor and optionally replaces its tag links in one transaction.
   Future<void> update(MonitorEntry monitor, {Iterable<String>? tagIds}) async {
     final database = await _database.instance;
     await database.transaction((transaction) async {
@@ -73,6 +78,10 @@ class MonitorRepository {
     });
   }
 
+  /// Persists a check result only if the monitor row still exists.
+  ///
+  /// The boolean prevents a check that raced with deletion from recreating data
+  /// or producing a misleading notification.
   Future<bool> updateIfPresent(MonitorEntry monitor) async {
     final database = await _database.instance;
     final changed = await database.update(
@@ -85,6 +94,7 @@ class MonitorRepository {
     return changed == 1;
   }
 
+  /// Deletes tag links and the monitor row atomically.
   Future<bool> delete(String id) async {
     final database = await _database.instance;
     return database.transaction((transaction) async {
@@ -102,6 +112,7 @@ class MonitorRepository {
     });
   }
 
+  /// Replaces the complete monitor/tag relation without leaving stale links.
   Future<void> _replaceTags(
     DatabaseExecutor database,
     String monitorId,
@@ -120,6 +131,7 @@ class MonitorRepository {
     }
   }
 
+  /// Builds a monitor-id to ordered tag list map from the join table.
   Future<Map<String, List<MonitorTag>>> _tagMap(
     Database database, {
     String? monitorId,

@@ -46,7 +46,9 @@ class MailFinding {
   final List<MailFact> facts;
 
   bool get needsAttention =>
-      state == MailFindingState.warning || state == MailFindingState.invalid;
+      state == MailFindingState.warning ||
+      state == MailFindingState.invalid ||
+      state == MailFindingState.unavailable;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,

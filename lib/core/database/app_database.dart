@@ -1,9 +1,17 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+/// Owns the single local SQLite connection used by Akshi repositories.
+///
+/// The schema is created as one clean development schema. Foreign keys are
+/// enabled before any repository transaction runs.
 class AppDatabase {
   Database? _database;
 
+  /// Opens the database lazily and returns the cached connection thereafter.
+  ///
+  /// Lazy initialization keeps app startup light while preserving one shared
+  /// connection for monitor and tag repositories.
   Future<Database> get instance async {
     final current = _database;
     if (current != null) return current;
@@ -57,6 +65,7 @@ class AppDatabase {
             certificate_public_key_algorithm TEXT,
             certificate_public_key_details TEXT,
             email_posture_json TEXT,
+            dns_snapshot_json TEXT,
             site_icon_format TEXT,
             site_icon_bytes BLOB,
             site_icon_source_url TEXT,

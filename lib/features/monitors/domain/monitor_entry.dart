@@ -3,12 +3,17 @@ import 'dart:typed_data';
 
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
+import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:akshi/features/monitors/domain/site_icon.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 
 const _unset = Object();
 
+/// Immutable definition plus latest observations for one monitored hostname.
+///
+/// The object is the shared contract between forms, checks, persistence,
+/// notifications, and the overview/detail screens.
 class MonitorEntry {
   const MonitorEntry({
     required this.id,
@@ -52,6 +57,7 @@ class MonitorEntry {
     this.certificatePublicKeyAlgorithm,
     this.certificatePublicKeyDetails,
     this.emailPosture,
+    this.dnsSnapshot,
     this.siteIcon,
   });
 
@@ -96,23 +102,33 @@ class MonitorEntry {
   final String? certificatePublicKeyAlgorithm;
   final String? certificatePublicKeyDetails;
   final EmailPosture? emailPosture;
+  final DnsSnapshot? dnsSnapshot;
   final SiteIcon? siteIcon;
 
+  /// Uses the optional user name in the UI while retaining the hostname as the
+  /// stable identity and search key.
   String get displayName =>
       label?.trim().isNotEmpty == true ? label! : hostname;
 
+  /// Reports a certificate replacement when both fingerprints are comparable.
   bool get certificateChanged =>
       previousCertificateFingerprint != null &&
       previousCertificateFingerprint != certificateFingerprint;
 
+  /// Returns the latest attempted check across the enabled check families.
   DateTime? get latestAttemptedAt => latestCheckTime(<CheckActivity>[
     domainActivity,
     if (checksCertificate) certificateActivity,
     if (checksEmail) emailActivity,
   ]);
 
+  /// Calculates a user-facing whole-day distance from now to an expiry value.
   int? daysUntil(DateTime? value) => value?.difference(DateTime.now()).inDays;
 
+  /// Combines domain, certificate, and email states using the most severe one.
+  ///
+  /// Availability failures are distinct from expiry failures so the UI can
+  /// explain whether a result is unsafe or simply could not be checked.
   MonitorStatus overallStatus({
     int warningDays = 10,
     int criticalDays = 5,
@@ -170,6 +186,8 @@ class MonitorEntry {
     return states.first;
   }
 
+  /// Creates a changed immutable copy while allowing nullable fields to be
+  /// explicitly cleared through the internal [_unset] sentinel.
   MonitorEntry copyWith({
     String? hostname,
     String? tlsHostname,
@@ -210,6 +228,7 @@ class MonitorEntry {
     String? certificatePublicKeyAlgorithm,
     String? certificatePublicKeyDetails,
     Object? emailPosture = _unset,
+    Object? dnsSnapshot = _unset,
     Object? siteIcon = _unset,
   }) => MonitorEntry(
     id: id,
@@ -278,11 +297,15 @@ class MonitorEntry {
     emailPosture: identical(emailPosture, _unset)
         ? this.emailPosture
         : emailPosture as EmailPosture?,
+    dnsSnapshot: identical(dnsSnapshot, _unset)
+        ? this.dnsSnapshot
+        : dnsSnapshot as DnsSnapshot?,
     siteIcon: identical(siteIcon, _unset)
         ? this.siteIcon
         : siteIcon as SiteIcon?,
   );
 
+  /// Serializes the complete monitor aggregate into SQLite-compatible values.
   Map<String, Object?> toMap() => <String, Object?>{
     'id': id,
     'hostname': hostname,
@@ -328,12 +351,16 @@ class MonitorEntry {
     'email_posture_json': emailPosture == null
         ? null
         : jsonEncode(emailPosture!.toJson()),
+    'dns_snapshot_json': dnsSnapshot == null
+        ? null
+        : jsonEncode(dnsSnapshot!.toJson()),
     'site_icon_format': siteIcon?.format.storageValue,
     'site_icon_bytes': siteIcon?.bytes,
     'site_icon_source_url': siteIcon?.sourceUrl,
     'site_icon_checked_at': siteIcon?.checkedAt.toUtc().toIso8601String(),
   };
 
+  /// Rehydrates a monitor row, tolerating nullable columns from a fresh check.
   factory MonitorEntry.fromMap(Map<String, Object?> map) {
     DateTime? date(String key) {
       final value = map[key] as String?;
@@ -359,6 +386,11 @@ class MonitorEntry {
     EmailPosture? readEmailPosture() {
       final value = jsonMap('email_posture_json');
       return value == null ? null : EmailPosture.fromJson(value);
+    }
+
+    DnsSnapshot? readDnsSnapshot() {
+      final value = jsonMap('dns_snapshot_json');
+      return value == null ? null : DnsSnapshot.fromJson(value);
     }
 
     SiteIcon? readSiteIcon() {
@@ -432,6 +464,7 @@ class MonitorEntry {
           map['certificate_public_key_details'] as String?,
       emailPosture: readEmailPosture(),
       siteIcon: readSiteIcon(),
+      dnsSnapshot: readDnsSnapshot(),
     );
   }
 }
