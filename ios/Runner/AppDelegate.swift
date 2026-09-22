@@ -16,7 +16,7 @@ import dnssd
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     let channel = FlutterMethodChannel(
-      name: "app.akshi.monitor/dns",
+      name: "com.aliyesha.akshi/dns",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
     )
     channel.setMethodCallHandler { [weak self] call, result in
@@ -44,7 +44,7 @@ import dnssd
         if let error {
           result(FlutterError(code: "dns_error", message: error, details: nil))
         } else {
-          result(["records": records.map { FlutterStandardTypedData(bytes: $0) }])
+          result(["records": records])
         }
       }
     }
@@ -55,14 +55,14 @@ import dnssd
 }
 
 private final class SystemDnsQuery {
-  typealias Completion = (SystemDnsQuery, [Data], String?) -> Void
+  typealias Completion = (SystemDnsQuery, [[String: Any]], String?) -> Void
 
   private let name: String
   private let type: UInt16
   private let completion: Completion
-  private let queue = DispatchQueue(label: "app.akshi.monitor.dns")
+  private let queue = DispatchQueue(label: "com.aliyesha.akshi.dns")
   private var serviceRef: DNSServiceRef?
-  private var records: [Data] = []
+  private var records: [[String: Any]] = []
   private var completed = false
 
   init(name: String, type: UInt16, completion: @escaping Completion) {
@@ -97,6 +97,9 @@ private final class SystemDnsQuery {
     flags: DNSServiceFlags,
     errorCode: DNSServiceErrorType,
     length: UInt16,
+    owner: String,
+    recordType: UInt16,
+    ttl: UInt32,
     data: UnsafeRawPointer?
   ) {
     if errorCode == kDNSServiceErr_NoSuchRecord {
@@ -108,7 +111,14 @@ private final class SystemDnsQuery {
       return
     }
     if let data, length > 0 {
-      records.append(Data(bytes: data, count: Int(length)))
+      records.append([
+        "owner": owner.isEmpty ? name : owner,
+        "type": Int(recordType),
+        "ttl": Int(ttl),
+        "data": FlutterStandardTypedData(
+          bytes: Data(bytes: data, count: Int(length))
+        ),
+      ])
     }
     if flags & DNSServiceFlags(kDNSServiceFlagsMoreComing) == 0 {
       finish(error: nil)
@@ -131,13 +141,16 @@ private final class SystemDnsQuery {
 }
 
 private let systemDnsCallback: DNSServiceQueryRecordReply = {
-  _, flags, _, errorCode, _, _, _, dataLength, recordData, _, context in
+  _, flags, _, errorCode, fullname, recordType, _, dataLength, recordData, ttl, context in
   guard let context else { return }
   let query = Unmanaged<SystemDnsQuery>.fromOpaque(context).takeUnretainedValue()
   query.receive(
     flags: flags,
     errorCode: errorCode,
     length: dataLength,
+    owner: fullname.map { String(cString: $0) } ?? "",
+    recordType: recordType,
+    ttl: ttl,
     data: recordData
   )
 }

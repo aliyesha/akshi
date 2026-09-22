@@ -1,4 +1,4 @@
-package app.akshi.akshi
+package com.aliyesha.akshi
 
 import android.net.DnsResolver
 import android.os.CancellationSignal
@@ -12,7 +12,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "app.akshi.monitor/dns",
+            "com.aliyesha.akshi/dns",
         ).setMethodCallHandler { call, result ->
             if (call.method != "query") {
                 result.notImplemented()
@@ -57,7 +57,7 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    private fun parseAnswers(packet: ByteArray, expectedType: Int): List<ByteArray> {
+    private fun parseAnswers(packet: ByteArray, expectedType: Int): List<Map<String, Any>> {
         if (packet.size < 12) error("DNS response is too short")
         val questions = uint16(packet, 4)
         val answerCount = uint16(packet, 6)
@@ -67,21 +67,29 @@ class MainActivity : FlutterActivity() {
             offset += 4
             if (offset > packet.size) error("Invalid DNS question")
         }
-        val records = mutableListOf<ByteArray>()
+        val records = mutableListOf<Map<String, Any>>()
         repeat(answerCount) {
+            val owner = readName(packet, offset).ifEmpty { "." }
             offset = skipName(packet, offset)
             if (offset + 10 > packet.size) error("Invalid DNS answer")
+            val ttl = uint32(packet, offset + 4)
             val type = uint16(packet, offset)
             val recordClass = uint16(packet, offset + 2)
             val dataLength = uint16(packet, offset + 8)
             val dataOffset = offset + 10
             if (dataOffset + dataLength > packet.size) error("Invalid DNS record data")
             if (type == expectedType && recordClass == 1) {
-                records += when (type) {
+                val data = when (type) {
+                    2, 5 -> normalizeName(packet, dataOffset)
                     15 -> normalizeMx(packet, dataOffset, dataLength)
-                    16 -> packet.copyOfRange(dataOffset, dataOffset + dataLength)
-                    else -> byteArrayOf()
+                    else -> packet.copyOfRange(dataOffset, dataOffset + dataLength)
                 }
+                records += mapOf(
+                    "owner" to owner,
+                    "type" to type,
+                    "ttl" to ttl,
+                    "data" to data,
+                )
             }
             offset = dataOffset + dataLength
         }
@@ -98,6 +106,23 @@ class MainActivity : FlutterActivity() {
             output.write(0)
         } else {
             labels.split('.').forEach { label ->
+                val bytes = label.toByteArray(Charsets.UTF_8)
+                if (bytes.size > 63) error("Invalid DNS label")
+                output.write(bytes.size)
+                output.write(bytes)
+            }
+            output.write(0)
+        }
+        return output.toByteArray()
+    }
+
+    private fun normalizeName(packet: ByteArray, offset: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val name = readName(packet, offset)
+        if (name.isEmpty()) {
+            output.write(0)
+        } else {
+            name.split('.').forEach { label ->
                 val bytes = label.toByteArray(Charsets.UTF_8)
                 if (bytes.size > 63) error("Invalid DNS label")
                 output.write(bytes.size)
@@ -147,5 +172,13 @@ class MainActivity : FlutterActivity() {
         if (offset + 1 >= bytes.size) error("Invalid DNS integer")
         return ((bytes[offset].toInt() and 0xff) shl 8) or
             (bytes[offset + 1].toInt() and 0xff)
+    }
+
+    private fun uint32(bytes: ByteArray, offset: Int): Long {
+        if (offset + 3 >= bytes.size) error("Invalid DNS integer")
+        return ((bytes[offset].toLong() and 0xff) shl 24) or
+            ((bytes[offset + 1].toLong() and 0xff) shl 16) or
+            ((bytes[offset + 2].toLong() and 0xff) shl 8) or
+            (bytes[offset + 3].toLong() and 0xff)
     }
 }
