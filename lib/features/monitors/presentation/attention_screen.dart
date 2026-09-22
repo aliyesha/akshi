@@ -189,10 +189,7 @@ class _AttentionCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         side: resolved
             ? BorderSide.none
-            : BorderSide(
-                color: accent.withValues(alpha: .46),
-                width: 1.2,
-              ),
+            : BorderSide(color: accent.withValues(alpha: .46), width: 1.2),
         borderRadius: BorderRadius.circular(24),
       ),
       clipBehavior: Clip.antiAlias,
@@ -265,9 +262,7 @@ class _FindingRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final accent = monitorStatusColor(scheme, finding.status);
-    final iconColor = finding.needsAttention
-        ? accent
-        : scheme.onSurfaceVariant;
+    final iconColor = finding.needsAttention ? accent : scheme.onSurfaceVariant;
     final icon = switch (finding.kind) {
       MonitorCheckKind.domainRegistration =>
         PhosphorIconsDuotone.globeHemisphereWest,
@@ -350,5 +345,11 @@ String _detailLocation(String monitorId, List<MonitorFinding> findings) {
     }
   }
   focus ??= findings.isEmpty ? null : findings.first;
-  return '/monitor/$monitorId?focus=${focus?.kind.id ?? ''}';
+  final path = switch (focus?.kind) {
+    MonitorCheckKind.domainRegistration => 'domain',
+    MonitorCheckKind.tlsCertificate => 'tls',
+    MonitorCheckKind.emailConfiguration => 'email',
+    null => null,
+  };
+  return path == null ? '/monitor/$monitorId' : '/monitor/$monitorId/$path';
 }

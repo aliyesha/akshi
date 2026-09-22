@@ -3,6 +3,7 @@ import 'package:akshi/core/widgets/akshi_mark.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/core/widgets/expiry_metric.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
@@ -279,7 +280,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(message)));
-    } on Object catch (error) {
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'ui.home.refresh.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'enabledCount': enabledCount},
+      );
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -527,7 +534,8 @@ class _SwipeableMonitorCard extends ConsumerWidget {
 
     try {
       await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
-    } on Object catch (error) {
+    } catch (error, stackTrace) {
+      appLogger.error('ui.home.delete.failed', error, stackTrace);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not delete monitor: $error')),

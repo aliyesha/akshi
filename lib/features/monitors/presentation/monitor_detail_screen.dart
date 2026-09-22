@@ -100,7 +100,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
       criticalDays: settings.secondWarningDays,
     );
     _attentionFindings = findings
-        .where((finding) => finding.needsAttention)
+        .where(
+          (finding) =>
+              finding.needsAttention && finding.kind == widget.focusKind,
+        )
         .toList(growable: false);
     final domainAttention = _attentionFinding(
       findings,
@@ -225,7 +228,8 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                         ),
                 ),
               ],
-              if (monitor.certificateChanged) ...<Widget>[
+              if (widget.focusKind == MonitorCheckKind.tlsCertificate &&
+                  monitor.certificateChanged) ...<Widget>[
                 const SizedBox(height: 18),
                 _Notice(
                   icon: PhosphorIconsDuotone.sparkle,
@@ -233,95 +237,98 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   message: 'The live certificate fingerprint changed on the latest check.',
                 ),
               ],
-              if (monitor.domainError != null ||
-                  (monitor.checksCertificate &&
+              if ((widget.focusKind == MonitorCheckKind.domainRegistration &&
+                      monitor.domainError != null) ||
+                  (widget.focusKind == MonitorCheckKind.tlsCertificate &&
                       monitor.certificateError != null) ||
-                  (monitor.checksEmail &&
+                  (widget.focusKind == MonitorCheckKind.emailConfiguration &&
                       monitor.emailActivity.failure != null)) ...<Widget>[
                 const SizedBox(height: 18),
                 _Notice(
                   icon: PhosphorIconsDuotone.warningCircle,
                   title: 'Some data could not be verified',
                   message: [
-                    if (monitor.domainError != null)
+                    if (widget.focusKind == MonitorCheckKind.domainRegistration)
                       'Domain: ${monitor.domainError}',
-                    if (monitor.checksCertificate &&
-                        monitor.certificateError != null)
+                    if (widget.focusKind == MonitorCheckKind.tlsCertificate)
                       'Certificate: ${monitor.certificateError}',
-                    if (monitor.checksEmail &&
-                        monitor.emailActivity.failure != null)
+                    if (widget.focusKind == MonitorCheckKind.emailConfiguration)
                       'Email: ${monitor.emailActivity.failure!.message}',
                   ].join(String.fromCharCode(10)),
                   error: true,
                 ),
               ],
-              const SizedBox(height: 26),
-              _ExpiryPanel(
-                key: _domainSectionKey,
-                icon: PhosphorIconsDuotone.globeHemisphereWest,
-                title: 'Domain registration',
-                date: monitor.domainExpiresAt,
-                source: monitor.domainSource == null
-                    ? 'No registry date available'
-                    : 'Verified through ${monitor.domainSource}',
-                focus: domainAttention,
-                focusPulse: _pulseFor(MonitorCheckKind.domainRegistration),
-              ),
-              const SizedBox(height: 26),
-              Text(
-                'Domain details',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              _InfoCard(
-                children: <Widget>[
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.bank,
-                    label: 'Registrar',
-                    value: _domainText(monitor, monitor.domainRegistrar),
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.identificationCard,
-                    label: 'Public registrant',
-                    value: _domainText(
-                      monitor,
-                      monitor.domainPublicRegistrant,
-                      unpublished: 'Not publicly disclosed',
+              if (widget.focusKind ==
+                  MonitorCheckKind.domainRegistration) ...<Widget>[
+                const SizedBox(height: 26),
+                _ExpiryPanel(
+                  key: _domainSectionKey,
+                  icon: PhosphorIconsDuotone.globeHemisphereWest,
+                  title: 'Domain registration',
+                  date: monitor.domainExpiresAt,
+                  source: monitor.domainSource == null
+                      ? 'No registry date available'
+                      : 'Verified through ${monitor.domainSource}',
+                  focus: domainAttention,
+                  focusPulse: _pulseFor(MonitorCheckKind.domainRegistration),
+                ),
+                const SizedBox(height: 26),
+                Text(
+                  'Domain details',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                _InfoCard(
+                  children: <Widget>[
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.bank,
+                      label: 'Registrar',
+                      value: _domainText(monitor, monitor.domainRegistrar),
                     ),
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.calendarCheck,
-                    label: 'Registered',
-                    value: _domainDate(
-                      context,
-                      monitor,
-                      monitor.domainRegisteredAt,
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.identificationCard,
+                      label: 'Public registrant',
+                      value: _domainText(
+                        monitor,
+                        monitor.domainPublicRegistrant,
+                        unpublished: 'Not publicly disclosed',
+                      ),
                     ),
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsRegular.clock,
-                    label: 'Last changed',
-                    value: _domainDate(
-                      context,
-                      monitor,
-                      monitor.domainUpdatedAt,
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.calendarCheck,
+                      label: 'Registered',
+                      value: _domainDate(
+                        context,
+                        monitor,
+                        monitor.domainRegisteredAt,
+                      ),
                     ),
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsRegular.network,
-                    label: 'Name servers',
-                    value: _domainText(
-                      monitor,
-                      monitor.domainNameServers.isEmpty
-                          ? null
-                          : monitor.domainNameServers.join('\n'),
+                    _InfoRow(
+                      icon: PhosphorIconsRegular.clock,
+                      label: 'Last changed',
+                      value: _domainDate(
+                        context,
+                        monitor,
+                        monitor.domainUpdatedAt,
+                      ),
                     ),
-                    monospace: true,
-                    last: true,
-                  ),
-                ],
-              ),
-              if (monitor.checksCertificate) ...<Widget>[
+                    _InfoRow(
+                      icon: PhosphorIconsRegular.network,
+                      label: 'Name servers',
+                      value: _domainText(
+                        monitor,
+                        monitor.domainNameServers.isEmpty
+                            ? null
+                            : monitor.domainNameServers.join('\n'),
+                      ),
+                      monospace: true,
+                      last: true,
+                    ),
+                  ],
+                ),
+              ],
+              if (widget.focusKind == MonitorCheckKind.tlsCertificate &&
+                  monitor.checksCertificate) ...<Widget>[
                 const SizedBox(height: 12),
                 _ExpiryPanel(
                   key: _tlsSectionKey,
@@ -413,7 +420,8 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   ],
                 ),
               ],
-              if (monitor.checksEmail) ...<Widget>[
+              if (widget.focusKind == MonitorCheckKind.emailConfiguration &&
+                  monitor.checksEmail) ...<Widget>[
                 const SizedBox(height: 26),
                 if (emailAttention != null) ...<Widget>[
                   KeyedSubtree(
@@ -458,9 +466,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                     title: monitor.emailActivity.failure == null
                         ? 'Email not checked yet'
                         : 'Email DNS lookup unavailable',
-                    message:
-                        monitor.emailActivity.failure?.message ??
-                        'Run a check to inspect the domain’s public mail records.',
+                    message: monitor.emailActivity.failure?.message ?? 'Run a check to inspect the domain’s public mail records.',
                     error: monitor.emailActivity.failure != null,
                   )
                 else
@@ -787,10 +793,7 @@ class _ExpiryPanel extends StatelessWidget {
               ),
         border: focusedFinding == null
             ? null
-            : Border.all(
-                color: accent.withValues(alpha: .72),
-                width: 1.6,
-              ),
+            : Border.all(color: accent.withValues(alpha: .72), width: 1.6),
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(

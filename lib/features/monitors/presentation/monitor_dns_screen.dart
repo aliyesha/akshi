@@ -1,0 +1,368 @@
+import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/features/monitors/application/monitor_controller.dart';
+import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
+import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:phosphor_icons/phosphor_icons.dart';
+
+class MonitorDnsScreen extends ConsumerStatefulWidget {
+  const MonitorDnsScreen({required this.monitorId, super.key});
+
+  final String monitorId;
+
+  @override
+  ConsumerState<MonitorDnsScreen> createState() => _MonitorDnsScreenState();
+}
+
+class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
+  var _checking = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(monitorControllerProvider);
+    final monitor = _find(items.value ?? const <MonitorEntry>[]);
+    if (monitor == null) {
+      return Scaffold(
+        appBar: AppBar(leading: _backButton(context)),
+        body: Center(
+          child: items.isLoading
+              ? const CircularProgressIndicator()
+              : const Text('Monitor not found'),
+        ),
+      );
+    }
+    final snapshot = monitor.dnsSnapshot;
+    final visible =
+        snapshot?.queries
+            .where((query) => query.state != DnsQueryState.absent)
+            .toList(growable: false) ??
+        const <DnsQueryResult>[];
+    final absentCount =
+        snapshot?.queries
+            .where((query) => query.state == DnsQueryState.absent)
+            .length ??
+        0;
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: _backButton(context),
+        title: const Text('DNS records'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Check now',
+            onPressed: _checking ? null : () => _refresh(monitor),
+            icon: _checking
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const PhosphorIcon(PhosphorIconsRegular.arrowsClockwise),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
+        children: <Widget>[
+          Text(monitor.hostname, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 6),
+          Text(
+            'A snapshot from this device’s system DNS resolver. Akshi asks for specific record types; it does not use an incomplete ANY response.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              height: 1.45,
+            ),
+          ),
+          if (snapshot != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              'Checked ${_formatDateTime(context, snapshot.checkedAt)}',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          if (snapshot == null)
+            _EmptyDns(onCheck: () => _refresh(monitor))
+          else if (visible.isEmpty)
+            const _NoPublishedRecords()
+          else
+            for (final query in visible) ...<Widget>[
+              _QueryCard(query: query),
+              const SizedBox(height: 10),
+            ],
+          if (snapshot != null && absentCount > 0) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              '$absentCount requested record ${absentCount == 1 ? 'group was' : 'groups were'} not published.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  MonitorEntry? _find(List<MonitorEntry> items) {
+    for (final item in items) {
+      if (item.id == widget.monitorId) return item;
+    }
+    return null;
+  }
+
+  Future<void> _refresh(MonitorEntry monitor) async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+}
+
+class _QueryCard extends StatelessWidget {
+  const _QueryCard({required this.query});
+
+  final DnsQueryResult query;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final failed = query.state == DnsQueryState.failed;
+    final accent = failed ? scheme.error : scheme.primary;
+    return Material(
+      color: failed
+          ? Color.alphaBlend(
+              scheme.error.withValues(alpha: .1),
+              scheme.surfaceContainerLowest,
+            )
+          : scheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: accent.withValues(alpha: failed ? .5 : .18)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: failed
+          ? Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  PhosphorIcon(
+                    PhosphorIconsDuotone.cloudSlash,
+                    color: scheme.error,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        _QueryTitle(query: query),
+                        const SizedBox(height: 5),
+                        Text(
+                          query.error ?? 'This lookup could not be completed.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ExpansionTile(
+              initiallyExpanded: query.records.length <= 3,
+              leading: _TypeBadge(type: query.type),
+              title: _QueryTitle(query: query),
+              subtitle: Text(
+                '${query.records.length} ${query.records.length == 1 ? 'value' : 'values'}',
+              ),
+              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              children: <Widget>[
+                for (var index = 0; index < query.records.length; index++)
+                  _RecordRow(
+                    record: query.records[index],
+                    showDivider: index != query.records.length - 1,
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _QueryTitle extends StatelessWidget {
+  const _QueryTitle({required this.query});
+
+  final DnsQueryResult query;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: <Widget>[
+      Text(query.type.label, style: Theme.of(context).textTheme.titleSmall),
+      const SizedBox(height: 2),
+      Text(
+        query.name,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontFamily: AkshiTheme.monoFontFamily,
+        ),
+      ),
+    ],
+  );
+}
+
+class _TypeBadge extends StatelessWidget {
+  const _TypeBadge({required this.type});
+
+  final DnsRecordType type;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 42,
+    height: 38,
+    alignment: Alignment.center,
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      type.label,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        color: Theme.of(context).colorScheme.onPrimaryContainer,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+class _RecordRow extends StatelessWidget {
+  const _RecordRow({required this.record, required this.showDivider});
+
+  final DnsRecord record;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: <Widget>[
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  SelectableText(
+                    record.displayValue,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontFamily: AkshiTheme.monoFontFamily,
+                      fontFeatures: const <FontFeature>[
+                        FontFeature.slashedZero(),
+                      ],
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    'TTL ${_ttl(record.ttlSeconds)}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Copy value',
+              visualDensity: VisualDensity.compact,
+              onPressed: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: record.displayValue),
+                );
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('DNS value copied')),
+                  );
+                }
+              },
+              icon: const PhosphorIcon(PhosphorIconsRegular.copy, size: 19),
+            ),
+          ],
+        ),
+      ),
+      if (showDivider) const Divider(),
+    ],
+  );
+}
+
+class _EmptyDns extends StatelessWidget {
+  const _EmptyDns({required this.onCheck});
+
+  final VoidCallback onCheck;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      children: <Widget>[
+        const PhosphorIcon(PhosphorIconsDuotone.network, size: 42),
+        const SizedBox(height: 12),
+        const Text('No DNS snapshot yet'),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: onCheck, child: const Text('Check now')),
+      ],
+    ),
+  );
+}
+
+class _NoPublishedRecords extends StatelessWidget {
+  const _NoPublishedRecords();
+
+  @override
+  Widget build(BuildContext context) => const Center(
+    child: Padding(
+      padding: EdgeInsets.symmetric(vertical: 32),
+      child: Text('No requested DNS records were published.'),
+    ),
+  );
+}
+
+Widget _backButton(BuildContext context) => IconButton(
+  tooltip: 'Back to monitor',
+  onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+  icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
+);
+
+String _ttl(int seconds) {
+  if (seconds >= 86400 && seconds % 86400 == 0) {
+    final days = seconds ~/ 86400;
+    return '$days ${days == 1 ? 'day' : 'days'}';
+  }
+  if (seconds >= 3600 && seconds % 3600 == 0) {
+    final hours = seconds ~/ 3600;
+    return '$hours ${hours == 1 ? 'hour' : 'hours'}';
+  }
+  if (seconds >= 60 && seconds % 60 == 0) {
+    final minutes = seconds ~/ 60;
+    return '$minutes ${minutes == 1 ? 'minute' : 'minutes'}';
+  }
+  return '$seconds seconds';
+}
+
+String _formatDateTime(BuildContext context, DateTime value) {
+  final local = value.toLocal();
+  final localizations = MaterialLocalizations.of(context);
+  return '${localizations.formatFullDate(local)} · '
+      '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
+}

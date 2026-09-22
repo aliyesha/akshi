@@ -2,13 +2,20 @@ import 'package:akshi/features/monitors/domain/monitor_finding.dart';
 import 'package:akshi/features/monitors/presentation/attention_screen.dart';
 import 'package:akshi/features/monitors/presentation/home_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_detail_screen.dart';
+import 'package:akshi/features/monitors/presentation/monitor_dns_screen.dart';
+import 'package:akshi/features/monitors/presentation/monitor_overview_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_form_screen.dart';
+import 'package:akshi/features/settings/presentation/crash_logs_screen.dart';
 import 'package:akshi/features/settings/presentation/about_screen.dart';
 import 'package:akshi/features/settings/presentation/settings_screen.dart';
 import 'package:akshi/features/tags/presentation/tags_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+/// Defines the app's top-level screens and focused monitor child routes.
+///
+/// A monitor opens at its overview; attention and notification destinations can
+/// then route directly to domain, TLS, email, or DNS detail context.
 final appRouter = GoRouter(
   routes: <RouteBase>[
     GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
@@ -31,11 +38,35 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/monitor/:id',
-      builder: (context, state) => MonitorDetailScreen(
-        monitorId: state.pathParameters['id']!,
-        focusKind: MonitorCheckKind.fromId(state.uri.queryParameters['focus']),
-      ),
+      builder: (context, state) =>
+          MonitorOverviewScreen(monitorId: state.pathParameters['id']!),
       routes: <RouteBase>[
+        GoRoute(
+          path: 'domain',
+          builder: (context, state) => MonitorDetailScreen(
+            monitorId: state.pathParameters['id']!,
+            focusKind: MonitorCheckKind.domainRegistration,
+          ),
+        ),
+        GoRoute(
+          path: 'tls',
+          builder: (context, state) => MonitorDetailScreen(
+            monitorId: state.pathParameters['id']!,
+            focusKind: MonitorCheckKind.tlsCertificate,
+          ),
+        ),
+        GoRoute(
+          path: 'email',
+          builder: (context, state) => MonitorDetailScreen(
+            monitorId: state.pathParameters['id']!,
+            focusKind: MonitorCheckKind.emailConfiguration,
+          ),
+        ),
+        GoRoute(
+          path: 'dns',
+          builder: (context, state) =>
+              MonitorDnsScreen(monitorId: state.pathParameters['id']!),
+        ),
         GoRoute(
           path: 'edit',
           pageBuilder: (context, state) => _sheetPage(
@@ -50,6 +81,10 @@ final appRouter = GoRouter(
       builder: (context, state) => const SettingsScreen(),
       routes: <RouteBase>[
         GoRoute(path: 'tags', builder: (context, state) => const TagsScreen()),
+        GoRoute(
+          path: 'crash-logs',
+          builder: (context, state) => const CrashLogsScreen(),
+        ),
         GoRoute(
           path: 'about',
           builder: (context, state) => const AboutScreen(),
