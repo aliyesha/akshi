@@ -110,6 +110,25 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 30),
+            const SizedBox(height: 14),
+            _SettingsCard(
+              children: <Widget>[
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 7,
+                  ),
+                  leading: const PhosphorIcon(PhosphorIconsDuotone.bug),
+                  title: const Text('Crash reports'),
+                  subtitle: const Text('Review and copy local diagnostics'),
+                  trailing: const PhosphorIcon(
+                    PhosphorIconsDuotone.caretRight,
+                    size: 17,
+                  ),
+                  onTap: () => context.push('/settings/crash-logs'),
+                ),
+              ],
+            ),
             Text(
               'Appearance',
               style: Theme.of(context).textTheme.headlineMedium,

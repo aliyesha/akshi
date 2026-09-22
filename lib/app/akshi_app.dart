@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:akshi/app/app_router.dart';
 import 'package:akshi/app/providers.dart';
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
@@ -41,6 +42,7 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
   }
 
   Future<void> _start() async {
+    appLogger.info('app.foreground.start.started');
     final notifications = ref.read(notificationServiceProvider);
     await notifications.initialize();
     if (!mounted) return;
@@ -50,9 +52,11 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
     final pendingRoute = notifications.takePendingRoute();
     if (pendingRoute != null) appRouter.go(pendingRoute);
     _refresh();
+    appLogger.info('app.foreground.start.completed');
   }
 
   void _refresh() {
+    appLogger.info('app.foreground.refresh.started');
     ref.read(monitorControllerProvider.notifier).refreshAll();
   }
 
