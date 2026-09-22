@@ -1,3 +1,4 @@
+import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
@@ -12,12 +13,16 @@ void main() {
     DateTime? certificateExpiry,
     bool? tlsTrusted = true,
     String? domainError,
+    String? certificateError,
+    bool checksEmail = false,
+    CheckActivity emailActivity = const CheckActivity(),
   }) => MonitorEntry(
     id: 'monitor-id',
     hostname: 'example.com',
     tlsHostname: 'example.com',
     tlsPort: 443,
     checksCertificate: true,
+    checksEmail: checksEmail,
     createdAt: now,
     updatedAt: now,
     lastCheckedAt: now,
@@ -25,6 +30,8 @@ void main() {
     certificateExpiresAt: certificateExpiry,
     tlsTrusted: tlsTrusted,
     domainError: domainError,
+    certificateError: certificateError,
+    emailActivity: emailActivity,
   );
 
   test('domain and certificate remain independent findings', () {
@@ -165,6 +172,40 @@ void main() {
         reason: 'combination $mask',
       );
     }
+  });
+
+  test('unavailable findings preserve the useful failure reason', () {
+    final findings = findingsForMonitor(
+      monitor(
+        domainExpiry: now.add(const Duration(days: 90)),
+        certificateExpiry: now.add(const Duration(days: 90)),
+        domainError: 'Registry temporarily unavailable',
+        certificateError: 'TLS handshake timed out',
+        checksEmail: true,
+        emailActivity: CheckActivity(
+          lastAttemptedAt: now,
+          failure: CheckFailure(
+            kind: CheckFailureKind.dns,
+            message: 'DNS lookup timed out',
+            occurredAt: now,
+          ),
+        ),
+      ),
+      now: now,
+    );
+
+    expect(
+      findings[0].summary,
+      'Domain registration check unavailable — Registry temporarily unavailable',
+    );
+    expect(
+      findings[1].summary,
+      'TLS certificate check unavailable — TLS handshake timed out',
+    );
+    expect(
+      findings[2].summary,
+      'Email configuration check unavailable — DNS lookup timed out',
+    );
   });
 
   test('check kinds parse stable attention route identifiers', () {

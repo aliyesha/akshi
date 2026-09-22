@@ -65,8 +65,12 @@ List<MonitorFinding> findingsForMonitor(
   );
   final domainUnavailable = monitor.domainError != null;
   final certificateUnavailable = monitor.certificateError != null;
-  if (domainUnavailable) domainStatus = MonitorStatus.unavailable;
-  if (certificateUnavailable) certificateStatus = MonitorStatus.unavailable;
+  if (domainUnavailable) {
+    domainStatus = MonitorStatus.unavailable;
+  }
+  if (certificateUnavailable) {
+    certificateStatus = MonitorStatus.unavailable;
+  }
   if (monitor.tlsTrusted == false) certificateStatus = MonitorStatus.critical;
   if (monitor.certificateHostnameMatches == false) {
     certificateStatus = MonitorStatus.critical;
@@ -77,7 +81,7 @@ List<MonitorFinding> findingsForMonitor(
       kind: MonitorCheckKind.domainRegistration,
       status: domainStatus,
       summary: domainUnavailable
-          ? 'Latest domain check unavailable'
+          ? _unavailableSummary('Domain registration', monitor.domainError)
           : _summary(domainStatus, monitor.domainExpiresAt, referenceTime),
       expiresAt: monitor.domainExpiresAt,
     ),
@@ -90,7 +94,7 @@ List<MonitorFinding> findingsForMonitor(
             : monitor.certificateHostnameMatches == false
             ? 'Certificate does not match the TLS hostname'
             : certificateUnavailable
-            ? 'Latest certificate check unavailable'
+            ? _unavailableSummary('TLS certificate', monitor.certificateError)
             : _summary(
                 certificateStatus,
                 monitor.certificateExpiresAt,
@@ -109,7 +113,10 @@ List<MonitorFinding> findingsForMonitor(
             ? MonitorStatus.warning
             : MonitorStatus.healthy,
         summary: monitor.emailActivity.failure != null
-            ? 'Latest Email-domain check unavailable'
+            ? _unavailableSummary(
+                'Email configuration',
+                monitor.emailActivity.failure?.message,
+              )
             : monitor.emailPosture == null
             ? 'Email configuration not checked yet'
             : monitor.emailPosture!.needsAttention
@@ -117,6 +124,14 @@ List<MonitorFinding> findingsForMonitor(
             : 'Published Email configuration looks consistent',
       ),
   ];
+}
+
+String _unavailableSummary(String label, String? detail) {
+  final message = detail?.trim();
+  if (message == null || message.isEmpty) {
+    return '$label check unavailable';
+  }
+  return '$label check unavailable — $message';
 }
 
 String _summary(MonitorStatus status, DateTime? expiry, DateTime now) {

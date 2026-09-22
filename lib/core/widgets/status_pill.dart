@@ -2,14 +2,21 @@ import 'package:akshi/features/monitors/domain/monitor_status.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
-Color monitorStatusColor(ColorScheme scheme, MonitorStatus status) =>
-    switch (status) {
-      MonitorStatus.healthy => scheme.secondary,
-      MonitorStatus.warning => const Color(0xFFA66B00),
-      MonitorStatus.critical => const Color(0xFFD25932),
-      MonitorStatus.expired || MonitorStatus.failed => scheme.error,
-      MonitorStatus.unavailable || MonitorStatus.unknown => scheme.outline,
-    };
+Color monitorStatusColor(ColorScheme scheme, MonitorStatus status) {
+  final warning = scheme.brightness == Brightness.dark
+      ? const Color(0xFFFFC857)
+      : const Color(0xFF8A5700);
+  final critical = scheme.brightness == Brightness.dark
+      ? const Color(0xFFFF9A76)
+      : const Color(0xFFB63F1C);
+  return switch (status) {
+    MonitorStatus.healthy => scheme.secondary,
+    MonitorStatus.warning || MonitorStatus.unavailable => warning,
+    MonitorStatus.critical => critical,
+    MonitorStatus.expired || MonitorStatus.failed => scheme.error,
+    MonitorStatus.unknown => scheme.outline,
+  };
+}
 
 class StatusPill extends StatelessWidget {
   const StatusPill({required this.status, super.key});

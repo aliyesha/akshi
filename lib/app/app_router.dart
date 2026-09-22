@@ -33,9 +33,7 @@ final appRouter = GoRouter(
       path: '/monitor/:id',
       builder: (context, state) => MonitorDetailScreen(
         monitorId: state.pathParameters['id']!,
-        focusKind: MonitorCheckKind.fromId(
-          state.uri.queryParameters['focus'],
-        ),
+        focusKind: MonitorCheckKind.fromId(state.uri.queryParameters['focus']),
       ),
       routes: <RouteBase>[
         GoRoute(

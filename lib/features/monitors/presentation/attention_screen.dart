@@ -172,9 +172,29 @@ class _AttentionCard extends StatelessWidget {
     );
     final resolved = !findings.any((finding) => finding.needsAttention);
     final scheme = Theme.of(context).colorScheme;
+    final status = monitor.overallStatus(
+      warningDays: settings.firstWarningDays,
+      criticalDays: settings.secondWarningDays,
+    );
+    final accent = monitorStatusColor(scheme, status);
+    final attentionTint = scheme.brightness == Brightness.dark ? .15 : .09;
+    final cardColor = resolved
+        ? scheme.surfaceContainerLowest
+        : Color.alphaBlend(
+            accent.withValues(alpha: attentionTint),
+            scheme.surfaceContainerLowest,
+          );
     return Material(
-      color: scheme.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(24),
+      color: cardColor,
+      shape: RoundedRectangleBorder(
+        side: resolved
+            ? BorderSide.none
+            : BorderSide(
+                color: accent.withValues(alpha: .46),
+                width: 1.2,
+              ),
+        borderRadius: BorderRadius.circular(24),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => context.push(_detailLocation(monitor.id, findings)),
@@ -242,38 +262,55 @@ class _FindingRow extends StatelessWidget {
   final MonitorFinding finding;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: <Widget>[
-      PhosphorIcon(switch (finding.kind) {
-        MonitorCheckKind.domainRegistration =>
-          PhosphorIconsDuotone.globeHemisphereWest,
-        MonitorCheckKind.tlsCertificate => PhosphorIconsDuotone.certificate,
-        MonitorCheckKind.emailConfiguration =>
-          PhosphorIconsDuotone.envelopeSimpleOpen,
-      }, size: 21),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              finding.kind.label,
-              style: Theme.of(context).textTheme.titleSmall,
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = monitorStatusColor(scheme, finding.status);
+    final iconColor = finding.needsAttention
+        ? accent
+        : scheme.onSurfaceVariant;
+    final icon = switch (finding.kind) {
+      MonitorCheckKind.domainRegistration =>
+        PhosphorIconsDuotone.globeHemisphereWest,
+      MonitorCheckKind.tlsCertificate => PhosphorIconsDuotone.certificate,
+      MonitorCheckKind.emailConfiguration =>
+        PhosphorIconsDuotone.envelopeSimpleOpen,
+    };
+    return Row(
+      children: <Widget>[
+        Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: iconColor.withValues(
+              alpha: finding.needsAttention ? .14 : .07,
             ),
-            const SizedBox(height: 2),
-            Text(
-              finding.summary,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: PhosphorIcon(icon, size: 20, color: iconColor),
         ),
-      ),
-      const SizedBox(width: 8),
-      StatusPill(status: finding.status),
-    ],
-  );
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                finding.kind.label,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                finding.summary,
+                style: TextStyle(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        StatusPill(status: finding.status),
+      ],
+    );
+  }
 }
 
 class _ClearState extends StatelessWidget {
