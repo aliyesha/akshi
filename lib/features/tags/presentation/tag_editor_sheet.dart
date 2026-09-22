@@ -265,7 +265,7 @@ class _ColorChoice extends StatelessWidget {
         ),
         child: selected
             ? const PhosphorIcon(
-                PhosphorIconsDuotone.check,
+                PhosphorIconsRegular.check,
                 size: 19,
                 color: Colors.white,
               )

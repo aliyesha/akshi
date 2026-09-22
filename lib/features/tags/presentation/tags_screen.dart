@@ -1,3 +1,4 @@
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
@@ -72,7 +73,8 @@ class TagsScreen extends ConsumerWidget {
       await ref
           .read(tagControllerProvider.notifier)
           .create(name: draft.name, colorArgb: draft.colorArgb);
-    } on Object catch (error) {
+    } catch (error, stackTrace) {
+      appLogger.error('ui.tags.create.failed', error, stackTrace);
       if (context.mounted) _showError(context, error);
     }
   }
@@ -91,7 +93,8 @@ class TagsScreen extends ConsumerWidget {
             tag.copyWith(name: draft.name, colorArgb: draft.colorArgb),
           );
       ref.invalidate(monitorControllerProvider);
-    } on Object catch (error) {
+    } catch (error, stackTrace) {
+      appLogger.error('ui.tags.update.failed', error, stackTrace);
       if (context.mounted) _showError(context, error);
     }
   }
