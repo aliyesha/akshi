@@ -1,3 +1,5 @@
+import 'package:akshi/core/errors/user_facing_error.dart';
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
@@ -30,11 +32,13 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
   var _enabled = true;
   var _initialized = false;
   var _saving = false;
+  var _progress = const MonitorSaveProgress.initial();
   var _checksCertificate = false;
   var _checksEmail = false;
   var _mailSends = true;
   var _mailReceives = true;
 
+  var _hostnameAutofocus = true;
   @override
   void dispose() {
     _hostname.dispose();
@@ -91,7 +95,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                 children: <Widget>[
                   TextFormField(
                     controller: _hostname,
-                    autofocus: !editing,
+                    autofocus: !editing && _hostnameAutofocus,
                     keyboardType: TextInputType.url,
                     textInputAction: TextInputAction.next,
                     autocorrect: false,
@@ -316,6 +320,10 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                   ],
                 ),
               ],
+              if (_saving) ...<Widget>[
+                _SaveProgressPanel(progress: _progress),
+                const SizedBox(height: 14),
+              ],
               const SizedBox(height: 26),
               FilledButton.icon(
                 onPressed: _saving ? null : () => _save(original),
@@ -331,7 +339,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                       ),
                 label: Text(
                   _saving
-                      ? 'Checking…'
+                      ? 'Working…'
                       : editing
                       ? 'Save changes'
                       : 'Add and check',
@@ -364,6 +372,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
   }
 
   Future<void> _createTag() async {
+    setState(() => _hostnameAutofocus = false);
     final draft = await showTagEditor(context);
     if (draft == null || !mounted) {
       return;
@@ -375,7 +384,8 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       if (mounted) {
         setState(() => _selectedTagIds.add(tag.id));
       }
-    } on Object catch (error) {
+    } catch (error, stackTrace) {
+      appLogger.error('ui.monitor_form.tag_create.failed', error, stackTrace);
       if (!mounted) {
         return;
       }
@@ -404,7 +414,10 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       );
       return;
     }
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _progress = const MonitorSaveProgress.initial();
+    });
     try {
       final controller = ref.read(monitorControllerProvider.notifier);
       final MonitorEntry saved;
@@ -427,6 +440,11 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
           dkimSelectors: _parseSelectors(_dkimSelectors.text),
           label: label.isEmpty ? null : label,
           tagIds: _selectedTagIds,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() => _progress = progress);
+            }
+          },
         );
       } else {
         saved = await controller.updateMonitor(
@@ -443,12 +461,18 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
             enabled: _enabled,
           ),
           tagIds: _selectedTagIds,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() => _progress = progress);
+            }
+          },
         );
       }
       if (mounted) {
         context.go('/monitor/${saved.id}');
       }
-    } on Object catch (error) {
+    } catch (error, stackTrace) {
+      appLogger.error('ui.monitor_form.save.failed', error, stackTrace);
       if (!mounted) {
         return;
       }
@@ -467,12 +491,62 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
     return null;
   }
 
-  String _friendlyError(Object error) {
-    final value = error.toString();
-    if (value.contains('UNIQUE constraint failed')) {
-      return 'That domain is already being monitored.';
-    }
-    return value.replaceFirst(RegExp(r'^[A-Za-z]+Exception:\s*'), '');
+  String _friendlyError(Object error) => userFacingError(error);
+}
+
+class _SaveProgressPanel extends StatelessWidget {
+  const _SaveProgressPanel({required this.progress});
+
+  final MonitorSaveProgress progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: .42),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.primary.withValues(alpha: .22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(
+                  value: progress.fraction >= 1 ? 1 : null,
+                  strokeWidth: 2.2,
+                  color: scheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  progress.message,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              Text(
+                '${(progress.fraction * 100).round()}%',
+                style: Theme.of(context).textTheme.labelMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LinearProgressIndicator(value: progress.fraction),
+          const SizedBox(height: 8),
+          Text(
+            'Akshi checks first, then saves one complete monitor record.',
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
   }
 }
 

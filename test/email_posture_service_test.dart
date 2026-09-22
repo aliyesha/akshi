@@ -1,5 +1,5 @@
 import 'package:akshi/core/services/email_posture_service.dart';
-import 'package:akshi/core/services/system_dns_service.dart';
+import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,23 +7,23 @@ void main() {
   test(
     'reports concrete healthy mail facts without inventing a score',
     () async {
-      final service = EmailPostureService(
-        dns: _FakeDns(
-          mxRecords: const <MxRecord>[
-            MxRecord(preference: 10, exchange: 'mail.example.com'),
-          ],
-          txtRecords: const <String, List<String>>{
-            'example.com': <String>['v=spf1 mx -all'],
-            '_dmarc.example.com': <String>['v=DMARC1; p=reject'],
-            '_smtp._tls.example.com': <String>[
-              'v=TLSRPTv1; rua=mailto:tls@example.com',
-            ],
-            'mail._domainkey.example.com': <String>['v=DKIM1; k=rsa; p=abc123'],
-          },
-        ),
-      );
+      final snapshot = _snapshot(<DnsQueryResult>[
+        _answered('example.com', DnsRecordType.mx, <DnsRecord>[
+          _mx('example.com', 10, 'mail.example.com'),
+        ]),
+        _txt('example.com', <String>['v=spf1 mx -all']),
+        _txt('_dmarc.example.com', <String>['v=DMARC1; p=reject']),
+        _absent('_mta-sts.example.com', DnsRecordType.txt),
+        _txt('_smtp._tls.example.com', <String>[
+          'v=TLSRPTv1; rua=mailto:tls@example.com',
+        ]),
+        _txt('mail._domainkey.example.com', <String>[
+          'v=DKIM1; k=rsa; p=abc123',
+        ]),
+      ]);
 
-      final posture = await service.check(
+      final posture = await EmailPostureService().check(
+        snapshot,
         'example.com',
         sends: true,
         receives: true,
@@ -41,17 +41,19 @@ void main() {
     },
   );
 
-  test('treats Null MX and multiple SPF policies as actionable', () async {
-    final service = EmailPostureService(
-      dns: _FakeDns(
-        mxRecords: const <MxRecord>[MxRecord(preference: 0, exchange: '.')],
-        txtRecords: const <String, List<String>>{
-          'example.com': <String>['v=spf1 -all', 'v=spf1 ~all'],
-        },
-      ),
-    );
+  test('preserves repeated TXT values when validating SPF', () async {
+    final snapshot = _snapshot(<DnsQueryResult>[
+      _answered('example.com', DnsRecordType.mx, <DnsRecord>[
+        _mx('example.com', 0, '.'),
+      ]),
+      _txt('example.com', <String>['v=spf1 -all', 'v=spf1 ~all']),
+      _absent('_dmarc.example.com', DnsRecordType.txt),
+      _absent('_mta-sts.example.com', DnsRecordType.txt),
+      _absent('_smtp._tls.example.com', DnsRecordType.txt),
+    ]);
 
-    final posture = await service.check(
+    final posture = await EmailPostureService().check(
+      snapshot,
       'example.com',
       sends: true,
       receives: true,
@@ -68,21 +70,85 @@ void main() {
       MailFindingState.invalid,
     );
   });
+
+  test(
+    'isolates a failed lookup without hiding successful mail facts',
+    () async {
+      final snapshot = _snapshot(<DnsQueryResult>[
+        _answered('example.com', DnsRecordType.mx, <DnsRecord>[
+          _mx('example.com', 10, 'mail.example.com'),
+        ]),
+        const DnsQueryResult(
+          name: 'example.com',
+          type: DnsRecordType.txt,
+          state: DnsQueryState.failed,
+          error: 'The DNS lookup timed out.',
+        ),
+        _txt('_dmarc.example.com', <String>['v=DMARC1; p=reject']),
+        _absent('_mta-sts.example.com', DnsRecordType.txt),
+        _absent('_smtp._tls.example.com', DnsRecordType.txt),
+      ]);
+
+      final posture = await EmailPostureService().check(
+        snapshot,
+        'example.com',
+        sends: true,
+        receives: true,
+        dkimSelectors: const <String>[],
+      );
+
+      expect(
+        posture.findings.singleWhere((finding) => finding.id == 'mx').state,
+        MailFindingState.healthy,
+      );
+      expect(
+        posture.findings.singleWhere((finding) => finding.id == 'spf').state,
+        MailFindingState.unavailable,
+      );
+      expect(
+        posture.findings.singleWhere((finding) => finding.id == 'dmarc').state,
+        MailFindingState.healthy,
+      );
+    },
+  );
 }
 
-class _FakeDns extends SystemDnsService {
-  const _FakeDns({
-    this.mxRecords = const <MxRecord>[],
-    this.txtRecords = const <String, List<String>>{},
-  });
+DnsSnapshot _snapshot(List<DnsQueryResult> queries) =>
+    DnsSnapshot(checkedAt: DateTime.utc(2026, 6, 15, 12), queries: queries);
 
-  final List<MxRecord> mxRecords;
-  final Map<String, List<String>> txtRecords;
+DnsQueryResult _answered(
+  String name,
+  DnsRecordType type,
+  List<DnsRecord> records,
+) => DnsQueryResult(
+  name: name,
+  type: type,
+  state: DnsQueryState.answered,
+  records: records,
+);
 
-  @override
-  Future<List<MxRecord>> mx(String name) async => mxRecords;
+DnsQueryResult _absent(String name, DnsRecordType type) =>
+    DnsQueryResult(name: name, type: type, state: DnsQueryState.absent);
 
-  @override
-  Future<List<String>> txt(String name) async =>
-      txtRecords[name] ?? const <String>[];
-}
+DnsQueryResult _txt(String name, List<String> values) => _answered(
+  name,
+  DnsRecordType.txt,
+  values
+      .map(
+        (value) => DnsRecord(
+          owner: name,
+          type: DnsRecordType.txt,
+          ttlSeconds: 300,
+          value: value,
+        ),
+      )
+      .toList(growable: false),
+);
+
+DnsRecord _mx(String owner, int preference, String exchange) => DnsRecord(
+  owner: owner,
+  type: DnsRecordType.mx,
+  ttlSeconds: 3600,
+  value: exchange,
+  preference: preference,
+);

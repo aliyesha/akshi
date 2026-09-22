@@ -1,26 +1,37 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/services.dart';
 
+/// Converts low-level network failures into stable, user-facing check states.
+///
+/// Classification keeps the last successful observation meaningful when the
+/// device is offline or a public source is temporarily unavailable.
 class CheckFailureClassifier {
   CheckFailureClassifier({Connectivity? connectivity})
     : _connectivity = connectivity ?? Connectivity();
 
   final Connectivity _connectivity;
 
+  /// Reports whether every connectivity result currently indicates no network.
   Future<bool> get deviceIsOffline async {
     try {
       final states = await _connectivity.checkConnectivity();
       return states.isEmpty ||
           states.every((state) => state == ConnectivityResult.none);
-    } on Object {
+    } catch (error, stackTrace) {
+      appLogger.error('service.connectivity.check.failed', error, stackTrace);
       return false;
     }
   }
 
+  /// Classifies an error with source context and the time it occurred.
+  ///
+  /// TLS failures are kept distinct from DNS and general source failures so
+  /// the UI can explain the appropriate recovery action.
   Future<CheckFailure> classify(
     Object error, {
     required DateTime occurredAt,
@@ -87,6 +98,7 @@ class CheckFailureClassifier {
   }
 }
 
+/// Removes exception type noise while retaining a useful source message.
 String _cleanMessage(Object error, {required String fallback}) {
   final value = error
       .toString()

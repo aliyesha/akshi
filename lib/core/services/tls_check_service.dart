@@ -2,14 +2,24 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/domain/check_result.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
 
+/// Opens a foreground TLS connection and extracts certificate facts.
+///
+/// A failed trust handshake is retried only to read the presented certificate;
+/// the result retains that it was not trusted.
 class TlsCheckService {
   const TlsCheckService();
 
+  /// Connects to [hostname]:[port], verifies trust, and parses X.509 details.
   Future<CertificateCheckResult> check(String hostname, int port) async {
+    appLogger.info(
+      'service.tls.check.started',
+      data: <String, Object?>{'hostname': hostname, 'port': port},
+    );
     var trusted = true;
     SecureSocket socket;
     try {
@@ -37,6 +47,14 @@ class TlsCheckService {
       }
       final fingerprint = sha256.convert(certificate.der).toString();
       final details = _certificateDetails(certificate.pem, hostname);
+      appLogger.info(
+        'service.tls.check.completed',
+        data: <String, Object?>{
+          'hostname': hostname,
+          'port': port,
+          'trusted': trusted,
+        },
+      );
       return CertificateCheckResult(
         validFrom: certificate.startValidity.toLocal(),
         expiresAt: certificate.endValidity.toLocal(),
@@ -57,6 +75,7 @@ class TlsCheckService {
   }
 }
 
+/// Extracts SANs, serial, signature, and public-key facts from a PEM certificate.
 _ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
   try {
     final data = X509Utils.x509CertificateFromPem(pem);
@@ -90,7 +109,13 @@ _ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
         ?parameter,
       ].join(' · ').nullIfEmpty,
     );
-  } on Object {
+  } catch (error, stackTrace) {
+    appLogger.error(
+      'service.tls.certificate.parse.failed',
+      error,
+      stackTrace,
+      data: <String, Object?>{'hostname': hostname},
+    );
     return const _ParsedCertificateDetails(
       hostnameMatches: null,
       subjectAlternativeNames: <String>[],
@@ -103,6 +128,7 @@ String _cleanAlternativeName(String value) => value
     .trim()
     .toLowerCase();
 
+/// Applies exact or one-label wildcard matching to certificate SANs.
 bool _matchesHostname(String hostname, String pattern) {
   final normalizedHost = hostname.toLowerCase();
   final normalizedPattern = pattern.toLowerCase();

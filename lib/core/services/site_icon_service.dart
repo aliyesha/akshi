@@ -3,10 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/domain/site_icon.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:image/image.dart' as image_codec;
 
+/// Discovers, validates, and stores a stable HTTPS site icon candidate.
+///
+/// HTML declarations are preferred, `/favicon.ico` is the fallback, and every
+/// candidate is bounded by size, timeout, redirect, and decode checks.
 class SiteIconService {
   SiteIconService({HttpClient? client}) : _client = client ?? HttpClient();
 
@@ -17,11 +22,21 @@ class SiteIconService {
 
   final HttpClient _client;
 
-  Future<SiteIcon?> discover(String hostname, int port) => _discover(
-    hostname,
-    port,
-  ).timeout(_operationTimeout, onTimeout: () => null);
+  /// Performs best-effort icon discovery without affecting monitor health.
+  ///
+  /// A null result leaves the neutral placeholder in place.
+  Future<SiteIcon?> discover(String hostname, int port) {
+    appLogger.info(
+      'service.site_icon.discover.started',
+      data: <String, Object?>{'hostname': hostname, 'port': port},
+    );
+    return _discover(
+      hostname,
+      port,
+    ).timeout(_operationTimeout, onTimeout: () => null);
+  }
 
+  /// Tries ranked candidates and returns the first decodable image.
   Future<SiteIcon?> _discover(String hostname, int port) async {
     final origin = Uri(
       scheme: 'https',
@@ -36,7 +51,13 @@ class SiteIconService {
       if (contentType == null || contentType.contains('html')) {
         candidates.addAll(_discoverCandidates(page.uri, page.bytes));
       }
-    } on Object {
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'service.site_icon.page.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'hostname': hostname, 'port': port},
+      );
       // A page is optional; the conventional icon remains a valid fallback.
     }
 
@@ -57,7 +78,13 @@ class SiteIconService {
         final response = await _fetch(candidate.uri, _maxIconBytes);
         final icon = _decode(response.bytes, source: response.uri);
         if (icon != null) return icon;
-      } on Object {
+      } catch (error, stackTrace) {
+        appLogger.error(
+          'service.site_icon.candidate.failed',
+          error,
+          stackTrace,
+          data: <String, Object?>{'hostname': hostname, 'port': port},
+        );
         // Try the next declared icon without affecting monitor health.
       }
     }
@@ -94,6 +121,7 @@ class SiteIconService {
     return result;
   }
 
+  /// Fetches one HTTPS resource with bounded redirects and response bytes.
   Future<_FetchedBytes> _fetch(Uri initial, int maximumBytes) async {
     var uri = initial;
     for (var redirect = 0; redirect <= 4; redirect++) {

@@ -1,8 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/domain/check_result.dart';
 
+/// Reads public RDAP registration data using IANA's TLD bootstrap map.
+///
+/// The service keeps the network dependency local to a foreground check and
+/// returns null when a registry has no matching public registration record.
 class RdapService {
   RdapService({HttpClient? client}) : _client = client ?? HttpClient();
 
@@ -10,7 +15,12 @@ class RdapService {
   final HttpClient _client;
   Map<String, String>? _services;
 
+  /// Resolves the registrable domain and returns normalized registration facts.
   Future<DomainCheckResult?> check(String hostname) async {
+    appLogger.info(
+      'service.rdap.check.started',
+      data: <String, Object?>{'hostname': hostname},
+    );
     final services = await _loadServices();
     final labels = hostname.split('.');
     if (labels.length < 2) {
@@ -30,15 +40,24 @@ class RdapService {
       if (response == null) {
         continue;
       }
+      appLogger.info(
+        'service.rdap.check.completed',
+        data: <String, Object?>{'hostname': hostname, 'found': true},
+      );
       return parseRdapDomain(
         response,
         source: Uri.parse(base).host,
         registeredDomain: candidate,
       );
     }
+    appLogger.info(
+      'service.rdap.check.completed',
+      data: <String, Object?>{'hostname': hostname, 'found': false},
+    );
     return null;
   }
 
+  /// Loads and caches the IANA TLD-to-RDAP endpoint mapping for this session.
   Future<Map<String, String>> _loadServices() async {
     final cached = _services;
     if (cached != null) {
@@ -66,6 +85,7 @@ class RdapService {
     return _services = result;
   }
 
+  /// Performs one bounded RDAP JSON request and handles optional 404 responses.
   Future<Map<String, dynamic>?> _getJson(
     Uri uri, {
     bool allowNotFound = false,
@@ -100,6 +120,7 @@ class RdapException implements Exception {
   String toString() => message;
 }
 
+/// Maps an RDAP payload into the app's stable domain-registration facts.
 DomainCheckResult parseRdapDomain(
   Map<String, dynamic> payload, {
   required String source,
