@@ -102,8 +102,9 @@ universal selector-discovery mechanism.
 5. Optionally add a recognizable **Name**, such as “Production mail”, and
    tags. The name appears prominently while the domain remains visible; tags only organize
    monitors and never change which checks run.
-6. Save the asset. Akshi checks it immediately and may ask for notification
-   permission.
+6. Save the asset. While it works, Akshi shows the current stage—TLS, domain
+   registration, site icon, DNS, Email, saving, and list refresh—in plain language.
+   It checks the asset immediately and may ask for notification permission.
 
 Each domain can show separate results:
 
@@ -115,6 +116,11 @@ Each domain can show separate results:
   the configured TLS hostname and port when TLS checking is enabled.
 - **Email configuration** shows published records and concrete issues when Email
   checking is enabled. Email configuration has no expiry date.
+- **DNS records** shows the latest A, AAAA, CNAME, MX, NS, TXT, and CAA
+  snapshot returned by the device's resolver. Multiple values with the same
+  name and type remain separate—Akshi does not collapse them into a single
+  value. Each visible record includes its TTL and can be copied.
+
 
 A missing optional Email record is informational; an invalid or
 expected-but-missing record needs review. Records are read through the device's
@@ -135,7 +141,12 @@ The first screen lists all monitored domains and emphasizes the most urgent
 status. Use search to find a hostname or label, pull down to refresh everything,
 or use the refresh button and wait for its completion message. Tag chips
 filter the list; tap the selected tag again to clear that filter. Select a
-monitor for its complete details. Swipe a monitor to the right to request
+monitor to open its compact overview. From there, open only the Domain, TLS,
+Email, or DNS details you need. This keeps the main decision page short without
+using crowded tabs. An Attention result opens the affected focused page
+directly.
+
+Swipe a monitor to the right to request
 deletion; Akshi always asks for confirmation before removing it. Swipe
 it to the left to edit it.
 
@@ -213,7 +224,9 @@ Checking still requires network access. While the app is active it can contact:
 - the configured TLS endpoint through a direct TLS connection and
   **https://&lt;TLS-hostname&gt;[:port]/**, declared HTTPS icon URLs, and
   **https://&lt;TLS-hostname&gt;[:port]/favicon.ico** when TLS checking is enabled;
-- the device-configured DNS resolver for MX and TXT records at the domain,
+- the device-configured DNS resolver for explicit A, AAAA, CNAME, MX, NS, TXT,
+  and CAA lookups at the monitored domain;
+- the same resolver for role-appropriate Email TXT lookups at
   **_dmarc.&lt;domain&gt;**, **_mta-sts.&lt;domain&gt;**,
   **_smtp._tls.&lt;domain&gt;**, and any user-entered
   **&lt;selector&gt;._domainkey.&lt;domain&gt;**;
@@ -235,3 +248,10 @@ If the device is offline, Akshi says so directly and continues to show the last
 saved values. A timeout, DNS failure, unavailable source, invalid response, and TLS
 connection failure are kept distinct. Try again on a reliable connection before
 treating an unavailable result as a registration, certificate, or mail problem.
+## If a check fails while adding a monitor
+
+Akshi prepares the domain, certificate, icon, DNS, and Email observations while the app is open. A temporary network problem is saved as a clear unavailable result alongside the monitor; it does not create a misleading duplicate on the next attempt. A device-storage or validation failure is different: the monitor is not saved, and Akshi explains that directly.
+
+## Crash reports
+
+If Akshi encounters an unexpected error, it records a private diagnostic on the device containing the time, error type, message, technical context, stack trace, and platform version. Akshi does not upload it. Open **Settings → Crash reports** to read or copy a report for support, or delete one report/all reports. These diagnostics do not prevent a serious unhandled error from closing the app; they are a record for the next launch, not a promise that the app can recover.

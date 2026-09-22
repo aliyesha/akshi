@@ -19,8 +19,10 @@ The product guide is available in [app_usage.md](app_usage.md).
   them.
 - Direct TLS connections provide certificate validity, trust, hostname, subject
   names, algorithms, public-key information, serial number, and fingerprint.
-- The operating system DNS resolver provides MX, SPF, DMARC, MTA-STS, TLS-RPT,
-  and user-selected DKIM records for Email-domain monitors.
+- The operating system DNS resolver provides an explicit A, AAAA, CNAME, MX,
+  NS, TXT, and CAA snapshot. Email analysis reuses that snapshot for SPF, MX,
+  DMARC, MTA-STS, TLS-RPT, and user-selected DKIM records instead of issuing a
+  second set of lookups.
 - Website icons are discovered from declared HTML icons and /favicon.ico,
   decoded if necessary, and cached locally.
 - Checks run at launch, foreground resume, manual refresh, and after endpoint
@@ -93,6 +95,14 @@ explicitly entered by the user because selectors cannot be discovered reliably.
 The system DNS resolver supplies the records; lookup failures remain distinct
 from valid answers in which a record is absent.
 
+The DNS snapshot is list-based. Repeated owner/type pairs remain separate
+records, which is essential for legitimate multi-value TXT, MX, and validation
+records. Akshi asks for supported types individually and does not use DNS ANY.
+Every query is stored as answered, absent, or failed, so one unavailable policy
+lookup cannot hide successful records. TTL is displayed as resolver context but
+is excluded from change detection because routine TTL changes are not
+configuration incidents.
+
 Registration, TLS, and Email retain separate statuses. The asset's aggregate
 status is the most urgent enabled result; the Attention screen identifies the
 exact component or components that need review.
@@ -111,7 +121,9 @@ test/                        pure domain and persistence unit tests
 ```
 
 `MonitorController` coordinates foreground checks and persistence.
-`MonitorEntry` stores independent registration, certificate, and Email posture findings so the UI can grow without coupling check types.
+`MonitorEntry` stores independent registration, certificate, Email posture,
+and DNS snapshot data. The monitor route is a compact overview; Domain, TLS,
+Email, and DNS use focused child routes rather than tabs or one growing page.
 `NotificationService` owns device permission and scheduling. Reminder grouping
 is implemented as pure domain logic in `reminder_digest.dart`, keeping the
 notification policy deterministic and independently testable.
@@ -150,10 +162,12 @@ The app makes only these task-specific network requests while it is active:
 - **https://&lt;TLS-hostname&gt;[:port]/** to read standard HTML icon
   declarations, then the declared HTTPS icon URLs and
   **https://&lt;TLS-hostname&gt;[:port]/favicon.ico** as a fallback;
-- MX and TXT lookups through the device-configured system DNS resolver for
-  enabled Email checks at the domain, **_dmarc.&lt;domain&gt;**,
+- explicit A, AAAA, CNAME, MX, NS, TXT, and CAA lookups at the monitored domain
+  through the device-configured system DNS resolver;
+- role-appropriate TXT lookups at **_dmarc.&lt;domain&gt;**,
   **_mta-sts.&lt;domain&gt;**, **_smtp._tls.&lt;domain&gt;**, and user-entered
-  **&lt;selector&gt;._domainkey.&lt;domain&gt;** names;
+  **&lt;selector&gt;._domainkey.&lt;domain&gt;** names when Email checking is
+  enabled;
 - **https://mta-sts.&lt;domain&gt;/.well-known/mta-sts.txt** only when an MTA-STS
   DNS record is published.
 
