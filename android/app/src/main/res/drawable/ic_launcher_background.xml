@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Fully opaque base -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="315"
+                android:startColor="#3D0452"
+                android:centerColor="#160335"
+                android:endColor="#050D35" />
+        </shape>
+    </item>
+
+    <!-- Subtle magenta glow inspired by the supplied source -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.06"
+                android:centerY="0.06"
+                android:gradientRadius="95dp"
+                android:startColor="#66880570"
+                android:endColor="#00880570" />
+        </shape>
+    </item>
+
+    <!-- Subtle blue glow at lower right -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.92"
+                android:centerY="0.88"
+                android:gradientRadius="88dp"
+                android:startColor="#3A052278"
+                android:endColor="#00052278" />
+        </shape>
+    </item>
+
+</layer-list>
