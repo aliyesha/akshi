@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:akshi/core/formatters/certificate_algorithm_formatter.dart';
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
@@ -34,15 +36,42 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   final _domainSectionKey = GlobalKey();
   final _tlsSectionKey = GlobalKey();
   final _emailSectionKey = GlobalKey();
+  final _scrollController = ScrollController();
+  final _announcedKinds = <MonitorCheckKind>{};
+  final _pulseVersions = <MonitorCheckKind, int>{};
+  List<MonitorFinding> _attentionFindings = const <MonitorFinding>[];
+  late MonitorCheckKind? _activeFocusKind;
+  late bool _focusVisitSettled;
   var _checking = false;
   var _focusScrollScheduled = false;
+  var _visibilityScanScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeFocusKind = widget.focusKind;
+    _focusVisitSettled = widget.focusKind == null;
+    _scrollController.addListener(_scheduleVisibilityScan);
+  }
 
   @override
   void didUpdateWidget(covariant MonitorDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.focusKind != widget.focusKind) {
+      _activeFocusKind = widget.focusKind;
+      _focusVisitSettled = widget.focusKind == null;
       _focusScrollScheduled = false;
+      _announcedKinds.clear();
+      _pulseVersions.clear();
     }
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_scheduleVisibilityScan)
+      ..dispose();
+    super.dispose();
   }
 
   @override
@@ -70,7 +99,25 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
       warningDays: settings.firstWarningDays,
       criticalDays: settings.secondWarningDays,
     );
-    final focusedFinding = _focusedFinding(findings);
+    _attentionFindings = findings
+        .where((finding) => finding.needsAttention)
+        .toList(growable: false);
+    final domainAttention = _attentionFinding(
+      findings,
+      MonitorCheckKind.domainRegistration,
+    );
+    final tlsAttention = _attentionFinding(
+      findings,
+      MonitorCheckKind.tlsCertificate,
+    );
+    final emailAttention = _attentionFinding(
+      findings,
+      MonitorCheckKind.emailConfiguration,
+    );
+    final issueIndex = _attentionFindings.indexWhere(
+      (finding) => finding.kind == _activeFocusKind,
+    );
+    final activeIssueIndex = issueIndex < 0 ? 0 : issueIndex;
     _scheduleFocusScroll();
     return Scaffold(
       appBar: AppBar(
@@ -91,365 +138,482 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () => _refresh(monitor),
-        child: ListView(
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-          children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                SiteIdentity(monitor: monitor, size: 56),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        monitor.displayName,
-                        style: Theme.of(context).textTheme.displaySmall,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        monitor.hostname,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontFamily: AkshiTheme.monoFontFamily,
-                          fontFeatures: const <FontFeature>[
-                            FontFeature.slashedZero(),
-                          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  SiteIdentity(monitor: monitor, size: 56),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          monitor.displayName,
+                          style: Theme.of(context).textTheme.displaySmall,
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (monitor.tags.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: monitor.tags.map((tag) => TagPill(tag: tag)).toList(),
-              ),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: <Widget>[
-                StatusPill(status: status),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed: _checking ? null : () => _refresh(monitor),
-                  icon: _checking
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const PhosphorIcon(
-                          PhosphorIconsRegular.arrowsClockwise,
-                          size: 17,
+                        const SizedBox(height: 6),
+                        Text(
+                          monitor.hostname,
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontFamily: AkshiTheme.monoFontFamily,
+                            fontFeatures: const <FontFeature>[
+                              FontFeature.slashedZero(),
+                            ],
+                          ),
                         ),
-                  label: Text(_checking ? 'Checking' : 'Check now'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (monitor.tags.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: monitor.tags
+                      .map((tag) => TagPill(tag: tag))
+                      .toList(),
                 ),
               ],
-            ),
-            if (monitor.certificateChanged) ...<Widget>[
               const SizedBox(height: 18),
-              _Notice(
-                icon: PhosphorIconsDuotone.sparkle,
-                title: 'Renewal detected',
-                message: 'The live certificate fingerprint changed on the latest check.',
-              ),
-            ],
-            if (monitor.domainError != null ||
-                (monitor.checksCertificate &&
-                    monitor.certificateError != null) ||
-                (monitor.checksEmail &&
-                    monitor.emailActivity.failure != null)) ...<Widget>[
-              const SizedBox(height: 18),
-              _Notice(
-                icon: PhosphorIconsDuotone.warningCircle,
-                title: 'Some data could not be verified',
-                message: [
-                  if (monitor.domainError != null)
-                    'Domain: ${monitor.domainError}',
-                  if (monitor.checksCertificate &&
-                      monitor.certificateError != null)
-                    'Certificate: ${monitor.certificateError}',
-                  if (monitor.checksEmail &&
-                      monitor.emailActivity.failure != null)
-                    'Email: ${monitor.emailActivity.failure!.message}',
-                ].join(String.fromCharCode(10)),
-                error: true,
-              ),
-            ],
-            const SizedBox(height: 26),
-            _ExpiryPanel(
-              key: _domainSectionKey,
-              icon: PhosphorIconsDuotone.globeHemisphereWest,
-              title: 'Domain registration',
-              date: monitor.domainExpiresAt,
-              source: monitor.domainSource == null
-                  ? 'No registry date available'
-                  : 'Verified through ${monitor.domainSource}',
-              focus: _focusFor(
-                MonitorCheckKind.domainRegistration,
-                focusedFinding,
-              ),
-            ),
-            const SizedBox(height: 26),
-            Text(
-              'Domain details',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            _InfoCard(
-              children: <Widget>[
-                _InfoRow(
-                  icon: PhosphorIconsDuotone.bank,
-                  label: 'Registrar',
-                  value: _domainText(monitor, monitor.domainRegistrar),
-                ),
-                _InfoRow(
-                  icon: PhosphorIconsDuotone.identificationCard,
-                  label: 'Public registrant',
-                  value: _domainText(
-                    monitor,
-                    monitor.domainPublicRegistrant,
-                    unpublished: 'Not publicly disclosed',
+              Row(
+                children: <Widget>[
+                  StatusPill(status: status),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _checking ? null : () => _refresh(monitor),
+                    icon: _checking
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const PhosphorIcon(
+                            PhosphorIconsRegular.arrowsClockwise,
+                            size: 17,
+                          ),
+                    label: Text(_checking ? 'Checking' : 'Check now'),
                   ),
-                ),
-                _InfoRow(
-                  icon: PhosphorIconsDuotone.calendarCheck,
-                  label: 'Registered',
-                  value: _domainDate(
-                    context,
-                    monitor,
-                    monitor.domainRegisteredAt,
-                  ),
-                ),
-                _InfoRow(
-                  icon: PhosphorIconsRegular.clock,
-                  label: 'Last changed',
-                  value: _domainDate(context, monitor, monitor.domainUpdatedAt),
-                ),
-                _InfoRow(
-                  icon: PhosphorIconsRegular.network,
-                  label: 'Name servers',
-                  value: _domainText(
-                    monitor,
-                    monitor.domainNameServers.isEmpty
-                        ? null
-                        : monitor.domainNameServers.join('\n'),
-                  ),
-                  monospace: true,
-                  last: true,
+                ],
+              ),
+              if (widget.focusKind != null &&
+                  _attentionFindings.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 14),
+                _AttentionNavigator(
+                  finding: _attentionFindings[activeIssueIndex],
+                  position: activeIssueIndex + 1,
+                  total: _attentionFindings.length,
+                  onPrevious: activeIssueIndex == 0
+                      ? null
+                      : () => _focusIssue(
+                          _attentionFindings[activeIssueIndex - 1].kind,
+                        ),
+                  onNext: activeIssueIndex == _attentionFindings.length - 1
+                      ? null
+                      : () => _focusIssue(
+                          _attentionFindings[activeIssueIndex + 1].kind,
+                        ),
                 ),
               ],
-            ),
-            if (monitor.checksCertificate) ...<Widget>[
-              const SizedBox(height: 12),
+              if (monitor.certificateChanged) ...<Widget>[
+                const SizedBox(height: 18),
+                _Notice(
+                  icon: PhosphorIconsDuotone.sparkle,
+                  title: 'Renewal detected',
+                  message: 'The live certificate fingerprint changed on the latest check.',
+                ),
+              ],
+              if (monitor.domainError != null ||
+                  (monitor.checksCertificate &&
+                      monitor.certificateError != null) ||
+                  (monitor.checksEmail &&
+                      monitor.emailActivity.failure != null)) ...<Widget>[
+                const SizedBox(height: 18),
+                _Notice(
+                  icon: PhosphorIconsDuotone.warningCircle,
+                  title: 'Some data could not be verified',
+                  message: [
+                    if (monitor.domainError != null)
+                      'Domain: ${monitor.domainError}',
+                    if (monitor.checksCertificate &&
+                        monitor.certificateError != null)
+                      'Certificate: ${monitor.certificateError}',
+                    if (monitor.checksEmail &&
+                        monitor.emailActivity.failure != null)
+                      'Email: ${monitor.emailActivity.failure!.message}',
+                  ].join(String.fromCharCode(10)),
+                  error: true,
+                ),
+              ],
+              const SizedBox(height: 26),
               _ExpiryPanel(
-                key: _tlsSectionKey,
-                icon: PhosphorIconsDuotone.certificate,
-                title: 'TLS certificate',
-                date: monitor.certificateExpiresAt,
-                source: monitor.certificateIssuer == null
-                    ? 'No certificate data available'
-                    : 'Issued by ${formatCertificateIssuer(monitor.certificateIssuer!)}',
-                focus: _focusFor(
-                  MonitorCheckKind.tlsCertificate,
-                  focusedFinding,
-                ),
+                key: _domainSectionKey,
+                icon: PhosphorIconsDuotone.globeHemisphereWest,
+                title: 'Domain registration',
+                date: monitor.domainExpiresAt,
+                source: monitor.domainSource == null
+                    ? 'No registry date available'
+                    : 'Verified through ${monitor.domainSource}',
+                focus: domainAttention,
+                focusPulse: _pulseFor(MonitorCheckKind.domainRegistration),
               ),
               const SizedBox(height: 26),
               Text(
-                'Certificate details',
+                'Domain details',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
               _InfoCard(
                 children: <Widget>[
                   _InfoRow(
-                    icon: PhosphorIconsRegular.network,
-                    label: 'TLS endpoint',
-                    value: _tlsEndpoint(monitor),
-                    monospace: true,
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.shieldCheck,
-                    label: 'Trust',
-                    value: _trustLabel(monitor.tlsTrusted),
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.sealCheck,
-                    label: 'Hostname match',
-                    value: _hostnameMatchLabel(
-                      monitor.certificateHostnameMatches,
-                    ),
+                    icon: PhosphorIconsDuotone.bank,
+                    label: 'Registrar',
+                    value: _domainText(monitor, monitor.domainRegistrar),
                   ),
                   _InfoRow(
                     icon: PhosphorIconsDuotone.identificationCard,
-                    label: 'Subject',
-                    value: monitor.certificateSubject ?? '—',
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.bank,
-                    label: 'Issuer',
-                    value: monitor.certificateIssuer ?? '—',
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.listBullets,
-                    label: 'Subject alternative names',
-                    value: monitor.certificateSubjectAlternativeNames.isEmpty
-                        ? '—'
-                        : monitor.certificateSubjectAlternativeNames.join('\n'),
-                    monospace: true,
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.calendarCheck,
-                    label: 'Valid from',
-                    value: _formatDate(context, monitor.certificateValidFrom),
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsRegular.binary,
-                    label: 'Serial number',
-                    value: monitor.certificateSerialNumber ?? '—',
-                    monospace: true,
-                  ),
-                  _InfoRow(
-                    icon: PhosphorIconsDuotone.fileLock,
-                    label: 'Signature algorithm',
-                    value: formatSignatureAlgorithm(
-                      monitor.certificateSignatureAlgorithm,
+                    label: 'Public registrant',
+                    value: _domainText(
+                      monitor,
+                      monitor.domainPublicRegistrant,
+                      unpublished: 'Not publicly disclosed',
                     ),
                   ),
                   _InfoRow(
-                    icon: PhosphorIconsDuotone.key,
-                    label: 'Public key',
-                    value: _publicKeyLabel(monitor),
+                    icon: PhosphorIconsDuotone.calendarCheck,
+                    label: 'Registered',
+                    value: _domainDate(
+                      context,
+                      monitor,
+                      monitor.domainRegisteredAt,
+                    ),
                   ),
                   _InfoRow(
-                    icon: PhosphorIconsDuotone.fingerprint,
-                    label: 'SHA-256 fingerprint',
-                    value: _formatFingerprint(monitor.certificateFingerprint),
+                    icon: PhosphorIconsRegular.clock,
+                    label: 'Last changed',
+                    value: _domainDate(
+                      context,
+                      monitor,
+                      monitor.domainUpdatedAt,
+                    ),
+                  ),
+                  _InfoRow(
+                    icon: PhosphorIconsRegular.network,
+                    label: 'Name servers',
+                    value: _domainText(
+                      monitor,
+                      monitor.domainNameServers.isEmpty
+                          ? null
+                          : monitor.domainNameServers.join('\n'),
+                    ),
                     monospace: true,
                     last: true,
                   ),
                 ],
               ),
-            ],
-            if (monitor.checksEmail) ...<Widget>[
-              const SizedBox(height: 26),
-              if (widget.focusKind == MonitorCheckKind.emailConfiguration &&
-                  focusedFinding != null) ...<Widget>[
-                _FocusReason(key: _emailSectionKey, finding: focusedFinding),
-                const SizedBox(height: 14),
-              ],
-              Text(
-                'Email posture',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 5),
-              Text(
-                'Published configuration, not a delivery or reputation score.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+              if (monitor.checksCertificate) ...<Widget>[
+                const SizedBox(height: 12),
+                _ExpiryPanel(
+                  key: _tlsSectionKey,
+                  icon: PhosphorIconsDuotone.certificate,
+                  title: 'TLS certificate',
+                  date: monitor.certificateExpiresAt,
+                  source: monitor.certificateIssuer == null
+                      ? 'No certificate data available'
+                      : 'Issued by ${formatCertificateIssuer(monitor.certificateIssuer!)}',
+                  focus: tlsAttention,
+                  focusPulse: _pulseFor(MonitorCheckKind.tlsCertificate),
                 ),
-              ),
-              if (monitor.emailPosture != null) ...<Widget>[
-                const SizedBox(height: 8),
+                const SizedBox(height: 26),
                 Text(
-                  'DNS data checked ${_formatDateTime(context, monitor.emailPosture!.checkedAt)}',
+                  'Certificate details',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                _InfoCard(
+                  children: <Widget>[
+                    _InfoRow(
+                      icon: PhosphorIconsRegular.network,
+                      label: 'TLS endpoint',
+                      value: _tlsEndpoint(monitor),
+                      monospace: true,
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.shieldCheck,
+                      label: 'Trust',
+                      value: _trustLabel(monitor.tlsTrusted),
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.sealCheck,
+                      label: 'Hostname match',
+                      value: _hostnameMatchLabel(
+                        monitor.certificateHostnameMatches,
+                      ),
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.identificationCard,
+                      label: 'Subject',
+                      value: monitor.certificateSubject ?? '—',
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.bank,
+                      label: 'Issuer',
+                      value: monitor.certificateIssuer ?? '—',
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.listBullets,
+                      label: 'Subject alternative names',
+                      value: monitor.certificateSubjectAlternativeNames.isEmpty
+                          ? '—'
+                          : monitor.certificateSubjectAlternativeNames.join(
+                              '\n',
+                            ),
+                      monospace: true,
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.calendarCheck,
+                      label: 'Valid from',
+                      value: _formatDate(context, monitor.certificateValidFrom),
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsRegular.binary,
+                      label: 'Serial number',
+                      value: monitor.certificateSerialNumber ?? '—',
+                      monospace: true,
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.fileLock,
+                      label: 'Signature algorithm',
+                      value: formatSignatureAlgorithm(
+                        monitor.certificateSignatureAlgorithm,
+                      ),
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.key,
+                      label: 'Public key',
+                      value: _publicKeyLabel(monitor),
+                    ),
+                    _InfoRow(
+                      icon: PhosphorIconsDuotone.fingerprint,
+                      label: 'SHA-256 fingerprint',
+                      value: _formatFingerprint(monitor.certificateFingerprint),
+                      monospace: true,
+                      last: true,
+                    ),
+                  ],
+                ),
+              ],
+              if (monitor.checksEmail) ...<Widget>[
+                const SizedBox(height: 26),
+                if (emailAttention != null) ...<Widget>[
+                  KeyedSubtree(
+                    key: _emailSectionKey,
+                    child: _FocusReason(
+                      key: ValueKey<String>(
+                        'email-attention-${_pulseFor(MonitorCheckKind.emailConfiguration)}',
+                      ),
+                      finding: emailAttention,
+                      animate:
+                          _pulseFor(MonitorCheckKind.emailConfiguration) > 0,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                Text(
+                  'Email posture',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Published configuration, not a delivery or reputation score.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
-              ],
-              const SizedBox(height: 12),
-              if (monitor.emailPosture == null)
-                _Notice(
-                  icon: monitor.emailActivity.failure == null
-                      ? PhosphorIconsDuotone.info
-                      : PhosphorIconsDuotone.cloudSlash,
-                  title: monitor.emailActivity.failure == null
-                      ? 'Email not checked yet'
-                      : 'Email DNS lookup unavailable',
-                  message: monitor.emailActivity.failure?.message ?? 'Run a check to inspect the domain’s public mail records.',
-                  error: monitor.emailActivity.failure != null,
-                )
-              else
-                ...monitor.emailPosture!.findings.map(
-                  (finding) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _MailFindingCard(finding: finding),
+                if (monitor.emailPosture != null) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    'DNS data checked ${_formatDateTime(context, monitor.emailPosture!.checkedAt)}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-            ],
-            const SizedBox(height: 26),
-            Text('Freshness', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            _InfoCard(
-              children: <Widget>[
-                _InfoRow(
-                  icon: PhosphorIconsRegular.clock,
-                  label: 'Last checked',
-                  value: monitor.lastCheckedAt == null
-                      ? 'Never'
-                      : _formatDateTime(context, monitor.lastCheckedAt!),
-                  last: true,
-                ),
+                ],
+                const SizedBox(height: 12),
+                if (monitor.emailPosture == null)
+                  _Notice(
+                    icon: monitor.emailActivity.failure == null
+                        ? PhosphorIconsDuotone.info
+                        : PhosphorIconsDuotone.cloudSlash,
+                    title: monitor.emailActivity.failure == null
+                        ? 'Email not checked yet'
+                        : 'Email DNS lookup unavailable',
+                    message:
+                        monitor.emailActivity.failure?.message ??
+                        'Run a check to inspect the domain’s public mail records.',
+                    error: monitor.emailActivity.failure != null,
+                  )
+                else
+                  ...monitor.emailPosture!.findings.map(
+                    (finding) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _MailFindingCard(finding: finding),
+                    ),
+                  ),
               ],
-            ),
-          ],
+              const SizedBox(height: 26),
+              Text('Freshness', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              _InfoCard(
+                children: <Widget>[
+                  _InfoRow(
+                    icon: PhosphorIconsRegular.clock,
+                    label: 'Last checked',
+                    value: monitor.lastCheckedAt == null
+                        ? 'Never'
+                        : _formatDateTime(context, monitor.lastCheckedAt!),
+                    last: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  MonitorFinding? _focusedFinding(List<MonitorFinding> findings) {
-    final focusKind = widget.focusKind;
-    if (focusKind == null) {
-      return null;
-    }
+  MonitorFinding? _attentionFinding(
+    List<MonitorFinding> findings,
+    MonitorCheckKind kind,
+  ) {
     for (final finding in findings) {
-      if (finding.kind == focusKind) {
+      if (finding.kind == kind &&
+          (finding.needsAttention || _activeFocusKind == kind)) {
         return finding;
       }
     }
     return null;
   }
 
-  MonitorFinding? _focusFor(
-    MonitorCheckKind kind,
-    MonitorFinding? finding,
-  ) => widget.focusKind == kind ? finding : null;
+  int _pulseFor(MonitorCheckKind kind) => _pulseVersions[kind] ?? 0;
+
+  GlobalKey _keyFor(MonitorCheckKind kind) => switch (kind) {
+    MonitorCheckKind.domainRegistration => _domainSectionKey,
+    MonitorCheckKind.tlsCertificate => _tlsSectionKey,
+    MonitorCheckKind.emailConfiguration => _emailSectionKey,
+  };
+
+  Future<void> _focusIssue(MonitorCheckKind kind) async {
+    _focusVisitSettled = false;
+    if (_activeFocusKind != kind) {
+      setState(() => _activeFocusKind = kind);
+    }
+    await _scrollToKind(kind, forcePulse: true);
+    if (mounted) {
+      _focusVisitSettled = true;
+    }
+  }
 
   void _scheduleFocusScroll() {
-    final focusKind = widget.focusKind;
+    final focusKind = _activeFocusKind;
     if (focusKind == null || _focusScrollScheduled) {
       return;
     }
-    final targetKey = switch (focusKind) {
-      MonitorCheckKind.domainRegistration => _domainSectionKey,
-      MonitorCheckKind.tlsCertificate => _tlsSectionKey,
-      MonitorCheckKind.emailConfiguration => _emailSectionKey,
-    };
     _focusScrollScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) {
         return;
       }
-      final targetContext = targetKey.currentContext;
-      if (targetContext == null) {
-        _focusScrollScheduled = false;
+      await _scrollToKind(focusKind, forcePulse: true);
+      if (!mounted) {
         return;
       }
-      Scrollable.ensureVisible(
-        targetContext,
-        duration: const Duration(milliseconds: 420),
-        curve: Curves.easeOutCubic,
-        alignment: .08,
-      );
+      _focusVisitSettled = true;
     });
+  }
+
+  Future<void> _scrollToKind(
+    MonitorCheckKind kind, {
+    required bool forcePulse,
+  }) async {
+    final targetContext = _keyFor(kind).currentContext;
+    if (targetContext == null) {
+      _focusScrollScheduled = false;
+      return;
+    }
+    await Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      alignment: .08,
+    );
+    if (mounted) {
+      _announceKind(kind, force: forcePulse);
+    }
+  }
+
+  void _announceKind(MonitorCheckKind kind, {bool force = false}) {
+    if (!force && _announcedKinds.contains(kind)) {
+      return;
+    }
+    setState(() {
+      _activeFocusKind = kind;
+      _announcedKinds.add(kind);
+      _pulseVersions[kind] = _pulseFor(kind) + 1;
+    });
+  }
+
+  void _scheduleVisibilityScan() {
+    if (!mounted ||
+        widget.focusKind == null ||
+        !_focusVisitSettled ||
+        _visibilityScanScheduled) {
+      return;
+    }
+    _visibilityScanScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _visibilityScanScheduled = false;
+      if (mounted) {
+        _scanVisibleAttention();
+      }
+    });
+  }
+
+  void _scanVisibleAttention() {
+    final media = MediaQuery.of(context);
+    final visibleTop = media.padding.top + kToolbarHeight;
+    final visibleBottom = media.size.height - media.padding.bottom;
+
+    for (final finding in _attentionFindings) {
+      if (_announcedKinds.contains(finding.kind)) {
+        continue;
+      }
+      final targetContext = _keyFor(finding.kind).currentContext;
+      final box = targetContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached) {
+        continue;
+      }
+      final topLeft = box.localToGlobal(Offset.zero);
+      final visibleHeight =
+          math.min(topLeft.dy + box.size.height, visibleBottom) -
+          math.max(topLeft.dy, visibleTop);
+      final threshold = math.min(72.0, box.size.height * .35);
+      if (visibleHeight >= threshold) {
+        _announceKind(finding.kind);
+        break;
+      }
+    }
   }
 
   MonitorEntry? _find(List<MonitorEntry> items) {
@@ -510,6 +674,81 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   }
 }
 
+class _AttentionNavigator extends StatelessWidget {
+  const _AttentionNavigator({
+    required this.finding,
+    required this.position,
+    required this.total,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final MonitorFinding finding;
+  final int position;
+  final int total;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = monitorStatusColor(scheme, finding.status);
+    return Material(
+      color: Color.lerp(scheme.surfaceContainerLow, accent, .06),
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: accent.withValues(alpha: .22)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+        child: Row(
+          children: <Widget>[
+            PhosphorIcon(
+              PhosphorIconsDuotone.bellRinging,
+              size: 22,
+              color: accent,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    finding.kind.label,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    total == 1
+                        ? '1 issue needs attention'
+                        : 'Issue $position of $total',
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            if (total > 1) ...<Widget>[
+              IconButton(
+                tooltip: 'Previous issue',
+                visualDensity: VisualDensity.compact,
+                onPressed: onPrevious,
+                icon: const PhosphorIcon(PhosphorIconsRegular.caretLeft),
+              ),
+              IconButton(
+                tooltip: 'Next issue',
+                visualDensity: VisualDensity.compact,
+                onPressed: onNext,
+                icon: const PhosphorIcon(PhosphorIconsRegular.caretRight),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ExpiryPanel extends StatelessWidget {
   const _ExpiryPanel({
     required this.icon,
@@ -517,6 +756,7 @@ class _ExpiryPanel extends StatelessWidget {
     required this.date,
     required this.source,
     this.focus,
+    this.focusPulse = 0,
     super.key,
   });
 
@@ -525,6 +765,7 @@ class _ExpiryPanel extends StatelessWidget {
   final DateTime? date;
   final String source;
   final MonitorFinding? focus;
+  final int focusPulse;
 
   @override
   Widget build(BuildContext context) {
@@ -534,22 +775,35 @@ class _ExpiryPanel extends StatelessWidget {
     final accent = focusedFinding == null
         ? scheme.primary
         : monitorStatusColor(scheme, focusedFinding.status);
+    final attentionTint = scheme.brightness == Brightness.dark ? .2 : .12;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: focusedFinding == null
             ? scheme.surfaceContainerLowest
-            : Color.lerp(scheme.surfaceContainerLowest, accent, .08),
+            : Color.alphaBlend(
+                accent.withValues(alpha: attentionTint),
+                scheme.surfaceContainerLowest,
+              ),
         border: focusedFinding == null
             ? null
-            : Border.all(color: accent.withValues(alpha: .58), width: 1.4),
+            : Border.all(
+                color: accent.withValues(alpha: .72),
+                width: 1.6,
+              ),
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (focusedFinding != null) ...<Widget>[
-            _FocusReason(finding: focusedFinding),
+            _FocusReason(
+              key: ValueKey<String>(
+                '${focusedFinding.kind.id}-attention-$focusPulse',
+              ),
+              finding: focusedFinding,
+              animate: focusPulse > 0,
+            ),
             const SizedBox(height: 16),
           ],
           Row(
@@ -599,52 +853,128 @@ class _ExpiryPanel extends StatelessWidget {
   }
 }
 
-class _FocusReason extends StatelessWidget {
-  const _FocusReason({required this.finding, super.key});
+class _FocusReason extends StatefulWidget {
+  const _FocusReason({required this.finding, this.animate = false, super.key});
 
   final MonitorFinding finding;
+  final bool animate;
+
+  @override
+  State<_FocusReason> createState() => _FocusReasonState();
+}
+
+class _FocusReasonState extends State<_FocusReason>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1750),
+  );
+  var _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) {
+      return;
+    }
+    _started = true;
+    final media = MediaQuery.maybeOf(context);
+    final reduceMotion =
+        (media?.disableAnimations ?? false) ||
+        (media?.accessibleNavigation ?? false);
+    if (widget.animate && !reduceMotion) {
+      _controller.forward();
+    } else {
+      _controller.value = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accent = monitorStatusColor(scheme, finding.status);
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: .11),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          PhosphorIcon(
-            PhosphorIconsDuotone.warningCircle,
-            size: 21,
-            color: accent,
+    final accent = monitorStatusColor(scheme, widget.finding.status);
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final progress = _controller.value;
+        final animating = _controller.isAnimating;
+        final glow = animating
+            ? math.sin(progress * math.pi * 2).abs() * (1 - progress * .18)
+            : 0.0;
+        final shakeEnvelope = progress < .82 ? 1 - (progress / .82) : 0.0;
+        final shake = animating
+            ? math.sin(progress * math.pi * 14) * shakeEnvelope * .22
+            : 0.0;
+        final scale = 1 + glow * .075;
+        final baseTint = scheme.brightness == Brightness.dark ? .22 : .15;
+        return Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(
+              accent.withValues(alpha: baseTint + glow * .1),
+              scheme.surfaceContainerLowest,
+            ),
+            border: Border.all(
+              color: accent.withValues(alpha: .48 + glow * .42),
+              width: 1.4,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: glow == 0
+                ? null
+                : <BoxShadow>[
+                    BoxShadow(
+                      color: accent.withValues(alpha: glow * .28),
+                      blurRadius: 22 * glow,
+                      spreadRadius: 2.4 * glow,
+                    ),
+                  ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  finding.needsAttention
-                      ? 'Why this needs attention'
-                      : 'Current result',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Transform.rotate(
+                angle: shake,
+                child: Transform.scale(
+                  scale: scale,
+                  child: PhosphorIcon(
+                    PhosphorIconsDuotone.bellRinging,
+                    size: 24,
                     color: accent,
-                    fontWeight: FontWeight.w700,
+                    semanticLabel: 'Attention',
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(finding.summary),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      widget.finding.needsAttention
+                          ? '${widget.finding.kind.label} needs attention'
+                          : '${widget.finding.kind.label} current result',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(widget.finding.summary),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              StatusPill(status: widget.finding.status),
+            ],
           ),
-          const SizedBox(width: 8),
-          StatusPill(status: finding.status),
-        ],
-      ),
+        );
+      },
     );
   }
 }
