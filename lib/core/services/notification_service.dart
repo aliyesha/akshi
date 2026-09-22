@@ -22,6 +22,7 @@ class NotificationService {
   final StreamController<String> _navigationRoutes =
       StreamController<String>.broadcast();
   bool _initialized = false;
+  bool _initializationFailed = false;
   String? _pendingRoute;
 
   static const _digestIdBase = 100000000;
@@ -59,7 +60,7 @@ class NotificationService {
   /// Initialization is idempotent because foreground checks and app startup can
   /// both reach the service.
   Future<void> initialize() async {
-    if (_initialized) return;
+    if (_initialized || _initializationFailed) return;
     appLogger.info('service.notifications.initialize.started');
     tz_data.initializeTimeZones();
     try {
@@ -73,17 +74,27 @@ class NotificationService {
       );
       tz.setLocalLocation(tz.UTC);
     }
-    await _plugin.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings('ic_notification'),
-        iOS: DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
+    try {
+      await _plugin.initialize(
+        settings: const InitializationSettings(
+          android: AndroidInitializationSettings('ic_notification'),
+          iOS: DarwinInitializationSettings(
+            requestAlertPermission: false,
+            requestBadgePermission: false,
+            requestSoundPermission: false,
+          ),
         ),
-      ),
-      onDidReceiveNotificationResponse: _handleResponse,
-    );
+        onDidReceiveNotificationResponse: _handleResponse,
+      );
+    } catch (error, stackTrace) {
+      _initializationFailed = true;
+      appLogger.error(
+        'service.notifications.initialize.failed',
+        error,
+        stackTrace,
+      );
+      return;
+    }
     _initialized = true;
 
     final launchDetails = await _plugin.getNotificationAppLaunchDetails();
@@ -115,6 +126,7 @@ class NotificationService {
   Future<bool> requestPermission() async {
     appLogger.info('service.notifications.permission.started');
     await initialize();
+    if (!_initialized) return false;
     final android = await _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -147,6 +159,7 @@ class NotificationService {
       data: <String, Object?>{'monitorCount': monitorList.length},
     );
     await initialize();
+    if (!_initialized) return;
     await _cancelDigestSlots();
     final digests = buildDailyReminderDigests(
       monitorList,
@@ -238,6 +251,7 @@ class NotificationService {
       monitorIds: changed.map((monitor) => monitor.id).toList(),
     );
     await initialize();
+    if (!_initialized) return;
     await _plugin.show(
       id: _changeNotificationId,
       title: changed.length == 1
