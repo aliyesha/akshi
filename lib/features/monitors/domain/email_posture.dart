@@ -78,6 +78,10 @@ class EmailPosture {
 
   bool get needsAttention => findings.any((finding) => finding.needsAttention);
 
+  /// Whether at least one requested DNS-backed Email check could not run.
+  bool get hasUnavailable =>
+      findings.any((finding) => finding.state == MailFindingState.unavailable);
+
   String get changeSignature => findings
       .map(
         (finding) => <String>[

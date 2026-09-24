@@ -15,6 +15,8 @@ void main() {
     String? domainError,
     String? certificateError,
     bool checksEmail = false,
+    CheckActivity domainActivity = const CheckActivity(),
+    CheckActivity certificateActivity = const CheckActivity(),
     CheckActivity emailActivity = const CheckActivity(),
   }) => MonitorEntry(
     id: 'monitor-id',
@@ -31,6 +33,8 @@ void main() {
     tlsTrusted: tlsTrusted,
     domainError: domainError,
     certificateError: certificateError,
+    domainActivity: domainActivity,
+    certificateActivity: certificateActivity,
     emailActivity: emailActivity,
   );
 
@@ -47,6 +51,36 @@ void main() {
     expect(findings[0].status, MonitorStatus.healthy);
     expect(findings[1].kind, MonitorCheckKind.tlsCertificate);
     expect(findings[1].status, MonitorStatus.critical);
+  });
+
+  test('offline refresh does not create attention findings', () {
+    final failure = CheckFailure(
+      kind: CheckFailureKind.offline,
+      message: 'No network connection. Showing the last saved result.',
+      occurredAt: now,
+    );
+    final activity = CheckActivity(
+      lastAttemptedAt: now,
+      lastSucceededAt: now.subtract(const Duration(days: 1)),
+      failure: failure,
+    );
+    final findings = findingsForMonitor(
+      monitor(
+        domainExpiry: now.add(const Duration(days: 90)),
+        certificateExpiry: now.add(const Duration(days: 60)),
+        domainError: failure.message,
+        certificateError: failure.message,
+        domainActivity: activity,
+        certificateActivity: activity,
+      ),
+      now: now,
+    );
+
+    expect(
+      findings.map((finding) => finding.status),
+      <MonitorStatus>[MonitorStatus.healthy, MonitorStatus.healthy],
+    );
+    expect(findings.any((finding) => finding.needsAttention), isFalse);
   });
 
   test('an untrusted certificate is critical regardless of expiry', () {
@@ -206,6 +240,36 @@ void main() {
       findings[2].summary,
       'Email configuration check unavailable — DNS lookup timed out',
     );
+  });
+
+  test('an unavailable Email lookup remains unavailable, not warning', () {
+    final entry = MonitorEntry(
+      id: 'email-unavailable',
+      hostname: 'example.com',
+      tlsHostname: 'example.com',
+      tlsPort: 443,
+      checksEmail: true,
+      createdAt: now,
+      updatedAt: now,
+      lastCheckedAt: now,
+      domainExpiresAt: now.add(const Duration(days: 90)),
+      emailPosture: EmailPosture(
+        checkedAt: now,
+        findings: const <MailFinding>[
+          MailFinding(
+            id: 'spf',
+            title: 'SPF',
+            state: MailFindingState.unavailable,
+            summary: 'The SPF lookup timed out.',
+          ),
+        ],
+      ),
+    );
+
+    final email = findingsForMonitor(entry, now: now).last;
+    expect(email.status, MonitorStatus.unavailable);
+    expect(email.summary, 'Some Email checks are currently unavailable');
+    expect(entry.overallStatus(now: now), MonitorStatus.unavailable);
   });
 
   test('check kinds parse stable attention route identifiers', () {

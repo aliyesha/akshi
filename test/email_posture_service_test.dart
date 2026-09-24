@@ -109,6 +109,7 @@ void main() {
         posture.findings.singleWhere((finding) => finding.id == 'dmarc').state,
         MailFindingState.healthy,
       );
+      expect(posture.hasUnavailable, isTrue);
     },
   );
 }

@@ -8,6 +8,7 @@ class CrashLogService {
   CrashLogService({CrashLogStore? store}) : _store = store ?? CrashLogStore();
 
   final CrashLogStore _store;
+  var _sequence = 0;
 
   /// Records an error best-effort; this method never throws to its caller.
   Future<void> record(
@@ -16,10 +17,11 @@ class CrashLogService {
     required String context,
   }) async {
     try {
+      final occurredAt = DateTime.now();
       await _store.append(
         CrashLog(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
-          occurredAt: DateTime.now(),
+          id: '${occurredAt.microsecondsSinceEpoch}-${++_sequence}',
+          occurredAt: occurredAt,
           errorType: error.runtimeType.toString(),
           message: error.toString(),
           stackTrace: stackTrace.toString(),

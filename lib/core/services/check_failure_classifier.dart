@@ -11,14 +11,18 @@ import 'package:flutter/services.dart';
 /// Classification keeps the last successful observation meaningful when the
 /// device is offline or a public source is temporarily unavailable.
 class CheckFailureClassifier {
-  CheckFailureClassifier({Connectivity? connectivity})
-    : _connectivity = connectivity ?? Connectivity();
+  CheckFailureClassifier({
+    Connectivity? connectivity,
+    this._offlineCheck,
+  }) : _connectivity = connectivity ?? Connectivity();
 
   final Connectivity _connectivity;
-
+  final Future<bool> Function()? _offlineCheck;
   /// Reports whether every connectivity result currently indicates no network.
   Future<bool> get deviceIsOffline async {
     try {
+      final injected = _offlineCheck;
+      if (injected != null) return await injected();
       final states = await _connectivity.checkConnectivity();
       return states.isEmpty ||
           states.every((state) => state == ConnectivityResult.none);
@@ -65,11 +69,25 @@ class CheckFailureClassifier {
           message.contains('failed host lookup') ||
           message.contains('name or service not known') ||
           message.contains('nodename nor servname');
+      if (dns) {
+        return CheckFailure(
+          kind: CheckFailureKind.dns,
+          message: '$source could not be resolved through DNS.',
+          occurredAt: occurredAt,
+        );
+      }
+      if (tls) {
+        return CheckFailure(
+          kind: CheckFailureKind.tls,
+          message:
+              '$source could not be reached. The port may be closed or '
+              'not accepting connections.',
+          occurredAt: occurredAt,
+        );
+      }
       return CheckFailure(
-        kind: dns ? CheckFailureKind.dns : CheckFailureKind.internetUnavailable,
-        message: dns
-            ? '$source could not be resolved through DNS.'
-            : 'Internet access appears unavailable or restricted.',
+        kind: CheckFailureKind.internetUnavailable,
+        message: 'Internet access appears unavailable or restricted.',
         occurredAt: occurredAt,
       );
     }
@@ -83,7 +101,9 @@ class CheckFailureClassifier {
     if (tls || error is HandshakeException || error is TlsException) {
       return CheckFailure(
         kind: CheckFailureKind.tls,
-        message: _cleanMessage(error, fallback: 'The TLS connection failed.'),
+        message:
+            '$source did not complete a TLS handshake. Verify the hostname, '
+            'port, and that the service uses direct TLS.',
         occurredAt: occurredAt,
       );
     }

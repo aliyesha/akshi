@@ -134,10 +134,20 @@ class MonitorEntry {
     int criticalDays = 5,
     DateTime? now,
   }) {
+    final domainConnectionInterrupted =
+        domainActivity.failure.isConnectivityInterruption;
+    final certificateConnectionInterrupted =
+        certificateActivity.failure.isConnectivityInterruption;
+    final emailConnectionInterrupted =
+        emailActivity.failure.isConnectivityInterruption;
     if (lastCheckedAt == null &&
-        (domainError != null ||
-            (checksCertificate && certificateError != null) ||
-            (checksEmail && emailActivity.failure != null))) {
+        ((domainError != null && !domainConnectionInterrupted) ||
+            (checksCertificate &&
+                certificateError != null &&
+                !certificateConnectionInterrupted) ||
+            (checksEmail &&
+                emailActivity.failure != null &&
+                !emailConnectionInterrupted))) {
       return MonitorStatus.failed;
     }
     var domain = statusForExpiry(
@@ -146,7 +156,9 @@ class MonitorEntry {
       criticalDays: criticalDays,
       now: now,
     );
-    if (domainError != null) domain = MonitorStatus.unavailable;
+    if (domainError != null && !domainConnectionInterrupted) {
+      domain = MonitorStatus.unavailable;
+    }
 
     var certificate = MonitorStatus.unknown;
     if (checksCertificate) {
@@ -156,7 +168,9 @@ class MonitorEntry {
         criticalDays: criticalDays,
         now: now,
       );
-      if (certificateError != null) certificate = MonitorStatus.unavailable;
+      if (certificateError != null && !certificateConnectionInterrupted) {
+        certificate = MonitorStatus.unavailable;
+      }
       if (tlsTrusted == false || certificateHostnameMatches == false) {
         certificate = MonitorStatus.critical;
       }
@@ -164,7 +178,9 @@ class MonitorEntry {
 
     var email = MonitorStatus.unknown;
     if (checksEmail) {
-      email = emailActivity.failure != null
+      email =
+          (emailActivity.failure != null && !emailConnectionInterrupted) ||
+              (emailPosture?.hasUnavailable ?? false)
           ? MonitorStatus.unavailable
           : emailPosture == null
           ? MonitorStatus.unknown

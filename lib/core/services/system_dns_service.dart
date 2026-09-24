@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:akshi/core/services/async_concurrency_gate.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:flutter/services.dart';
@@ -84,10 +85,14 @@ class SystemDnsService {
 /// Every requested query is isolated behind its own failure boundary, so one
 /// unavailable record does not erase useful results from the other queries.
 class DnsSnapshotService {
-  const DnsSnapshotService({SystemDnsService? dns})
-    : _dns = dns ?? const SystemDnsService();
+  DnsSnapshotService({
+    SystemDnsService? dns,
+    AsyncConcurrencyGate? gate,
+  }) : _dns = dns ?? const SystemDnsService(),
+       _gate = gate ?? AsyncConcurrencyGate(maximum: 10);
 
   final SystemDnsService _dns;
+  final AsyncConcurrencyGate _gate;
 
   /// Runs the explicit root and role-specific queries for a monitor.
   ///
@@ -131,7 +136,9 @@ class DnsSnapshotService {
       queries = await Future.wait(
         requests.map((request) async {
           try {
-            return await _dns.query(request.name, request.type);
+            return await _gate.run(
+              () => _dns.query(request.name, request.type),
+            );
           } catch (error, stackTrace) {
             appLogger.error(
               'service.dns.query.failed',

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
@@ -6,11 +5,10 @@ import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/domain/check_result.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
-
 /// Opens a foreground TLS connection and extracts certificate facts.
 ///
-/// A failed trust handshake is retried only to read the presented certificate;
-/// the result retains that it was not trusted.
+/// Trust failures are accepted only long enough to inspect the presented
+/// certificate; the result records that platform verification failed.
 class TlsCheckService {
   const TlsCheckService();
 
@@ -21,22 +19,15 @@ class TlsCheckService {
       data: <String, Object?>{'hostname': hostname, 'port': port},
     );
     var trusted = true;
-    SecureSocket socket;
-    try {
-      socket = await SecureSocket.connect(
-        hostname,
-        port,
-        timeout: const Duration(seconds: 12),
-      );
-    } on HandshakeException {
-      trusted = false;
-      socket = await SecureSocket.connect(
-        hostname,
-        port,
-        timeout: const Duration(seconds: 12),
-        onBadCertificate: (_) => true,
-      );
-    }
+    final socket = await SecureSocket.connect(
+      hostname,
+      port,
+      timeout: const Duration(seconds: 12),
+      onBadCertificate: (_) {
+        trusted = false;
+        return true;
+      },
+    );
 
     try {
       final certificate = socket.peerCertificate;

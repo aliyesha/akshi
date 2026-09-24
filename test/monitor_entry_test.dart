@@ -1,3 +1,4 @@
+import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
@@ -102,6 +103,43 @@ void main() {
       certificateExpiresAt: now.add(const Duration(days: 3)),
     );
     expect(monitor.overallStatus(now: now), MonitorStatus.critical);
+  });
+
+  test('offline refresh keeps the last saved expiry health', () {
+    final occurredAt = now.add(const Duration(minutes: 1));
+    final lastSucceededAt = now.subtract(const Duration(days: 1));
+    final failure = CheckFailure(
+      kind: CheckFailureKind.offline,
+      message: 'No network connection. Showing the last saved result.',
+      occurredAt: occurredAt,
+    );
+    final monitor = MonitorEntry(
+      id: 'offline-monitor',
+      hostname: 'example.com',
+      tlsHostname: 'example.com',
+      tlsPort: 443,
+      checksCertificate: true,
+      createdAt: now,
+      updatedAt: occurredAt,
+      lastCheckedAt: occurredAt,
+      domainExpiresAt: now.add(const Duration(days: 90)),
+      certificateExpiresAt: now.add(const Duration(days: 60)),
+      tlsTrusted: true,
+      domainError: failure.message,
+      certificateError: failure.message,
+      domainActivity: CheckActivity(
+        lastAttemptedAt: occurredAt,
+        lastSucceededAt: lastSucceededAt,
+        failure: failure,
+      ),
+      certificateActivity: CheckActivity(
+        lastAttemptedAt: occurredAt,
+        lastSucceededAt: lastSucceededAt,
+        failure: failure,
+      ),
+    );
+
+    expect(monitor.overallStatus(now: now), MonitorStatus.healthy);
   });
 
   test('an untrusted certificate is always critical', () {

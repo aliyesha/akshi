@@ -50,6 +50,14 @@ class CheckFailure {
   );
 }
 
+extension CheckFailureMeaning on CheckFailure? {
+  bool get isConnectivityInterruption => switch (this?.kind) {
+    CheckFailureKind.offline ||
+    CheckFailureKind.internetUnavailable => true,
+    _ => false,
+  };
+}
+
 class CheckActivity {
   const CheckActivity({
     this.lastAttemptedAt,

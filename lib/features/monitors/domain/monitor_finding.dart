@@ -1,3 +1,4 @@
+import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
 
@@ -63,8 +64,15 @@ List<MonitorFinding> findingsForMonitor(
     criticalDays: criticalDays,
     now: referenceTime,
   );
-  final domainUnavailable = monitor.domainError != null;
-  final certificateUnavailable = monitor.certificateError != null;
+  final domainUnavailable =
+      monitor.domainError != null &&
+      monitor.domainActivity.failure?.isConnectivityInterruption != true;
+  final certificateUnavailable =
+      monitor.certificateError != null &&
+      monitor.certificateActivity.failure?.isConnectivityInterruption != true;
+  final emailFailure = monitor.emailActivity.failure;
+  final emailUnavailable =
+      emailFailure != null && !emailFailure.isConnectivityInterruption;
   if (domainUnavailable) {
     domainStatus = MonitorStatus.unavailable;
   }
@@ -105,20 +113,24 @@ List<MonitorFinding> findingsForMonitor(
     if (monitor.checksEmail)
       MonitorFinding(
         kind: MonitorCheckKind.emailConfiguration,
-        status: monitor.emailActivity.failure != null
+        status:
+            emailUnavailable ||
+                (monitor.emailPosture?.hasUnavailable ?? false)
             ? MonitorStatus.unavailable
             : monitor.emailPosture == null
             ? MonitorStatus.unknown
             : monitor.emailPosture!.needsAttention
             ? MonitorStatus.warning
             : MonitorStatus.healthy,
-        summary: monitor.emailActivity.failure != null
+        summary: emailUnavailable
             ? _unavailableSummary(
                 'Email configuration',
                 monitor.emailActivity.failure?.message,
               )
             : monitor.emailPosture == null
             ? 'Email configuration not checked yet'
+            : monitor.emailPosture!.hasUnavailable
+            ? 'Some Email checks are currently unavailable'
             : monitor.emailPosture!.needsAttention
             ? 'Published Email configuration needs review'
             : 'Published Email configuration looks consistent',
