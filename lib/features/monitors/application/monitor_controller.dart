@@ -1,10 +1,13 @@
+import 'dart:async';
+
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/site_icon.dart';
-import 'package:akshi/features/settings/application/settings_controller.dart';
-import 'package:akshi/features/settings/domain/app_settings.dart';
+import 'package:akshi/features/monitors/domain/tls_endpoint.dart';
+import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -46,20 +49,69 @@ class MonitorSaveProgress {
 
 typedef MonitorProgressCallback = void Function(MonitorSaveProgress progress);
 
+/// Cross-screen state for a monitor's initial background snapshot.
+class MonitorProvisioning {
+  const MonitorProvisioning({
+    required this.progress,
+    this.failure,
+  });
+
+  final MonitorSaveProgress progress;
+  final String? failure;
+
+  bool get isRunning => failure == null;
+}
+
+final monitorProvisioningProvider = NotifierProvider<
+  MonitorProvisioningController,
+  Map<String, MonitorProvisioning>
+>(MonitorProvisioningController.new);
+
+class MonitorProvisioningController
+    extends Notifier<Map<String, MonitorProvisioning>> {
+  @override
+  Map<String, MonitorProvisioning> build() =>
+      const <String, MonitorProvisioning>{};
+
+  void update(String monitorId, MonitorSaveProgress progress) {
+    state = <String, MonitorProvisioning>{
+      ...state,
+      monitorId: MonitorProvisioning(progress: progress),
+    };
+  }
+
+  void fail(String monitorId, MonitorSaveProgress progress, Object error) {
+    state = <String, MonitorProvisioning>{
+      ...state,
+      monitorId: MonitorProvisioning(
+        progress: progress,
+        failure: error.toString(),
+      ),
+    };
+  }
+
+  void clear(String monitorId) {
+    if (!state.containsKey(monitorId)) return;
+    final next = <String, MonitorProvisioning>{...state}..remove(monitorId);
+    state = next;
+  }
+}
+
 /// Coordinates monitor definitions, foreground checks, persistence, and alerts.
 class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   Future<void>? _refreshOperation;
+  final Map<String, Future<_CheckOutcome>> _checkOperations =
+      <String, Future<_CheckOutcome>>{};
 
   /// Loads the complete monitor list from SQLite when the provider is first read.
   @override
   Future<List<MonitorEntry>> build() =>
       ref.watch(monitorRepositoryProvider).all();
 
-  /// Prepares every foreground observation before persisting a new monitor.
+  /// Persists a complete definition, then starts its initial snapshot.
   ///
-  /// The check result, including explicit offline/source failures, is saved in
-  /// the same monitor transaction. Permission prompts and notification setup
-  /// happen only after the local save and cannot make it appear unsuccessful.
+  /// Navigation never waits for network sources. Selected checks join in memory
+  /// and replace the observation fields as one consistent database row.
   Future<MonitorEntry> add({
     required String hostname,
     required String tlsHostname,
@@ -75,6 +127,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }) async {
     final repository = ref.read(monitorRepositoryProvider);
     final now = DateTime.now();
+    final validatedTlsPort = requireValidTlsPort(tlsPort);
     final normalizedHostname = normalizeHostname(hostname);
     final normalizedTlsHostname = normalizeHostname(tlsHostname);
     final flow = appLogger.start(
@@ -84,7 +137,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         'tlsHostname': normalizedTlsHostname.isEmpty
             ? normalizedHostname
             : normalizedTlsHostname,
-        'tlsPort': tlsPort,
+        'tlsPort': validatedTlsPort,
         'checksCertificate': checksCertificate,
         'checksEmail': checksEmail,
       },
@@ -95,7 +148,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       tlsHostname: normalizedTlsHostname.isEmpty
           ? normalizedHostname
           : normalizedTlsHostname,
-      tlsPort: tlsPort,
+      tlsPort: validatedTlsPort,
       checksCertificate: checksCertificate,
       checksEmail: checksEmail,
       mailSends: mailSends,
@@ -105,56 +158,80 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       createdAt: now,
       updatedAt: now,
     );
+
     onProgress?.call(
-      _progress(
-        MonitorSaveStage.preparing,
-        'Preparing ${monitor.hostname}…',
-        .04,
-      ),
-    );
-    late final MonitorEntry prepared;
-    try {
-      prepared = await _prepareCheck(
-        monitor,
-        onProgress: onProgress,
-        flow: flow,
-      );
-    } catch (error, stackTrace) {
-      flow.error('checks.prepare.failed', error, stackTrace);
-      rethrow;
-    }
-    onProgress?.call(
-      _progress(MonitorSaveStage.saving, 'Saving monitor…', .88),
+      _progress(MonitorSaveStage.saving, 'Saving monitor definition…', .35),
     );
     flow.info('persistence.started');
     try {
-      await repository.create(prepared, tagIds: tagIds);
+      // The definition and tag links are one SQLite transaction. It is complete
+      // and navigable even if every external source is slow or unavailable.
+      await repository.create(monitor, tagIds: tagIds);
+      await _reload();
     } catch (error, stackTrace) {
       flow.error('persistence.failed', error, stackTrace);
       rethrow;
     }
     flow.info('persistence.succeeded');
-    onProgress?.call(
-      _progress(MonitorSaveStage.refreshing, 'Updating monitor list…', .96),
-    );
-    try {
-      await _reload();
-    } catch (error, stackTrace) {
-      flow.error('state.reload.failed', error, stackTrace);
-      final current = state.value ?? const <MonitorEntry>[];
-      state = AsyncData(<MonitorEntry>[...current, prepared]);
-    }
 
-    // Notifications are a post-save side effect. A missing icon, denied
-    // permission, or platform setup error must not undo or hide the monitor.
+    final initialProgress = _progress(
+      MonitorSaveStage.preparing,
+      'Starting initial checks…',
+      .05,
+    );
+    ref
+        .read(monitorProvisioningProvider.notifier)
+        .update(monitor.id, initialProgress);
+    onProgress?.call(
+      _progress(
+        MonitorSaveStage.complete,
+        'Saved. Initial checks will continue on the summary.',
+        1,
+      ),
+    );
+
+    // Navigation must not wait on the network. This task owns all errors and
+    // publishes its state so no asynchronous failure becomes unobserved.
+    unawaited(_runInitialCheck(monitor.id, flow: flow));
+    return monitor;
+  }
+
+  Future<void> _runInitialCheck(
+    String monitorId, {
+    required AppLogFlow flow,
+  }) async {
+    final provisioning = ref.read(monitorProvisioningProvider.notifier);
     try {
-      await ref.read(notificationServiceProvider).requestPermission();
+      final monitor = await ref.read(monitorRepositoryProvider).byId(monitorId);
+      if (monitor == null) {
+        provisioning.clear(monitorId);
+        return;
+      }
+      final outcome = await _runCheck(
+        monitor,
+        flow: flow,
+        onProgress: (progress) => provisioning.update(monitorId, progress),
+      );
+      if (!outcome.persisted) {
+        provisioning.clear(monitorId);
+        return;
+      }
+      await _reload();
+      await _rescheduleReminders(flow: flow);
+      provisioning.clear(monitorId);
+      flow.info('initial_check.completed');
     } catch (error, stackTrace) {
-      flow.error('notifications.permission.failed', error, stackTrace);
-      // The monitor remains fully usable without local notification access.
+      flow.error('initial_check.failed', error, stackTrace);
+      provisioning.fail(
+        monitorId,
+        _progress(
+          MonitorSaveStage.preparing,
+          'Initial check could not finish',
+          0,
+        ),
+        error,
+      );
     }
-    onProgress?.call(_progress(MonitorSaveStage.complete, 'Monitor ready.', 1));
-    return prepared;
   }
 
   /// Saves an edited definition and clears stale results when its check inputs
@@ -164,6 +241,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     Iterable<String>? tagIds,
     MonitorProgressCallback? onProgress,
   }) async {
+    requireValidTlsPort(monitor.tlsPort);
     final repository = ref.read(monitorRepositoryProvider);
     final flow = appLogger.start(
       'monitor.update',
@@ -238,6 +316,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       _progress(MonitorSaveStage.refreshing, 'Updating monitor list…', .96),
     );
     await _reload();
+    await _rescheduleReminders(flow: flow);
     onProgress?.call(_progress(MonitorSaveStage.complete, 'Monitor ready.', 1));
     return prepared;
   }
@@ -251,8 +330,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     flow.info('persistence.started');
     try {
       await ref.read(monitorRepositoryProvider).delete(id);
+      ref.read(monitorProvisioningProvider.notifier).clear(id);
       await _reload();
-      await _rescheduleReminders();
+      await _rescheduleReminders(flow: flow);
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
       rethrow;
@@ -266,8 +346,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         _refreshOperation = null;
       });
 
-  /// Runs enabled monitor checks in parallel, then refreshes reminders and
-  /// emits only outcomes whose persisted semantic values changed.
+  /// Runs enabled monitor checks in parallel, then refreshes expiry reminders.
   Future<void> _runRefreshAll() async {
     final flow = appLogger.start('monitor.refresh_all');
     try {
@@ -278,10 +357,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         'checks.started',
         data: <String, Object?>{'count': enabled.length},
       );
-      final outcomes = await Future.wait(enabled.map(_performCheck));
+      await Future.wait(enabled.map(_runCheck));
       await _reload();
-      await _rescheduleReminders();
-      await _notifyChanges(outcomes);
+      await _rescheduleReminders(flow: flow);
       flow.info('completed', data: <String, Object?>{'count': enabled.length});
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
@@ -289,7 +367,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     }
   }
 
-  /// Checks one monitor and emits a grouped change notification after saving.
+  /// Checks one monitor and rebuilds expiry reminders after saving.
   ///
   /// A missing row after the check is reported as a state error rather than
   /// silently reintroducing deleted data.
@@ -308,13 +386,12 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       },
     );
     try {
-      final outcome = await _performCheck(monitor, flow: flow);
+      final outcome = await _runCheck(monitor, flow: flow);
       await _reload();
-      await _rescheduleReminders();
+      await _rescheduleReminders(flow: flow);
       if (!outcome.persisted) {
         throw StateError('Monitor no longer exists');
       }
-      await _notifyChanges(<_CheckOutcome>[outcome]);
       flow.info('completed');
       return outcome.monitor;
     } catch (error, stackTrace) {
@@ -323,85 +400,135 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     }
   }
 
-  /// Runs independent TLS, RDAP, icon, DNS, and Email operations.
+  /// Runs selected external checks through a dynamic, shared I/O window.
   ///
-  /// Each external operation has its own failure boundary and returns one
-  /// immutable aggregate ready for a single persistence transaction.
+  /// Domain, DNS, TLS, and site identity are independent and start together.
+  /// Email analysis starts after DNS because it consumes that exact snapshot.
+  /// All patches join in memory and [_performCheck] writes one coherent row, so
+  /// readers never observe a partially refreshed domain/TLS/Email snapshot.
   Future<MonitorEntry> _prepareCheck(
     MonitorEntry monitor, {
     MonitorProgressCallback? onProgress,
     AppLogFlow? flow,
   }) async {
     final attemptedAt = DateTime.now();
-    var updated = monitor;
+    final refreshIcon =
+        monitor.checksCertificate &&
+        (monitor.siteIcon == null ||
+            (monitor.siteIcon!.format != SiteIconFormat.png &&
+                monitor.siteIcon!.format != SiteIconFormat.svg) ||
+            attemptedAt.difference(monitor.siteIcon!.checkedAt) >=
+                const Duration(days: 7));
+    final total =
+        2 +
+        (monitor.checksCertificate ? 1 : 0) +
+        (refreshIcon ? 1 : 0) +
+        (monitor.checksEmail ? 1 : 0);
+    var completed = 0;
 
-    if (monitor.checksCertificate) {
+    Future<_MonitorPatch> track(
+      Future<_MonitorPatch> operation,
+      MonitorSaveStage stage,
+      String label,
+    ) async {
+      final patch = await operation;
+      completed++;
       onProgress?.call(
         _progress(
-          MonitorSaveStage.certificate,
-          'Checking TLS certificate…',
-          .16,
+          stage,
+          '$label received · $completed of $total checks',
+          .08 + (.72 * completed / total),
         ),
       );
-      flow?.info('check.started', data: <String, Object?>{'stage': 'tls'});
-      try {
-        final certificate = await ref
-            .read(tlsCheckServiceProvider)
-            .check(monitor.tlsHostname, monitor.tlsPort);
-        updated = updated.copyWith(
-          certificateValidFrom: certificate.validFrom,
-          certificateExpiresAt: certificate.expiresAt,
-          certificateIssuer: certificate.issuer,
-          certificateSubject: certificate.subject,
-          previousCertificateFingerprint: monitor.certificateFingerprint,
-          certificateFingerprint: certificate.fingerprint,
-          tlsTrusted: certificate.trusted,
-          certificateHostnameMatches: certificate.hostnameMatches,
-          certificateSubjectAlternativeNames:
-              certificate.subjectAlternativeNames,
-          certificateSerialNumber: certificate.serialNumber,
-          certificateSignatureAlgorithm: certificate.signatureAlgorithm,
-          certificatePublicKeyAlgorithm: certificate.publicKeyAlgorithm,
-          certificatePublicKeyDetails: certificate.publicKeyDetails,
-          certificateActivity: monitor.certificateActivity.succeeded(
-            attemptedAt,
-          ),
-          certificateError: null,
-        );
-      } catch (error, stackTrace) {
-        flow?.error(
-          'check.failed',
-          error,
-          stackTrace,
-          data: <String, Object?>{'stage': 'tls'},
-        );
-        final failure = await ref
-            .read(checkFailureClassifierProvider)
-            .classify(
-              error,
-              occurredAt: attemptedAt,
-              source: 'Certificate endpoint',
-              tls: true,
-            );
-        updated = updated.copyWith(
-          certificateActivity: monitor.certificateActivity.failed(failure),
-          certificateError: failure.message,
-        );
-      }
+      return patch;
     }
 
     onProgress?.call(
-      _progress(MonitorSaveStage.domain, 'Checking domain registration…', .30),
+      _progress(
+        MonitorSaveStage.preparing,
+        'Checking selected sources in parallel…',
+        .05,
+      ),
     );
+
+    final dnsFuture = ref
+        .read(dnsSnapshotServiceProvider)
+        .check(
+          monitor.hostname,
+          checkEmailSending: monitor.checksEmail && monitor.mailSends,
+          checkEmailReceiving: monitor.checksEmail && monitor.mailReceives,
+          dkimSelectors: monitor.dkimSelectors,
+        );
+    final phaseOne = <Future<_MonitorPatch>>[
+      track(
+        _domainPatch(monitor, attemptedAt, flow: flow),
+        MonitorSaveStage.domain,
+        'Domain registration',
+      ),
+      track(
+        dnsFuture.then(
+          (snapshot) => (MonitorEntry current) =>
+              current.copyWith(dnsSnapshot: snapshot),
+        ),
+        MonitorSaveStage.dns,
+        'DNS',
+      ),
+      if (monitor.checksCertificate)
+        track(
+          _certificatePatch(monitor, attemptedAt, flow: flow),
+          MonitorSaveStage.certificate,
+          'TLS certificate',
+        ),
+      if (refreshIcon)
+        track(
+          _siteIconPatch(monitor, flow: flow),
+          MonitorSaveStage.icon,
+          'Site identity',
+        ),
+    ];
+
+    var updated = monitor;
+    for (final patch in await Future.wait(phaseOne)) {
+      updated = patch(updated);
+    }
+    final dnsSnapshot = await dnsFuture;
+
+    if (monitor.checksEmail) {
+      final emailPatch = await track(
+        _emailPatch(monitor, dnsSnapshot, attemptedAt, flow: flow),
+        MonitorSaveStage.email,
+        'Email configuration',
+      );
+      updated = emailPatch(updated);
+    }
+
+    onProgress?.call(
+      _progress(
+        MonitorSaveStage.saving,
+        'Saving one consistent snapshot…',
+        .92,
+      ),
+    );
+    return updated.copyWith(
+      updatedAt: attemptedAt,
+      lastCheckedAt: attemptedAt,
+    );
+  }
+
+  Future<_MonitorPatch> _domainPatch(
+    MonitorEntry monitor,
+    DateTime attemptedAt, {
+    AppLogFlow? flow,
+  }) async {
     flow?.info('check.started', data: <String, Object?>{'stage': 'domain'});
     try {
       final domain = await ref
-          .read(rdapServiceProvider)
-          .check(monitor.hostname);
+          .read(checkConcurrencyGateProvider)
+          .run(() => ref.read(rdapServiceProvider).check(monitor.hostname));
       if (domain == null) {
         throw const FormatException('No registration record was published');
       }
-      updated = updated.copyWith(
+      return (MonitorEntry current) => current.copyWith(
         domainExpiresAt: domain.expiresAt,
         domainRegisteredAt: domain.registeredAt,
         domainUpdatedAt: domain.updatedAt,
@@ -426,61 +553,99 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
             occurredAt: attemptedAt,
             source: 'Domain registration source',
           );
-      updated = updated.copyWith(
+      return (MonitorEntry current) => current.copyWith(
         domainActivity: monitor.domainActivity.failed(failure),
         domainError: failure.message,
       );
     }
+  }
 
-    if (monitor.checksCertificate &&
-        (monitor.siteIcon == null ||
-            (monitor.siteIcon!.format != SiteIconFormat.png &&
-                monitor.siteIcon!.format != SiteIconFormat.svg) ||
-            attemptedAt.difference(monitor.siteIcon!.checkedAt) >=
-                const Duration(days: 7))) {
-      onProgress?.call(
-        _progress(MonitorSaveStage.icon, 'Finding a site icon…', .46),
+  Future<_MonitorPatch> _certificatePatch(
+    MonitorEntry monitor,
+    DateTime attemptedAt, {
+    AppLogFlow? flow,
+  }) async {
+    flow?.info('check.started', data: <String, Object?>{'stage': 'tls'});
+    try {
+      final certificate = await ref.read(checkConcurrencyGateProvider).run(
+        () => ref
+            .read(tlsCheckServiceProvider)
+            .check(monitor.tlsHostname, monitor.tlsPort),
       );
-      flow?.info('check.started', data: <String, Object?>{'stage': 'icon'});
-      try {
-        final icon = await ref
-            .read(siteIconServiceProvider)
-            .discover(monitor.tlsHostname, monitor.tlsPort);
-        if (icon != null) {
-          updated = updated.copyWith(siteIcon: icon);
-        }
-      } catch (error, stackTrace) {
-        flow?.error(
-          'check.failed',
-          error,
-          stackTrace,
-          data: <String, Object?>{'stage': 'icon'},
-        );
-        // Site identity is optional and never blocks a monitor save.
-      }
+      return (MonitorEntry current) => current.copyWith(
+        certificateValidFrom: certificate.validFrom,
+        certificateExpiresAt: certificate.expiresAt,
+        certificateIssuer: certificate.issuer,
+        certificateSubject: certificate.subject,
+        previousCertificateFingerprint: monitor.certificateFingerprint,
+        certificateFingerprint: certificate.fingerprint,
+        tlsTrusted: certificate.trusted,
+        certificateHostnameMatches: certificate.hostnameMatches,
+        certificateSubjectAlternativeNames: certificate.subjectAlternativeNames,
+        certificateSerialNumber: certificate.serialNumber,
+        certificateSignatureAlgorithm: certificate.signatureAlgorithm,
+        certificatePublicKeyAlgorithm: certificate.publicKeyAlgorithm,
+        certificatePublicKeyDetails: certificate.publicKeyDetails,
+        certificateActivity: monitor.certificateActivity.succeeded(attemptedAt),
+        certificateError: null,
+      );
+    } catch (error, stackTrace) {
+      flow?.error(
+        'check.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'stage': 'tls'},
+      );
+      final failure = await ref
+          .read(checkFailureClassifierProvider)
+          .classify(
+            error,
+            occurredAt: attemptedAt,
+            source: 'TLS endpoint ${monitor.tlsHostname}:${monitor.tlsPort}',
+            tls: true,
+          );
+      return (MonitorEntry current) => current.copyWith(
+        certificateActivity: monitor.certificateActivity.failed(failure),
+        certificateError: failure.message,
+      );
     }
+  }
 
-    onProgress?.call(
-      _progress(MonitorSaveStage.dns, 'Reading DNS records…', .62),
-    );
-    flow?.info('check.started', data: <String, Object?>{'stage': 'dns'});
-    final dnsSnapshot = await ref
-        .read(dnsSnapshotServiceProvider)
-        .check(
-          monitor.hostname,
-          checkEmailSending: monitor.checksEmail && monitor.mailSends,
-          checkEmailReceiving: monitor.checksEmail && monitor.mailReceives,
-          dkimSelectors: monitor.dkimSelectors,
-        );
-    updated = updated.copyWith(dnsSnapshot: dnsSnapshot);
-
-    if (monitor.checksEmail) {
-      onProgress?.call(
-        _progress(MonitorSaveStage.email, 'Checking Email configuration…', .76),
+  Future<_MonitorPatch> _siteIconPatch(
+    MonitorEntry monitor, {
+    AppLogFlow? flow,
+  }) async {
+    flow?.info('check.started', data: <String, Object?>{'stage': 'icon'});
+    try {
+      final icon = await ref.read(checkConcurrencyGateProvider).run(
+        () => ref
+            .read(siteIconServiceProvider)
+            .discover(monitor.tlsHostname, monitor.tlsPort),
       );
-      flow?.info('check.started', data: <String, Object?>{'stage': 'email'});
-      try {
-        final email = await ref
+      return icon == null
+          ? _identityPatch
+          : (MonitorEntry current) => current.copyWith(siteIcon: icon);
+    } catch (error, stackTrace) {
+      flow?.error(
+        'check.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'stage': 'icon'},
+      );
+      return _identityPatch;
+    }
+  }
+
+  Future<_MonitorPatch> _emailPatch(
+    MonitorEntry monitor,
+    DnsSnapshot dnsSnapshot,
+    DateTime attemptedAt, {
+    AppLogFlow? flow,
+  }) async {
+    flow?.info('check.started', data: <String, Object?>{'stage': 'email'});
+    try {
+      final email = await ref.read(checkConcurrencyGateProvider).run(
+        () => ref
             .read(emailPostureServiceProvider)
             .check(
               dnsSnapshot,
@@ -488,42 +653,59 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
               sends: monitor.mailSends,
               receives: monitor.mailReceives,
               dkimSelectors: monitor.dkimSelectors,
-            );
-        updated = updated.copyWith(
-          emailPosture: email,
-          emailActivity: monitor.emailActivity.succeeded(attemptedAt),
-        );
-      } catch (error, stackTrace) {
-        flow?.error(
-          'check.failed',
-          error,
-          stackTrace,
-          data: <String, Object?>{'stage': 'email'},
-        );
-        final failure = await ref
-            .read(checkFailureClassifierProvider)
-            .classify(
-              error,
-              occurredAt: attemptedAt,
-              source: 'System DNS resolver',
-            );
-        updated = updated.copyWith(
-          emailActivity: monitor.emailActivity.failed(failure),
-        );
-      }
+            ),
+      );
+      return (MonitorEntry current) => current.copyWith(
+        emailPosture: email,
+        emailActivity: monitor.emailActivity.succeeded(attemptedAt),
+      );
+    } catch (error, stackTrace) {
+      flow?.error(
+        'check.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'stage': 'email'},
+      );
+      final failure = await ref
+          .read(checkFailureClassifierProvider)
+          .classify(
+            error,
+            occurredAt: attemptedAt,
+            source: 'Email configuration source',
+          );
+      return (MonitorEntry current) => current.copyWith(
+        emailActivity: monitor.emailActivity.failed(failure),
+      );
     }
+  }
 
-    updated = updated.copyWith(
-      updatedAt: attemptedAt,
-      lastCheckedAt: attemptedAt,
-    );
-    return updated;
+  Future<_CheckOutcome> _runCheck(
+    MonitorEntry monitor, {
+    AppLogFlow? flow,
+    MonitorProgressCallback? onProgress,
+  }) {
+    final active = _checkOperations[monitor.id];
+    if (active != null) return active;
+
+    late final Future<_CheckOutcome> operation;
+    operation = _performCheck(
+      monitor,
+      flow: flow,
+      onProgress: onProgress,
+    ).whenComplete(() {
+      if (identical(_checkOperations[monitor.id], operation)) {
+        _checkOperations.remove(monitor.id);
+      }
+    });
+    _checkOperations[monitor.id] = operation;
+    return operation;
   }
 
   /// Persists one prepared result for an existing monitor and reports changes.
   Future<_CheckOutcome> _performCheck(
     MonitorEntry monitor, {
     AppLogFlow? flow,
+    MonitorProgressCallback? onProgress,
   }) async {
     final trace =
         flow ??
@@ -537,7 +719,11 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
           },
         );
     trace.info('checks.started');
-    final updated = await _prepareCheck(monitor, flow: trace);
+    final updated = await _prepareCheck(
+      monitor,
+      flow: trace,
+      onProgress: onProgress,
+    );
     trace.info('persistence.started');
     late final bool persisted;
     try {
@@ -553,45 +739,16 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       data: <String, Object?>{'present': persisted},
     );
 
-    final certificateChanged =
-        monitor.certificateFingerprint != null &&
-        monitor.certificateFingerprint != updated.certificateFingerprint;
-    final domainChanged =
-        monitor.domainExpiresAt != null &&
-        monitor.domainExpiresAt != updated.domainExpiresAt;
-    final emailChanged =
-        monitor.emailPosture != null &&
-        monitor.emailPosture!.changeSignature !=
-            updated.emailPosture?.changeSignature;
-    final dnsChanged =
-        monitor.dnsSnapshot != null &&
-        updated.dnsSnapshot != null &&
-        updated.dnsSnapshot!.hasRecordChangesFrom(monitor.dnsSnapshot!);
-    return (
-      monitor: updated,
-      changed:
-          persisted &&
-          (certificateChanged || domainChanged || emailChanged || dnsChanged),
-      persisted: persisted,
-    );
+    return (monitor: updated, persisted: persisted);
   }
 
-  /// Reduces many changed checks to one notification-service operation.
-  Future<void> _notifyChanges(Iterable<_CheckOutcome> outcomes) async {
-    final changed = outcomes
-        .where((outcome) => outcome.persisted && outcome.changed)
-        .map((outcome) => outcome.monitor);
-    await ref.read(notificationServiceProvider).showChanges(changed);
-  }
-
-  /// Rebuilds the device schedule from current persisted monitors and settings.
-  Future<void> _rescheduleReminders() async {
-    final monitors = await ref.read(monitorRepositoryProvider).all();
-    final settings =
-        ref.read(settingsControllerProvider).value ?? const AppSettings();
-    await ref
-        .read(notificationServiceProvider)
-        .reconcileAll(monitors, settings);
+  /// Rebuilds reminders without turning a saved monitor operation into failure.
+  Future<void> _rescheduleReminders({required AppLogFlow flow}) async {
+    try {
+      await ref.read(reminderControllerProvider.notifier).reconcile();
+    } catch (error, stackTrace) {
+      flow.error('notifications.reconcile.failed', error, stackTrace);
+    }
   }
 
   /// Reloads the provider from SQLite so every screen observes persisted state.
@@ -608,7 +765,11 @@ bool _sameStrings(List<String> left, List<String> right) {
       leftValues.every(rightValues.contains);
 }
 
-typedef _CheckOutcome = ({MonitorEntry monitor, bool changed, bool persisted});
+typedef _MonitorPatch = MonitorEntry Function(MonitorEntry current);
+
+MonitorEntry _identityPatch(MonitorEntry current) => current;
+
+typedef _CheckOutcome = ({MonitorEntry monitor, bool persisted});
 
 MonitorSaveProgress _progress(
   MonitorSaveStage stage,

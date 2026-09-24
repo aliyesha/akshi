@@ -5,6 +5,7 @@ import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
+import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -57,7 +58,8 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
 
   void _refresh() {
     appLogger.info('app.foreground.refresh.started');
-    ref.read(monitorControllerProvider.notifier).refreshAll();
+    unawaited(ref.read(reminderControllerProvider.notifier).reconcile());
+    unawaited(ref.read(monitorControllerProvider.notifier).refreshAll());
   }
 
   @override

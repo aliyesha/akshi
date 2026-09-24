@@ -1,111 +1,112 @@
 import 'dart:convert';
 
 import 'package:akshi/core/services/notification_destination.dart';
+import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 void main() {
-  test('expiry payload round trips into an exact attention route', () {
-    const original = NotificationDestination(
-      kind: NotificationDestinationKind.expiry,
-      monitorIds: <String>['first-id', 'second-id'],
+  late ExpiryAlarmSpec alarm;
+
+  setUpAll(() {
+    final utc = tz.UTC;
+    const date = AlarmDate(2026, 5, 14);
+    alarm = ExpiryAlarmSpec(
+      date: date,
+      scheduledAt: date.at(utc, 9, 0),
+      timeZoneId: utc.name,
+      items: const <ExpiryAlarmItem>[
+        ExpiryAlarmItem(
+          monitorId: 'first-id',
+          hostname: 'first.example',
+          reasons: <ExpiryAlarmReason>[
+            ExpiryAlarmReason(
+              kind: ExpiryAlarmKind.domainRegistration,
+              expiryDate: AlarmDate(2026, 5, 24),
+              warningDays: 10,
+            ),
+          ],
+        ),
+        ExpiryAlarmItem(
+          monitorId: 'second-id',
+          hostname: 'second.example',
+          reasons: <ExpiryAlarmReason>[
+            ExpiryAlarmReason(
+              kind: ExpiryAlarmKind.tlsCertificate,
+              expiryDate: AlarmDate(2026, 5, 24),
+              warningDays: 10,
+            ),
+          ],
+        ),
+      ],
     );
+  });
 
-    final restored = NotificationDestination.fromPayload(original.toPayload());
+  test('versioned alarm payload routes to exact monitors and alarm date', () {
+    final destination = NotificationDestination.fromPayload(alarm.payload);
 
-    expect(restored, isNotNull);
-    expect(restored!.kind, NotificationDestinationKind.expiry);
-    expect(restored.monitorIds, <String>['first-id', 'second-id']);
-    final uri = Uri.parse(restored.route);
+    expect(destination, isNotNull);
+    expect(destination!.monitorIds, <String>['first-id', 'second-id']);
+    expect(destination.alarmDate, '2026-05-14');
+    final uri = Uri.parse(destination.route);
     expect(uri.path, '/attention');
     expect(uri.queryParameters['source'], 'expiry');
+    expect(uri.queryParameters['date'], '2026-05-14');
     expect(uri.queryParameters['ids'], 'first-id,second-id');
   });
 
-  test('a single changed monitor routes directly to its details', () {
-    const destination = NotificationDestination(
-      kind: NotificationDestinationKind.changes,
-      monitorIds: <String>['monitor-id'],
-    );
-
-    expect(destination.route, '/monitor/monitor-id');
-  });
-
-  test('a detail destination safely encodes its monitor id', () {
-    const destination = NotificationDestination(
-      kind: NotificationDestinationKind.changes,
-      monitorIds: <String>['monitor id'],
-    );
-
-    expect(destination.route, '/monitor/monitor%20id');
-  });
-
-  test('a single expiry still routes to the filtered attention list', () {
-    const destination = NotificationDestination(
-      kind: NotificationDestinationKind.expiry,
-      monitorIds: <String>['monitor-id'],
-    );
-
-    final uri = Uri.parse(destination.route);
-    expect(uri.path, '/attention');
-    expect(uri.queryParameters['source'], 'expiry');
-    expect(uri.queryParameters['ids'], 'monitor-id');
-  });
-
-  test('multiple changed monitors route to the shared change list', () {
-    const destination = NotificationDestination(
-      kind: NotificationDestinationKind.changes,
-      monitorIds: <String>['one', 'two'],
-    );
-
-    final uri = Uri.parse(destination.route);
-    expect(uri.path, '/attention');
-    expect(uri.queryParameters['source'], 'changes');
-  });
-
-  test('malformed notification payload is rejected', () {
+  test('malformed and unsupported payloads are rejected', () {
+    expect(NotificationDestination.fromPayload(null), isNull);
+    expect(NotificationDestination.fromPayload(''), isNull);
     expect(NotificationDestination.fromPayload('not-json'), isNull);
     expect(NotificationDestination.fromPayload('{}'), isNull);
-    expect(NotificationDestination.fromPayload(null), isNull);
-  });
-
-  test('empty and unsupported payload shapes are rejected', () {
-    expect(NotificationDestination.fromPayload(''), isNull);
     expect(
       NotificationDestination.fromPayload(
         jsonEncode(<String, Object>{
-          'type': 'unknown',
-          'monitorIds': <String>['one'],
+          'version': 1,
+          'type': 'other',
+          'date': '2026-05-14',
+          'items': <Object>[],
         }),
       ),
       isNull,
     );
     expect(
       NotificationDestination.fromPayload(
-        jsonEncode(<String, Object>{'type': 'changes', 'monitorIds': 'one'}),
-      ),
-      isNull,
-    );
-    expect(
-      NotificationDestination.fromPayload(
         jsonEncode(<String, Object>{
-          'type': 1,
-          'monitorIds': <String>['one'],
+          'version': 1,
+          'type': 'expiry_alarm',
+          'date': '2026-05-14',
+          'items': <Object>['bad'],
         }),
       ),
       isNull,
     );
   });
 
-  test('payload restoration removes empty and duplicate monitor ids', () {
-    final destination = NotificationDestination.fromPayload(
-      jsonEncode(<String, Object>{
-        'type': 'changes',
-        'monitorIds': <Object>['one', '', 'one', 1],
-      }),
+  test('observed parser rejects a modified integrity revision', () {
+    final json = jsonDecode(alarm.payload) as Map<String, dynamic>;
+    json['date'] = '2026-05-15';
+    final observed = ObservedExpiryAlarm.tryParse(
+      id: alarm.notificationId,
+      title: alarm.title,
+      body: alarm.body,
+      payload: jsonEncode(json),
     );
 
-    expect(destination, isNotNull);
-    expect(destination!.monitorIds, <String>['one']);
-    expect(destination.route, '/monitor/one');
+    expect(observed, isNull);
+  });
+
+  test('observed parser round trips canonical title body and payload', () {
+    final observed = ObservedExpiryAlarm.tryParse(
+      id: alarm.notificationId,
+      title: alarm.title,
+      body: alarm.body,
+      payload: alarm.payload,
+    );
+
+    expect(observed, isNotNull);
+    expect(observed!.matches(alarm), isTrue);
+    expect(observed.monitorIds, <String>['first-id', 'second-id']);
   });
 }

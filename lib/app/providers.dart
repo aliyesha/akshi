@@ -1,5 +1,6 @@
 import 'package:akshi/core/crash/crash_log.dart';
 import 'package:akshi/core/crash/crash_log_store.dart';
+import 'package:akshi/core/services/async_concurrency_gate.dart';
 import 'package:akshi/core/database/app_database.dart';
 import 'package:akshi/core/services/check_failure_classifier.dart';
 import 'package:akshi/core/services/email_posture_service.dart';
@@ -9,14 +10,21 @@ import 'package:akshi/core/services/rdap_service.dart';
 import 'package:akshi/core/services/site_icon_service.dart';
 import 'package:akshi/core/services/tls_check_service.dart';
 import 'package:akshi/features/monitors/data/monitor_repository.dart';
+import 'package:akshi/features/reminders/application/alarm_reconciler.dart';
+import 'package:akshi/features/reminders/data/alarm_audit_repository.dart';
+import 'package:akshi/features/reminders/domain/alarm_audit.dart';
+import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:akshi/features/settings/data/settings_repository.dart';
 import 'package:akshi/features/tags/data/tag_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Wires the local database, repositories, check services, and notifications.
-///
-/// Riverpod owns these long-lived dependencies so screens and controllers share
-/// one database and consistent service instances.
+/// Shared FIFO I/O window that prevents foreground checks from overwhelming
+/// the device, resolver, or remote sources.
+final checkConcurrencyGateProvider = Provider<AsyncConcurrencyGate>(
+  (ref) => AsyncConcurrencyGate(maximum: 10),
+);
+
+/// Local database shared by repositories through Riverpod.
 final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
 
 final monitorRepositoryProvider = Provider<MonitorRepository>(
@@ -46,7 +54,9 @@ final checkFailureClassifierProvider = Provider<CheckFailureClassifier>(
 );
 
 final dnsSnapshotServiceProvider = Provider<DnsSnapshotService>(
-  (ref) => const DnsSnapshotService(),
+  (ref) => DnsSnapshotService(
+    gate: ref.watch(checkConcurrencyGateProvider),
+  ),
 );
 
 final emailPostureServiceProvider = Provider<EmailPostureService>(
@@ -56,6 +66,28 @@ final emailPostureServiceProvider = Provider<EmailPostureService>(
 final notificationServiceProvider = Provider<NotificationService>(
   (ref) => NotificationService(),
 );
+
+final alarmAuditRepositoryProvider = Provider<AlarmAuditRepository>(
+  (ref) => AlarmAuditRepository(ref.watch(databaseProvider)),
+);
+
+final alarmAuditDaysProvider = FutureProvider<List<AlarmAuditDay>>((ref) async {
+  final entries = await ref.watch(alarmAuditRepositoryProvider).all();
+  return AlarmAuditDay.group(entries);
+});
+
+final alarmAuditDateProvider =
+    FutureProvider.family<List<AlarmAuditEntry>, AlarmDate>((ref, date) {
+      return ref.watch(alarmAuditRepositoryProvider).forDate(date);
+    });
+
+final alarmReconcilerProvider = Provider<AlarmReconciler>(
+  (ref) => AlarmReconciler(
+    ref.watch(notificationServiceProvider),
+    ref.watch(alarmAuditRepositoryProvider),
+  ),
+);
+
 final crashLogStoreProvider = Provider<CrashLogStore>((ref) => CrashLogStore());
 
 final crashLogsProvider = FutureProvider<List<CrashLog>>(

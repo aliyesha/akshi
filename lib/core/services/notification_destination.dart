@@ -1,52 +1,48 @@
 import 'dart:convert';
 
-enum NotificationDestinationKind { expiry, changes }
-
+/// Navigation-only projection of a validated expiry-alarm payload.
 class NotificationDestination {
-  const NotificationDestination({required this.kind, required this.monitorIds});
+  const NotificationDestination({
+    required this.monitorIds,
+    required this.alarmDate,
+  });
 
-  final NotificationDestinationKind kind;
   final List<String> monitorIds;
+  final String alarmDate;
 
-  String toPayload() =>
-      jsonEncode(<String, Object>{'type': kind.name, 'monitorIds': monitorIds});
-
-  String get route {
-    if (kind == NotificationDestinationKind.changes && monitorIds.length == 1) {
-      return Uri(pathSegments: <String>['', 'monitor', monitorIds.single])
-          .toString();
-    }
-    return Uri(
-      path: '/attention',
-      queryParameters: <String, String>{
-        'source': kind.name,
-        if (monitorIds.isNotEmpty) 'ids': monitorIds.join(','),
-      },
-    ).toString();
-  }
+  String get route => Uri(
+    path: '/attention',
+    queryParameters: <String, String>{
+      'source': 'expiry',
+      'date': alarmDate,
+      if (monitorIds.isNotEmpty) 'ids': monitorIds.join(','),
+    },
+  ).toString();
 
   static NotificationDestination? fromPayload(String? payload) {
     if (payload == null || payload.isEmpty) return null;
     try {
       final decoded = jsonDecode(payload);
-      if (decoded is! Map<String, dynamic>) return null;
-      final type = decoded['type'];
-      final rawIds = decoded['monitorIds'];
-      if (type is! String || rawIds is! List<dynamic>) return null;
-      NotificationDestinationKind? kind;
-      for (final candidate in NotificationDestinationKind.values) {
-        if (candidate.name == type) {
-          kind = candidate;
-          break;
-        }
+      if (decoded is! Map<String, dynamic> ||
+          decoded['version'] != 1 ||
+          decoded['type'] != 'expiry_alarm') {
+        return null;
       }
-      if (kind == null) return null;
-      final ids = rawIds
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toSet();
-      return NotificationDestination(kind: kind, monitorIds: ids.toList());
-    } on FormatException {
+      final date = decoded['date'];
+      final rawItems = decoded['items'];
+      if (date is! String || rawItems is! List<dynamic>) return null;
+      final ids = <String>{};
+      for (final value in rawItems) {
+        if (value is! Map) return null;
+        final id = value['id'];
+        if (id is! String || id.isEmpty) return null;
+        ids.add(id);
+      }
+      return NotificationDestination(
+        monitorIds: ids.toList(growable: false),
+        alarmDate: date,
+      );
+    } on Object {
       return null;
     }
   }
