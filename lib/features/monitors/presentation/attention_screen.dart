@@ -15,18 +15,21 @@ class AttentionScreen extends ConsumerWidget {
   const AttentionScreen({
     required this.source,
     required this.monitorIds,
+    this.alarmDate,
     super.key,
   });
 
   final String source;
   final List<String> monitorIds;
+  final String? alarmDate;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final monitors = ref.watch(monitorControllerProvider);
     final settings =
         ref.watch(settingsControllerProvider).value ?? const AppSettings();
-    final title = source == 'changes' ? 'Recent changes' : 'Needs attention';
+    final title =
+        source == 'expiry' ? 'Expiry reminder' : 'Needs attention';
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: monitors.when(
@@ -48,6 +51,7 @@ class AttentionScreen extends ConsumerWidget {
                 _AttentionHeader(
                   count: visible.length,
                   source: source,
+                  alarmDate: alarmDate,
                   missing: missing > 0 ? missing : 0,
                 ),
                 const SizedBox(height: 16),
@@ -99,15 +103,17 @@ class _AttentionHeader extends StatelessWidget {
     required this.count,
     required this.source,
     required this.missing,
+    this.alarmDate,
   });
 
   final int count;
   final String source;
   final int missing;
+  final String? alarmDate;
 
   @override
   Widget build(BuildContext context) {
-    final changes = source == 'changes';
+    final fromReminder = source == 'expiry';
     final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(20),
@@ -118,8 +124,8 @@ class _AttentionHeader extends StatelessWidget {
       child: Row(
         children: <Widget>[
           PhosphorIcon(
-            changes
-                ? PhosphorIconsDuotone.sparkle
+            fromReminder
+                ? PhosphorIconsDuotone.bellRinging
                 : PhosphorIconsDuotone.warningCircle,
             size: 32,
             color: scheme.onPrimaryContainer,
@@ -130,11 +136,24 @@ class _AttentionHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  changes
-                      ? '$count ${count == 1 ? 'monitor has' : 'monitors have'} recent changes'
+                  fromReminder
+                      ? '$count expiry ${count == 1 ? 'reminder' : 'reminders'}'
                       : '$count ${count == 1 ? 'monitor needs' : 'monitors need'} attention',
                   style: Theme.of(context).textTheme.titleLarge
                       ?.copyWith(color: scheme.onPrimaryContainer),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  fromReminder
+                      ? '${alarmDate == null ? '' : 'Scheduled for $alarmDate. '}'
+                            'Opened from a scheduled expiry alert. It used the '
+                            'last saved expiry dates; a newer check may have '
+                            'resolved it.'
+                      : 'These current results need review.',
+                  style: TextStyle(
+                    color: scheme.onPrimaryContainer,
+                    height: 1.35,
+                  ),
                 ),
                 if (missing > 0) ...<Widget>[
                   const SizedBox(height: 5),

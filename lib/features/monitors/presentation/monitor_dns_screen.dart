@@ -1,7 +1,11 @@
+import 'package:akshi/core/errors/user_facing_error.dart';
+import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_surface.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -79,7 +83,7 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           if (snapshot != null) ...<Widget>[
             const SizedBox(height: 8),
             Text(
-              'Checked ${_formatDateTime(context, snapshot.checkedAt)}',
+              'Checked ${_formatDateTime(snapshot.checkedAt)}',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -121,6 +125,18 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
     setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'ui.monitor_dns.check.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'monitorId': monitor.id},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+      }
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -136,29 +152,20 @@ class _QueryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final failed = query.state == DnsQueryState.failed;
-    final accent = failed ? scheme.error : scheme.primary;
-    return Material(
+    return MonitorSurface(
       color: failed
           ? Color.alphaBlend(
-              scheme.error.withValues(alpha: .1),
+              scheme.error.withValues(alpha: .08),
               scheme.surfaceContainerLowest,
             )
           : scheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        side: BorderSide(color: accent.withValues(alpha: failed ? .5 : .18)),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      clipBehavior: Clip.antiAlias,
       child: failed
           ? Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  PhosphorIcon(
-                    PhosphorIconsDuotone.cloudSlash,
-                    color: scheme.error,
-                  ),
+                  _DnsTypeIcon(type: query.type, failed: true),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -177,8 +184,16 @@ class _QueryCard extends StatelessWidget {
               ),
             )
           : ExpansionTile(
+              // Flutter's default expanded shape paints top and bottom borders.
+              // Explicit empty shapes avoid the glow/stripe seen on some
+              // mid-range Android renderers.
+              shape: const Border(),
+              collapsedShape: const Border(),
+              backgroundColor: Colors.transparent,
+              collapsedBackgroundColor: Colors.transparent,
+              tilePadding: const EdgeInsets.fromLTRB(14, 4, 12, 4),
               initiallyExpanded: query.records.length <= 3,
-              leading: _TypeBadge(type: query.type),
+              leading: _DnsTypeIcon(type: query.type),
               title: _QueryTitle(query: query),
               subtitle: Text(
                 '${query.records.length} ${query.records.length == 1 ? 'value' : 'values'}',
@@ -220,30 +235,31 @@ class _QueryTitle extends StatelessWidget {
   );
 }
 
-class _TypeBadge extends StatelessWidget {
-  const _TypeBadge({required this.type});
+class _DnsTypeIcon extends StatelessWidget {
+  const _DnsTypeIcon({required this.type, this.failed = false});
 
   final DnsRecordType type;
+  final bool failed;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 42,
-    height: 38,
-    alignment: Alignment.center,
-    padding: const EdgeInsets.symmetric(horizontal: 8),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Text(
-      type.label,
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-        color: Theme.of(context).colorScheme.onPrimaryContainer,
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = failed ? scheme.error : scheme.primary;
+    return MonitorIconBadge(
+      icon: failed ? PhosphorIconsDuotone.cloudSlash : _dnsIcon(type),
+      color: foreground,
+    );
+  }
 }
+
+IconData _dnsIcon(DnsRecordType type) => switch (type) {
+  DnsRecordType.a || DnsRecordType.aaaa =>
+    PhosphorIconsDuotone.globeHemisphereWest,
+  DnsRecordType.mx => PhosphorIconsDuotone.envelopeSimpleOpen,
+  DnsRecordType.txt => PhosphorIconsDuotone.listBullets,
+  DnsRecordType.caa => PhosphorIconsDuotone.certificate,
+  DnsRecordType.ns || DnsRecordType.cname => PhosphorIconsDuotone.network,
+};
 
 class _RecordRow extends StatelessWidget {
   const _RecordRow({required this.record, required this.showDivider});
@@ -360,9 +376,4 @@ String _ttl(int seconds) {
   return '$seconds seconds';
 }
 
-String _formatDateTime(BuildContext context, DateTime value) {
-  final local = value.toLocal();
-  final localizations = MaterialLocalizations.of(context);
-  return '${localizations.formatFullDate(local)} · '
-      '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
-}
+String _formatDateTime(DateTime value) => formatLocalDateTime(value);

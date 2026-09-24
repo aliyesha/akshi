@@ -1,3 +1,4 @@
+import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/akshi_mark.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
@@ -62,6 +63,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             if (_selectedTagId != null &&
                 !tags.any((tag) => tag.id == _selectedTagId)) {
               _selectedTagId = null;
+            }
+            MonitorTag? selectedTag;
+            for (final tag in tags) {
+              if (tag.id == _selectedTagId) {
+                selectedTag = tag;
+              }
             }
             final visible = items.where((item) {
               final query = _query.trim().toLowerCase();
@@ -152,21 +159,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       sliver: SliverToBoxAdapter(
                         child: SearchBar(
                           controller: _searchController,
-                          hintText: 'Search domains, names, or tags',
+                          hintText: selectedTag == null
+                              ? 'Search domains, names, or tags'
+                              : 'Search within ${selectedTag.name}',
                           leading: const Padding(
                             padding: EdgeInsets.only(left: 4),
                             child: PhosphorIcon(
                               PhosphorIconsDuotone.magnifyingGlass,
                             ),
                           ),
-                          trailing: _query.isEmpty
+                          trailing:
+                              _query.isEmpty && _selectedTagId == null
                               ? null
                               : <Widget>[
                                   IconButton(
-                                    tooltip: 'Clear search',
+                                    tooltip: 'Clear search and tag filter',
                                     onPressed: () {
                                       _searchController.clear();
-                                      setState(() => _query = '');
+                                      setState(() {
+                                        _query = '';
+                                        _selectedTagId = null;
+                                      });
                                     },
                                     icon: const PhosphorIcon(
                                       PhosphorIconsRegular.x,
@@ -180,46 +193,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   if (tags.isNotEmpty)
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(18, 10, 0, 2),
+                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 2),
                       sliver: SliverToBoxAdapter(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.only(right: 18),
-                          child: Row(
-                            children: <Widget>[
-                              PhosphorIcon(
-                                PhosphorIconsDuotone.funnelSimple,
-                                size: 17,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 7),
-                              Text(
-                                'Filter by tag',
-                                style: Theme.of(context).textTheme.labelLarge
-                                    ?.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                              ),
-                              const SizedBox(width: 10),
-                              for (final tag in tags) ...<Widget>[
-                                TagPill(
-                                  tag: tag,
-                                  selected: _selectedTagId == tag.id,
-                                  onTap: () => setState(
-                                    () => _selectedTagId =
-                                        _selectedTagId == tag.id
-                                        ? null
-                                        : tag.id,
-                                  ),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: <Widget>[
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                PhosphorIcon(
+                                  PhosphorIconsRegular.funnelSimple,
+                                  size: 17,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 7),
+                                Text(
+                                  'Filter by tag',
+                                  style: Theme.of(context).textTheme.labelLarge
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                ),
                               ],
-                            ],
-                          ),
+                            ),
+                            for (final tag in tags)
+                              TagPill(
+                                tag: tag,
+                                selected: _selectedTagId == tag.id,
+                                onTap: () => setState(
+                                  () => _selectedTagId =
+                                      _selectedTagId == tag.id ? null : tag.id,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ),
@@ -290,7 +302,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Refresh failed: $error')));
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
       }
     } finally {
       if (mounted) {
@@ -320,11 +332,12 @@ class _OfflineNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final colors = AkshiTheme.infoSurface(Theme.of(context).colorScheme);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
-        color: scheme.secondaryContainer.withValues(alpha: .58),
+        color: colors.background,
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -332,14 +345,15 @@ class _OfflineNotice extends StatelessWidget {
           PhosphorIcon(
             PhosphorIconsDuotone.wifiSlash,
             size: 19,
-            color: scheme.onSecondaryContainer,
+            color: colors.accent,
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'You are offline · showing saved results',
+              'Live refresh could not connect. Saved expiry results are still '
+              'shown; Akshi keeps no persistent connection.',
               style: Theme.of(context).textTheme.labelLarge
-                  ?.copyWith(color: scheme.onSecondaryContainer),
+                  ?.copyWith(color: colors.foreground),
             ),
           ),
         ],
@@ -729,7 +743,9 @@ class _EmailMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final posture = monitor.emailPosture;
-    final failed = monitor.emailActivity.failure != null;
+    final failed =
+        monitor.emailActivity.failure != null ||
+        (posture?.hasUnavailable ?? false);
     final attention = posture?.needsAttention ?? false;
     final color = failed
         ? scheme.error
@@ -814,7 +830,7 @@ bool _hasOfflineFailure(MonitorEntry monitor) {
     if (monitor.checksCertificate) monitor.certificateActivity.failure,
     if (monitor.checksEmail) monitor.emailActivity.failure,
   ];
-  return failures.any((failure) => failure?.kind == CheckFailureKind.offline);
+  return failures.any((failure) => failure.isConnectivityInterruption);
 }
 
 String _freshness(DateTime? date) {

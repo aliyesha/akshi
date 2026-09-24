@@ -1,12 +1,16 @@
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/monitors/domain/tls_endpoint.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/tag_policy.dart';
 import 'package:akshi/features/tags/presentation/tag_editor_sheet.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -54,6 +58,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
     final items =
         ref.watch(monitorControllerProvider).value ?? const <MonitorEntry>[];
     final tags = ref.watch(tagControllerProvider).value ?? const <MonitorTag>[];
+    final atTagLimit = !TagPolicy.canCreate(tags.length);
     final editing = widget.monitorId != null;
     final original = editing ? _find(items, widget.monitorId!) : null;
     if (!_initialized && (!editing || original != null)) {
@@ -190,21 +195,19 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                     TextFormField(
                       controller: _port,
                       keyboardType: TextInputType.number,
+                      inputFormatters: <TextInputFormatter>[
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(5),
+                      ],
                       textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
                         labelText: 'TLS port',
-                        helperText: '443 for standard HTTPS',
+                        helperText: 'Direct TLS · 443 is the HTTPS default',
                         prefixIcon: PhosphorIcon(PhosphorIconsDuotone.network),
                       ),
                       validator: (value) {
-                        if (!_checksCertificate) {
-                          return null;
-                        }
-                        final port = int.tryParse(value ?? '');
-                        if (port == null || port < 1 || port > 65535) {
-                          return 'Enter a port from 1 to 65535';
-                        }
-                        return null;
+                        if (!_checksCertificate) return null;
+                        return validateTlsPort(value);
                       },
                       onFieldSubmitted: (_) => _save(original),
                     ),
@@ -257,13 +260,37 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
               _FormPanel(
                 icon: PhosphorIconsDuotone.tag,
                 title: 'Tags',
-                subtitle: 'Organize monitors without changing their checks.',
+                subtitle: atTagLimit
+                    ? '${tags.length} of ${TagPolicy.maxCount} used · reuse one or manage tags'
+                    : '${tags.length} of ${TagPolicy.maxCount} used · ${TagPolicy.remaining(tags.length)} remaining',
                 trailing: TextButton.icon(
-                  onPressed: () => _createTag(),
-                  icon: const PhosphorIcon(PhosphorIconsRegular.plus, size: 17),
-                  label: const Text('New'),
+                  onPressed: atTagLimit ? _manageTags : () => _createTag(),
+                  icon: PhosphorIcon(
+                    atTagLimit
+                        ? PhosphorIconsDuotone.gear
+                        : PhosphorIconsRegular.plus,
+                    size: 17,
+                  ),
+                  label: Text(atTagLimit ? 'Manage' : 'New'),
                 ),
                 children: <Widget>[
+                  if (atTagLimit) ...<Widget>[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .tertiaryContainer
+                            .withValues(alpha: .62),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Text(
+                        'The 10-tag limit is reached. Select an existing tag below, or manage tags to delete one.',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   if (tags.isEmpty)
                     Container(
                       padding: const EdgeInsets.all(15),
@@ -342,7 +369,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                       ? 'Working…'
                       : editing
                       ? 'Save changes'
-                      : 'Add and check',
+                      : 'Add monitor',
                 ),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(56),
@@ -373,7 +400,13 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
 
   Future<void> _createTag() async {
     setState(() => _hostnameAutofocus = false);
-    final draft = await showTagEditor(context);
+    final tagCount =
+        ref.read(tagControllerProvider).value?.length ?? TagPolicy.maxCount;
+    if (!TagPolicy.canCreate(tagCount)) {
+      await _manageTags();
+      return;
+    }
+    final draft = await showTagEditor(context, currentCount: tagCount);
     if (draft == null || !mounted) {
       return;
     }
@@ -397,6 +430,14 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
           ),
         ),
       );
+    }
+  }
+
+  Future<void> _manageTags() async {
+    setState(() => _hostnameAutofocus = false);
+    await context.push('/settings/tags');
+    if (mounted) {
+      ref.invalidate(tagControllerProvider);
     }
   }
 
@@ -427,7 +468,9 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       final tlsHostname = enteredTlsHostname.isEmpty
           ? hostname
           : enteredTlsHostname;
-      final tlsPort = _checksCertificate ? int.parse(_port.text) : 443;
+      final tlsPort = _checksCertificate
+          ? requireValidTlsPort(int.parse(_port.text))
+          : 443;
       if (original == null) {
         saved = await controller.add(
           hostname: hostname,
@@ -502,12 +545,13 @@ class _SaveProgressPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final colors = AkshiTheme.progressSurface(scheme);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: scheme.primaryContainer.withValues(alpha: .42),
+        color: colors.background,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: scheme.primary.withValues(alpha: .22)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -519,30 +563,37 @@ class _SaveProgressPanel extends StatelessWidget {
                 child: CircularProgressIndicator(
                   value: progress.fraction >= 1 ? 1 : null,
                   strokeWidth: 2.2,
-                  color: scheme.primary,
+                  color: colors.accent,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   progress.message,
-                  style: Theme.of(context).textTheme.titleSmall,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: colors.foreground,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               Text(
                 '${(progress.fraction * 100).round()}%',
                 style: Theme.of(context).textTheme.labelMedium
-                    ?.copyWith(color: scheme.onSurfaceVariant),
+                    ?.copyWith(color: colors.foreground),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          LinearProgressIndicator(value: progress.fraction),
+          LinearProgressIndicator(
+            value: progress.fraction,
+            color: colors.accent,
+            backgroundColor: colors.foreground.withValues(alpha: .16),
+          ),
           const SizedBox(height: 8),
           Text(
-            'Akshi checks first, then saves one complete monitor record.',
+            'The monitor saves first. Initial checks continue on its summary.',
             style: Theme.of(context).textTheme.bodySmall
-                ?.copyWith(color: scheme.onSurfaceVariant),
+                ?.copyWith(color: colors.foreground),
           ),
         ],
       ),
@@ -782,27 +833,28 @@ class _EmailCheckNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final background = dark ? const Color(0xFF153744) : const Color(0xFFE8F5FB);
-    final foreground = dark ? const Color(0xFFE7F8FF) : const Color(0xFF173743);
-    final border = dark ? const Color(0xFF47798C) : const Color(0xFFB7DCE9);
+    final colors = AkshiTheme.infoSurface(Theme.of(context).colorScheme);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: background,
-        border: Border.all(color: border),
+        color: colors.background,
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          PhosphorIcon(PhosphorIconsDuotone.info, size: 21, color: foreground),
+          PhosphorIcon(
+            PhosphorIconsDuotone.info,
+            size: 21,
+            color: colors.accent,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Akshi reads public DNS through this device. Receiving checks MX, MTA-STS, and TLS-RPT; sending checks SPF and DMARC. DKIM is checked only for selectors you enter.',
               style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: foreground, height: 1.4),
+                  ?.copyWith(color: colors.foreground, height: 1.4),
             ),
           ),
         ],

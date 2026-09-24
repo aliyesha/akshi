@@ -2,6 +2,13 @@ import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+typedef AkshiSurfaceColors = ({
+  Color background,
+  Color foreground,
+  Color accent,
+  Color border,
+});
+
 abstract final class AkshiTheme {
   static const String uiFontFamily = 'SpaceGrotesk';
   static const String monoFontFamily = 'JetBrainsMono';
@@ -14,6 +21,38 @@ abstract final class AkshiTheme {
   static ThemeData get light => _base(brightness: Brightness.light);
 
   static ThemeData get dark => _base(brightness: Brightness.dark);
+
+  /// High-contrast blue surface for neutral information and connectivity.
+  static AkshiSurfaceColors infoSurface(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? (
+          background: const Color(0xFF122B36),
+          foreground: const Color(0xFFEAF8FD),
+          accent: const Color(0xFF8ECDE0),
+          border: const Color(0xFF3B697A),
+        )
+      : (
+          background: const Color(0xFFEAF5FA),
+          foreground: const Color(0xFF153644),
+          accent: const Color(0xFF28677F),
+          border: const Color(0xFFA6CFDD),
+        );
+
+  /// Brand-aligned surface whose text remains readable during long saves.
+  static AkshiSurfaceColors progressSurface(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? (
+          background: const Color(0xFF2B1822),
+          foreground: const Color(0xFFFFEAF3),
+          accent: const Color(0xFFF1A1C4),
+          border: const Color(0xFF70445A),
+        )
+      : (
+          background: const Color(0xFFF6EAF0),
+          foreground: const Color(0xFF3E152A),
+          accent: const Color(0xFF7B2952),
+          border: const Color(0xFFD7A8BD),
+        );
 
   static ThemeData _base({required Brightness brightness}) {
     final dark = brightness == Brightness.dark;

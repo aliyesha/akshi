@@ -1,13 +1,19 @@
 import 'dart:math' as math;
 
+import 'package:akshi/core/formatters/date_time_formatter.dart';
+
+import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/formatters/certificate_algorithm_formatter.dart';
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
+import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_surface.dart';
 import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
@@ -94,6 +100,14 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
       warningDays: settings.firstWarningDays,
       criticalDays: settings.secondWarningDays,
     );
+    final focusedFailure = switch (widget.focusKind) {
+      MonitorCheckKind.domainRegistration => monitor.domainActivity.failure,
+      MonitorCheckKind.tlsCertificate => monitor.certificateActivity.failure,
+      MonitorCheckKind.emailConfiguration => monitor.emailActivity.failure,
+      null => null,
+    };
+    final focusConnectionInterrupted =
+        focusedFailure.isConnectivityInterruption;
     final findings = findingsForMonitor(
       monitor,
       warningDays: settings.firstWarningDays,
@@ -245,17 +259,27 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                       monitor.emailActivity.failure != null)) ...<Widget>[
                 const SizedBox(height: 18),
                 _Notice(
-                  icon: PhosphorIconsDuotone.warningCircle,
-                  title: 'Some data could not be verified',
-                  message: [
-                    if (widget.focusKind == MonitorCheckKind.domainRegistration)
-                      'Domain: ${monitor.domainError}',
-                    if (widget.focusKind == MonitorCheckKind.tlsCertificate)
-                      'Certificate: ${monitor.certificateError}',
-                    if (widget.focusKind == MonitorCheckKind.emailConfiguration)
-                      'Email: ${monitor.emailActivity.failure!.message}',
-                  ].join(String.fromCharCode(10)),
-                  error: true,
+                  icon: focusConnectionInterrupted
+                      ? PhosphorIconsDuotone.cloudSlash
+                      : PhosphorIconsDuotone.warningCircle,
+                  title: focusConnectionInterrupted
+                      ? 'Live refresh could not connect'
+                      : 'Some data could not be verified',
+                  message: focusConnectionInterrupted
+                      ? 'Saved results remain visible. Akshi connects only '
+                            'during a check and keeps no persistent connection.'
+                      : [
+                          if (widget.focusKind ==
+                              MonitorCheckKind.domainRegistration)
+                            'Domain: ${monitor.domainError}',
+                          if (widget.focusKind ==
+                              MonitorCheckKind.tlsCertificate)
+                            'Certificate: ${monitor.certificateError}',
+                          if (widget.focusKind ==
+                              MonitorCheckKind.emailConfiguration)
+                            'Email: ${monitor.emailActivity.failure!.message}',
+                        ].join(String.fromCharCode(10)),
+                  error: !focusConnectionInterrupted,
                 ),
               ],
               if (widget.focusKind ==
@@ -298,7 +322,6 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                       icon: PhosphorIconsDuotone.calendarCheck,
                       label: 'Registered',
                       value: _domainDate(
-                        context,
                         monitor,
                         monitor.domainRegisteredAt,
                       ),
@@ -307,7 +330,6 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                       icon: PhosphorIconsRegular.clock,
                       label: 'Last changed',
                       value: _domainDate(
-                        context,
                         monitor,
                         monitor.domainUpdatedAt,
                       ),
@@ -390,7 +412,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                     _InfoRow(
                       icon: PhosphorIconsDuotone.calendarCheck,
                       label: 'Valid from',
-                      value: _formatDate(context, monitor.certificateValidFrom),
+                      value: _formatDate(monitor.certificateValidFrom),
                     ),
                     _InfoRow(
                       icon: PhosphorIconsRegular.binary,
@@ -451,7 +473,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 if (monitor.emailPosture != null) ...<Widget>[
                   const SizedBox(height: 8),
                   Text(
-                    'DNS data checked ${_formatDateTime(context, monitor.emailPosture!.checkedAt)}',
+                    'DNS data checked ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -487,7 +509,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                     label: 'Last checked',
                     value: monitor.lastCheckedAt == null
                         ? 'Never'
-                        : _formatDateTime(context, monitor.lastCheckedAt!),
+                        : _formatDateTime(monitor.lastCheckedAt!),
                     last: true,
                   ),
                 ],
@@ -638,6 +660,18 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
     setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'ui.monitor_detail.check.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'monitorId': monitor.id},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+      }
     } finally {
       if (mounted) {
         setState(() => _checking = false);
@@ -699,12 +733,10 @@ class _AttentionNavigator extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final accent = monitorStatusColor(scheme, finding.status);
-    return Material(
+    return MonitorSurface(
+      radius: 18,
       color: Color.lerp(scheme.surfaceContainerLow, accent, .06),
-      shape: RoundedRectangleBorder(
-        side: BorderSide(color: accent.withValues(alpha: .22)),
-        borderRadius: BorderRadius.circular(18),
-      ),
+      border: BorderSide(color: accent.withValues(alpha: .22)),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
         child: Row(
@@ -721,7 +753,10 @@ class _AttentionNavigator extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     finding.kind.label,
-                    style: Theme.of(context).textTheme.labelLarge,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -782,20 +817,18 @@ class _ExpiryPanel extends StatelessWidget {
         ? scheme.primary
         : monitorStatusColor(scheme, focusedFinding.status);
     final attentionTint = scheme.brightness == Brightness.dark ? .2 : .12;
-    return Container(
+    return MonitorSurface(
+      radius: 24,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: focusedFinding == null
-            ? scheme.surfaceContainerLowest
-            : Color.alphaBlend(
-                accent.withValues(alpha: attentionTint),
-                scheme.surfaceContainerLowest,
-              ),
-        border: focusedFinding == null
-            ? null
-            : Border.all(color: accent.withValues(alpha: .72), width: 1.6),
-        borderRadius: BorderRadius.circular(24),
-      ),
+      color: focusedFinding == null
+          ? scheme.surfaceContainerLowest
+          : Color.alphaBlend(
+              accent.withValues(alpha: attentionTint),
+              scheme.surfaceContainerLowest,
+            ),
+      border: focusedFinding == null
+          ? null
+          : BorderSide(color: accent.withValues(alpha: .72), width: 1.6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -846,7 +879,7 @@ class _ExpiryPanel extends StatelessWidget {
           ),
           const SizedBox(height: 5),
           Text(
-            date == null ? source : '${_formatDate(context, date)} · $source',
+            date == null ? source : '${_formatDate(date)} · $source',
             style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: scheme.onSurfaceVariant),
           ),
@@ -963,12 +996,16 @@ class _FocusReasonState extends State<_FocusReason>
                           ? '${widget.finding.kind.label} needs attention'
                           : '${widget.finding.kind.label} current result',
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: accent,
+                        color: scheme.onSurface,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 3),
-                    Text(widget.finding.summary),
+                    Text(
+                      widget.finding.summary,
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurface, height: 1.35),
+                    ),
                   ],
                 ),
               ),
@@ -987,12 +1024,9 @@ class _InfoCard extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => MonitorSurface(
+    radius: 22,
     padding: const EdgeInsets.symmetric(horizontal: 18),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      borderRadius: BorderRadius.circular(22),
-    ),
     child: Column(children: children),
   );
 }
@@ -1097,27 +1131,17 @@ class _MailFindingCard extends StatelessWidget {
         scheme.error,
       ),
     };
-    return Container(
+    return MonitorSurface(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest,
-        border: Border.all(color: color.withValues(alpha: .24)),
-        borderRadius: BorderRadius.circular(20),
-      ),
+      border: BorderSide(color: color.withValues(alpha: .24)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              Container(
-                width: 36,
-                height: 36,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: PhosphorIcon(icon, size: 19, color: color),
+              MonitorIconBadge(
+                icon: icon,
+                color: color,
               ),
               const SizedBox(width: 11),
               Expanded(
@@ -1172,25 +1196,37 @@ class _Notice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = error ? scheme.error : scheme.primary;
-    return Container(
+    final info = AkshiTheme.infoSurface(scheme);
+    final background = error ? scheme.errorContainer : info.background;
+    final foreground = error ? scheme.onErrorContainer : info.foreground;
+    final accent = error ? scheme.onErrorContainer : info.accent;
+    final border = error ? scheme.error.withValues(alpha: .42) : info.border;
+    return MonitorSurface(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: (22) / 255),
-        borderRadius: BorderRadius.circular(20),
-      ),
+      color: background,
+      border: BorderSide(color: border),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          PhosphorIcon(icon, color: color, size: 24),
+          PhosphorIcon(icon, color: accent, size: 24),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(message, style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: foreground, height: 1.35),
+                ),
               ],
             ),
           ),
@@ -1212,9 +1248,8 @@ Widget _backButton(BuildContext context) => IconButton(
   icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
 );
 
-String _formatDate(BuildContext context, DateTime? value) => value == null
-    ? '—'
-    : MaterialLocalizations.of(context).formatFullDate(value.toLocal());
+String _formatDate(DateTime? value) =>
+    value == null ? '—' : formatLocalDate(value);
 
 String _domainText(
   MonitorEntry monitor,
@@ -1228,20 +1263,17 @@ String _domainText(
 }
 
 String _domainDate(
-  BuildContext context,
   MonitorEntry monitor,
   DateTime? value,
 ) {
   if (monitor.domainSource == null) {
     return 'Not available';
   }
-  return value == null ? 'Not published' : _formatDate(context, value);
+  return value == null ? 'Not published' : _formatDate(value);
 }
 
-String _formatDateTime(BuildContext context, DateTime value) {
-  final local = value.toLocal();
-  return '${_formatDate(context, local)} at ${TimeOfDay.fromDateTime(local).format(context)}';
-}
+String _formatDateTime(DateTime value) =>
+    formatLocalDateTime(value, separator: ' at ');
 
 String _trustLabel(bool? value) => switch (value) {
   true => 'Trusted',

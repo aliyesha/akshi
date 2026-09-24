@@ -1,3 +1,7 @@
+import 'package:akshi/core/errors/user_facing_error.dart';
+import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
@@ -42,6 +46,8 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
     }
     final settings =
         ref.watch(settingsControllerProvider).value ?? const AppSettings();
+    final provisioning =
+        ref.watch(monitorProvisioningProvider)[monitor.id];
     final findings = findingsForMonitor(
       monitor,
       warningDays: settings.firstWarningDays,
@@ -66,7 +72,9 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Edit',
-            onPressed: () => context.push('/monitor/${monitor.id}/edit'),
+            onPressed: (provisioning?.isRunning ?? false)
+                ? null
+                : () => context.push('/monitor/${monitor.id}/edit'),
             icon: const PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
           ),
           IconButton(
@@ -117,12 +125,18 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
               ),
             ],
             const SizedBox(height: 18),
+            if (provisioning != null) ...<Widget>[
+              _ProvisioningCard(provisioning: provisioning),
+              const SizedBox(height: 14),
+            ],
             Row(
               children: <Widget>[
                 StatusPill(status: overall),
                 const Spacer(),
                 FilledButton.icon(
-                  onPressed: _checking ? null : () => _refresh(monitor),
+                  onPressed: _checking || (provisioning?.isRunning ?? false)
+                      ? null
+                      : () => _refresh(monitor),
                   icon: _checking
                       ? const SizedBox.square(
                           dimension: 16,
@@ -170,7 +184,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
             Text(
               monitor.lastCheckedAt == null
                   ? 'Not checked yet'
-                  : 'Last checked ${_formatDateTime(context, monitor.lastCheckedAt!)}',
+                  : 'Last checked ${_formatDateTime(monitor.lastCheckedAt!)}',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -191,9 +205,22 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
 
   Future<void> _refresh(MonitorEntry monitor) async {
     if (_checking) return;
+    ref.read(monitorProvisioningProvider.notifier).clear(monitor.id);
     setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'ui.monitor_overview.check.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'monitorId': monitor.id},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+      }
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -227,6 +254,93 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
     if (confirmed != true) return;
     await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
     if (mounted) context.go('/');
+  }
+}
+
+class _ProvisioningCard extends StatelessWidget {
+  const _ProvisioningCard({required this.provisioning});
+
+  final MonitorProvisioning provisioning;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final failed = provisioning.failure != null;
+    final colors = AkshiTheme.progressSurface(scheme);
+    final background = failed
+        ? scheme.errorContainer
+        : colors.background;
+    final foreground = failed
+        ? scheme.onErrorContainer
+        : colors.foreground;
+    final accent = failed ? scheme.error : colors.accent;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: background,
+          border: Border.all(
+            color: failed
+                ? scheme.error.withValues(alpha: .45)
+                : colors.border,
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                SizedBox.square(
+                  dimension: 20,
+                  child: failed
+                      ? PhosphorIcon(
+                          PhosphorIconsDuotone.warningCircle,
+                          color: accent,
+                          size: 20,
+                        )
+                      : CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          color: accent,
+                        ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    failed
+                        ? 'Initial check needs another try'
+                        : provisioning.progress.message,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (!failed) ...<Widget>[
+              const SizedBox(height: 12),
+              LinearProgressIndicator(
+                value: provisioning.progress.fraction,
+                color: accent,
+                backgroundColor: foreground.withValues(alpha: .16),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              failed
+                  ? 'The monitor definition is saved safely. Use Check now to retry the initial snapshot.'
+                  : 'Initial checks continue in the background and are saved together as one consistent snapshot. They can take time and depend on your connection and each source, so please be patient.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: foreground,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -338,9 +452,4 @@ Widget _backButton(BuildContext context) => IconButton(
   icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
 );
 
-String _formatDateTime(BuildContext context, DateTime value) {
-  final local = value.toLocal();
-  final localizations = MaterialLocalizations.of(context);
-  return '${localizations.formatFullDate(local)} · '
-      '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
-}
+String _formatDateTime(DateTime value) => formatLocalDateTime(value);
