@@ -1,4 +1,5 @@
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/tag_policy.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
@@ -10,17 +11,23 @@ class TagDraft {
   final int colorArgb;
 }
 
-Future<TagDraft?> showTagEditor(BuildContext context, {MonitorTag? tag}) =>
+Future<TagDraft?> showTagEditor(
+  BuildContext context, {
+  MonitorTag? tag,
+  int? currentCount,
+}) =>
     showModalBottomSheet<TagDraft>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => _TagEditorSheet(tag: tag),
+      builder: (context) =>
+          _TagEditorSheet(tag: tag, currentCount: currentCount),
     );
 
 class _TagEditorSheet extends StatefulWidget {
-  const _TagEditorSheet({this.tag});
+  const _TagEditorSheet({this.tag, this.currentCount});
 
+  final int? currentCount;
   final MonitorTag? tag;
 
   @override
@@ -84,6 +91,16 @@ class _TagEditorSheetState extends State<_TagEditorSheet> {
                 widget.tag == null ? 'Create tag' : 'Edit tag',
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
+              if (widget.tag == null && widget.currentCount != null) ...<Widget>[
+                const SizedBox(height: 6),
+                Text(
+                  '${widget.currentCount} of ${TagPolicy.maxCount} used · '
+                  '${TagPolicy.remaining(widget.currentCount! + 1)} remaining after this tag',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               const SizedBox(height: 18),
               TextFormField(
                 controller: _name,

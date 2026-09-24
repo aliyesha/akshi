@@ -26,7 +26,7 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
       createdAt: DateTime.now(),
     );
     try {
-      await ref.read(tagRepositoryProvider).save(tag);
+      await ref.read(tagRepositoryProvider).create(tag);
       await _reload();
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
@@ -44,7 +44,7 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
     try {
       await ref
           .read(tagRepositoryProvider)
-          .save(tag.copyWith(name: tag.name.trim()));
+          .update(tag.copyWith(name: tag.name.trim()));
       await _reload();
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);

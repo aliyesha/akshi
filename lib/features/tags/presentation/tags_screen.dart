@@ -2,6 +2,7 @@ import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/tag_policy.dart';
 import 'package:akshi/features/tags/presentation/tag_editor_sheet.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,58 +17,80 @@ class TagsScreen extends ConsumerWidget {
     final tags = ref.watch(tagControllerProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Tags')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _create(context, ref),
-        icon: const PhosphorIcon(PhosphorIconsRegular.plus),
-        label: const Text('Create tag'),
-      ),
+      floatingActionButton:
+          tags.value != null && TagPolicy.canCreate(tags.value!.length)
+          ? FloatingActionButton(
+              tooltip: 'Create tag',
+              onPressed: () => _create(context, ref, tags.value!.length),
+              child: const PhosphorIcon(PhosphorIconsRegular.plus),
+            )
+          : null,
       body: tags.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => Center(child: Text(error.toString())),
-        data: (items) => items.isEmpty
-            ? const _EmptyTags()
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
-                itemCount: items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final tag = items[index];
-                  return Material(
-                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(20),
-                    clipBehavior: Clip.antiAlias,
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 7,
-                      ),
-                      title: Align(
-                        alignment: Alignment.centerLeft,
-                        child: TagPill(tag: tag),
-                      ),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (action) => action == 'edit'
-                            ? _edit(context, ref, tag)
-                            : _delete(context, ref, tag),
-                        itemBuilder: (context) =>
-                            const <PopupMenuEntry<String>>[
-                              PopupMenuItem(value: 'edit', child: Text('Edit')),
-                              PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete'),
-                              ),
-                            ],
-                      ),
+        data: (items) => Column(
+          children: <Widget>[
+            _TagCapacity(count: items.length),
+            Expanded(
+              child: items.isEmpty
+                  ? const _EmptyTags()
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 100),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final tag = items[index];
+                        return Material(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerLowest,
+                          borderRadius: BorderRadius.circular(20),
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 7,
+                            ),
+                            title: Align(
+                              alignment: Alignment.centerLeft,
+                              child: TagPill(tag: tag),
+                            ),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (action) => action == 'edit'
+                                  ? _edit(context, ref, tag)
+                                  : _delete(context, ref, tag),
+                              itemBuilder: (context) =>
+                                  const <PopupMenuEntry<String>>[
+                                    PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Edit'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Delete'),
+                                    ),
+                                  ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _create(BuildContext context, WidgetRef ref) async {
-    final draft = await showTagEditor(context);
+  Future<void> _create(
+    BuildContext context,
+    WidgetRef ref,
+    int currentCount,
+  ) async {
+    final draft = await showTagEditor(
+      context,
+      currentCount: currentCount,
+    );
     if (draft == null || !context.mounted) return;
     try {
       await ref
@@ -129,12 +152,66 @@ class TagsScreen extends ConsumerWidget {
   }
 
   void _showError(BuildContext context, Object error) {
-    final duplicate = error.toString().contains('UNIQUE constraint failed');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          duplicate ? 'A tag with that name already exists.' : '$error',
-        ),
+    final message = switch (error) {
+      TagLimitReachedException() => error.toString(),
+      _ when error.toString().contains('UNIQUE constraint failed') =>
+        'A tag with that name already exists.',
+      _ => error.toString(),
+    };
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _TagCapacity extends StatelessWidget {
+  const _TagCapacity({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = TagPolicy.remaining(count);
+    final atLimit = remaining == 0;
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: atLimit
+            ? scheme.tertiaryContainer.withValues(alpha: .62)
+            : scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          PhosphorIcon(
+            atLimit
+                ? PhosphorIconsDuotone.info
+                : PhosphorIconsDuotone.tag,
+            color: atLimit ? scheme.onTertiaryContainer : scheme.primary,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '$count of ${TagPolicy.maxCount} tags used',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  atLimit
+                      ? 'Reuse an existing tag, or delete one below before creating another.'
+                      : '$remaining ${remaining == 1 ? 'tag' : 'tags'} remaining.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
