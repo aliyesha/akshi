@@ -40,6 +40,7 @@ flutter:
   assets:
     - assets/fonts/OFL-SpaceGrotesk.txt
     - assets/fonts/OFL-JetBrainsMono.txt
+    - assets/branding/akshi_icon.png
   fonts:
     - family: SpaceGrotesk
       fonts:

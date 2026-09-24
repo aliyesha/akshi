@@ -1,56 +1,32 @@
-import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:phosphor_icons/phosphor_icons.dart';
 
+/// The designer-supplied Akshi mark used consistently inside the application.
 class AkshiMark extends StatelessWidget {
   const AkshiMark({super.key, this.size = 42});
+
+  static const assetName = 'assets/branding/akshi_icon.png';
 
   final double size;
 
   @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Semantics(
-      label: 'Akshi',
-      image: true,
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.black,
-          border: Border.all(
-            color: dark ? const Color(0xFF5F545A) : const Color(0xFFD8CDD2),
-          ),
-          borderRadius: BorderRadius.circular(size * .34),
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: AkshiTheme.brandRose.withValues(alpha: (55) / 255),
-              blurRadius: 18,
-              offset: const Offset(0, 6),
-            ),
-          ],
+  Widget build(BuildContext context) => Semantics(
+    label: 'Akshi',
+    image: true,
+    child: Container(
+      width: size,
+      height: size,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
         ),
-        child: ShaderMask(
-          blendMode: BlendMode.srcIn,
-          shaderCallback: (bounds) => const LinearGradient(
-            begin: Alignment.bottomLeft,
-            end: Alignment.topRight,
-            colors: <Color>[
-              AkshiTheme.brandCyan,
-              AkshiTheme.brandPlum,
-              AkshiTheme.brandRose,
-            ],
-            stops: <double>[0, .48, 1],
-          ).createShader(bounds),
-          child: PhosphorIcon(
-            PhosphorIconsDuotone.scan,
-            color: Colors.white,
-            size: size * .54,
-            duotoneSecondaryOpacity: .42,
-          ),
-        ),
+        borderRadius: BorderRadius.circular(size * .28),
       ),
-    );
-  }
+      child: Image.asset(
+        assetName,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.high,
+      ),
+    ),
+  );
 }
