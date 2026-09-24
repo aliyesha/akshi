@@ -1,7 +1,12 @@
 package com.aliyesha.akshi
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.net.DnsResolver
+import android.net.Uri
 import android.os.CancellationSignal
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -25,6 +30,63 @@ class MainActivity : FlutterActivity() {
                 return@setMethodCallHandler
             }
             queryDns(name, type, result)
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.aliyesha.akshi/external_links",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "open") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            val value = call.argument<String>("url")
+            val uri = value?.let(Uri::parse)
+            if (uri == null || uri.scheme != "https" || uri.host.isNullOrBlank()) {
+                result.error("invalid_url", "A valid HTTPS URL is required", null)
+                return@setMethodCallHandler
+            }
+            try {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE),
+                )
+                result.success(true)
+            } catch (_: ActivityNotFoundException) {
+                result.success(false)
+            } catch (_: SecurityException) {
+                result.success(false)
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.aliyesha.akshi/system_settings",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "notificationPermissionStatus" -> result.success(
+                    if (NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+                        "allowed"
+                    } else {
+                        "notAllowed"
+                    },
+                )
+                "openNotificationSettings" -> {
+                    try {
+                        startActivity(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(
+                                Settings.EXTRA_APP_PACKAGE,
+                                packageName,
+                            ),
+                        )
+                        result.success(true)
+                    } catch (_: ActivityNotFoundException) {
+                        result.success(false)
+                    } catch (_: SecurityException) {
+                        result.success(false)
+                    }
+                }
+                else -> result.notImplemented()
+            }
         }
     }
 

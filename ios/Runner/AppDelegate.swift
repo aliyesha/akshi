@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import dnssd
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -10,7 +11,32 @@ import dnssd
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    excludeLocalDataFromBackup()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  /// Prevents Akshi's local database, preferences, and diagnostics from being
+  /// included in ordinary iCloud and device backups.
+  private func excludeLocalDataFromBackup() {
+    let fileManager = FileManager.default
+    let directories: [FileManager.SearchPathDirectory] = [
+      .documentDirectory,
+      .libraryDirectory,
+    ]
+
+    for directory in directories {
+      guard let url = fileManager.urls(for: directory, in: .userDomainMask).first else {
+        continue
+      }
+      do {
+        try (url as NSURL).setResourceValue(
+          true,
+          forKey: URLResourceKey.isExcludedFromBackupKey
+        )
+      } catch {
+        NSLog("Akshi could not exclude local data from backup: %@", String(describing: error))
+      }
+    }
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -33,6 +59,75 @@ import dnssd
         return
       }
       self?.startDnsQuery(name: name, type: UInt16(type.intValue), result: result)
+    }
+
+    let externalLinksChannel = FlutterMethodChannel(
+      name: "com.aliyesha.akshi/external_links",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    externalLinksChannel.setMethodCallHandler { call, result in
+      guard call.method == "open" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard
+        let arguments = call.arguments as? [String: Any],
+        let value = arguments["url"] as? String,
+        let url = URL(string: value),
+        url.scheme == "https",
+        url.host?.isEmpty == false
+      else {
+        result(
+          FlutterError(
+            code: "invalid_url",
+            message: "A valid HTTPS URL is required",
+            details: nil
+          )
+        )
+        return
+      }
+      UIApplication.shared.open(url, options: [:]) { opened in
+        result(opened)
+      }
+    }
+
+    let systemSettingsChannel = FlutterMethodChannel(
+      name: "com.aliyesha.akshi/system_settings",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    systemSettingsChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "notificationPermissionStatus":
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+          let status: String
+          switch settings.authorizationStatus {
+          case .authorized, .provisional:
+            status = "allowed"
+          case .denied:
+            status = "notAllowed"
+          case .notDetermined:
+            status = "notDetermined"
+          default:
+            if #available(iOS 14.0, *),
+               settings.authorizationStatus == .ephemeral {
+              status = "allowed"
+            } else {
+              status = "unavailable"
+            }
+          }
+          DispatchQueue.main.async { result(status) }
+        }
+      case "openNotificationSettings":
+        guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else {
+          result(false)
+          return
+        }
+        UIApplication.shared.open(settingsUrl, options: [:]) { opened in
+          result(opened)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 
