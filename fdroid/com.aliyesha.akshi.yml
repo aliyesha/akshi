@@ -1,0 +1,39 @@
+Categories:
+  - Internet
+License: GPL-3.0-or-later
+AuthorName: aliyesha.com (Aliyesha)
+AuthorEmail: ops@aliyeshamail.com
+AuthorWebSite: https://aliyesha.com
+WebSite: https://aliyesha.com
+SourceCode: https://github.com/aliyesha/akshi
+IssueTracker: https://github.com/aliyesha/akshi/issues
+Changelog: https://github.com/aliyesha/akshi/blob/main/CHANGELOG.md
+
+RepoType: git
+Repo: https://github.com/aliyesha/akshi.git
+
+Builds:
+  - versionName: 1.0.0
+    versionCode: 1
+    commit: v1.0.0
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - flutter@stable
+    rm:
+      - ios
+    prebuild:
+      - git -C $$flutter$$ checkout -f 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get --enforce-lockfile
+    scandelete:
+      - .pub-cache
+    build:
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+UpdateCheckData: pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1

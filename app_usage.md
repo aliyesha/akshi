@@ -11,10 +11,11 @@ name reflects the app's purpose: it keeps an attentive eye on the dates that
 protect your online presence—without demanding constant attention from you.
 
 An eye notices change, helps us remain aware, and focuses attention where it is
-needed. Akshi follows the same idea. It checks when invited, remembers what it
-last observed, and gives a calm warning when a domain or certificate is moving
-toward expiry. It is watchful rather than intrusive: no continuous background
-surveillance, no remote account, and no flood of alarms.
+needed. Akshi follows the same idea. It checks when opened or refreshed,
+remembers what it last observed, and gives a clear warning when a domain or
+certificate is moving toward expiry. It is watchful rather than intrusive: no
+continuous background surveillance, no remote account, and no flood of
+alarms.
 
 That philosophy also shapes the daily digest. If several websites need action
 on the same day, Akshi presents them as one clear signal. The goal is not to
@@ -69,7 +70,7 @@ other endpoints that matter but do not justify another operations stack.
 If that sounds familiar, add the websites you are responsible for, open Akshi
 as part of your normal maintenance rhythm, and let its consolidated reminders
 bring the next renewal into focus. Akshi is meant to reduce the mental list you
-carry—not create a new service you must babysit.
+carry, without creating another service that requires ongoing administration.
 
 ## Choose what to monitor
 
@@ -83,7 +84,8 @@ that same asset, independently enable either or both of:
   facts and configuration problems; it does not show a reputation, deliverability,
   or security score that could become stale.
 
-TLS and Email start off; leave both off to monitor registration alone. The
+TLS and Email checks are disabled by default. Leave both disabled to monitor
+registration alone. The
 service icon remains visible, while the circle at the end of each row shows
 whether that optional check is selected. For Email checks, tell Akshi whether
 the domain sends mail, receives mail, or both. DKIM selectors
@@ -97,14 +99,21 @@ universal selector-discovery mechanism.
    accepted; Akshi extracts the hostname.
 3. Enable **TLS certificate**, **Email configuration**, both, or neither.
 4. For TLS, leave the hostname blank to use the domain and keep port 443 for
-   standard HTTPS, or enter the actual TLS endpoint. For Email, choose sending
+   standard HTTPS, or enter the actual direct-TLS endpoint. Every numeric port
+   from 1 through 65535 is accepted; Akshi does not guess the protocol from the
+   port number. If that endpoint is closed or speaks something other than TLS,
+   the summary reports the reachability or handshake failure explicitly. For Email, choose sending
    and receiving roles and optionally add known DKIM selectors.
 5. Optionally add a recognizable **Name**, such as “Production mail”, and
-   tags. The name appears prominently while the domain remains visible; tags only organize
-   monitors and never change which checks run.
-6. Save the asset. While it works, Akshi shows the current stage—TLS, domain
-   registration, site icon, DNS, Email, saving, and list refresh—in plain language.
-   It checks the asset immediately and may ask for notification permission.
+   tags. The name appears prominently while the domain remains visible. Tags
+   organize monitors and never change which checks run.
+6. Save the asset. Akshi commits the complete monitor definition and tags in
+   one local transaction, then opens its summary immediately. Selected initial
+   checks continue there with a live stage and progress indicator. Independent
+   network work runs in parallel through the shared window of at most ten
+   operations; Email analysis follows its captured DNS snapshot. Results join
+   before one consistent snapshot is saved. These checks can take time and
+   depend on the connection and public sources, so please be patient.
 
 Each domain can show separate results:
 
@@ -120,7 +129,6 @@ Each domain can show separate results:
   snapshot returned by the device's resolver. Multiple values with the same
   name and type remain separate—Akshi does not collapse them into a single
   value. Each visible record includes its TTL and can be copied.
-
 
 A missing optional Email record is informational; an invalid or
 expected-but-missing record needs review. Records are read through the device's
@@ -138,17 +146,16 @@ It is possible for one source to be available while another is not.
 ## Read the dashboard
 
 The first screen lists all monitored domains and emphasizes the most urgent
-status. Use search to find a hostname or label, pull down to refresh everything,
-or use the refresh button and wait for its completion message. Tag chips
-filter the list; tap the selected tag again to clear that filter. Select a
+status. Use search to find a domain, name, or tag. Pull down to refresh
+everything, or use the refresh button and wait for its completion message. Tag
+chips filter the list; tap the selected tag again to clear that filter. Select a
 monitor to open its compact overview. From there, open only the Domain, TLS,
 Email, or DNS details you need. This keeps the main decision page short without
 using crowded tabs. An Attention result opens the affected focused page
 directly.
 
-Swipe a monitor to the right to request
-deletion; Akshi always asks for confirmation before removing it. Swipe
-it to the left to edit it.
+Swipe a monitor to the right to request deletion; Akshi asks for confirmation
+before removing it. Swipe the monitor to the left to edit it.
 
 Status indicators distinguish healthy, approaching, critical, expired,
 unavailable, and failed checks. Certificate trust problems are treated as
@@ -164,24 +171,23 @@ includes a final reminder one day before expiry. Delivery time can be selected
 in Settings and remains approximate because the operating system controls the
 exact delivery moment.
 
-Akshi sends at most one scheduled expiry reminder on a calendar day. If several
-monitors need attention together, their events are combined. A notification may
-look like this:
+Akshi sends scheduled reminders only when a saved domain registration or TLS
+certificate expiry reaches one of those warning points. Ordinary check-result,
+DNS, or Email configuration changes do not send notifications. If several
+monitors reach a warning point together, their events are combined. A
+notification may look like this:
 
-> 6 monitors need attention
-> example.com, shop.example, status.example, and 3 more
+> 6 expiry reminders
+> example.com · domain expires in 10 days; shop.example · TLS certificate expires in 10 days; and 4 more
 
 A monitor is listed only once in the daily notification even when both its
-domain and certificate reach a warning point together. Open Akshi to see every
-monitor and the precise reason it needs attention.
+domain and certificate reach a warning point together. Opening it shows every
+affected monitor, explains that the alert used saved expiry dates, and marks
+entries that have since been resolved.
 
 Whenever the app returns to the foreground, it refreshes available information
 and rebuilds future reminders from the latest results. Editing or deleting a
 monitor and changing reminder settings also rebuilds the shared schedule.
-
-Changes discovered during the same refresh are consolidated too. If several
-monitors receive renewed certificates, revised domain dates, or Email configuration changes together, Akshi
-reports one change summary rather than notifying once per monitor.
 
 ## Respond to a warning
 
@@ -203,19 +209,34 @@ In **Settings**, you can:
 - choose the two early-warning intervals;
 - create, edit, and remove reusable color tags for grouping monitors;
 - select the preferred local reminder time;
-- request notification permission again;
+- see Akshi reminder state separately from OS notification permission;
+- review the local Reminder Ledger and repair/verify expiry alarms;
 - follow the device appearance or choose light or dark mode;
-- read the name, philosophy, privacy model, and intended audience in About Akshi.
+- read the name, philosophy, privacy model, and intended audience in About Akshi;
+- review Akshi's GPL license and included open-source software notices.
 
 The first warning must remain earlier than the second. The one-day reminder is
-fixed as a final safety prompt.
+fixed as a final safety prompt. Warning-day and reminder-time edits are staged
+for three seconds; each further edit restarts that quiet period. Akshi then asks
+for confirmation. Confirming saves the desired settings and incrementally
+reconciles only alarm dates whose contents or timing changed. Cancel restores
+the persisted values.
+
+The reminder card separately shows Akshi's On/Off choice and current OS
+notification permission. Enabling requests permission only when needed;
+turning reminders off cancels Akshi-owned expiry alarms but does not pretend to
+revoke OS permission. The Reminder Ledger groups work as one card per daily
+alarm. Its detail proves Computed, Platform accepted, and Pending verified
+steps, while stating that Android or iOS controls final delivery. Repair
+performs one bounded rebuild and verification when normal reconciliation needs
+help.
 
 ## Privacy and connectivity
 
 Akshi has no central server. Your monitor list, cached site icons, check results,
-tags, and preferences remain in the local application database. Akshi has no
-account, sign-up, analytics, advertising, font download, remote scoring service,
-or Akshi-operated API. Nothing is sent to aliyesha.com.
+tags, preferences, and local crash diagnostics remain in private application
+storage. Akshi has no account, sign-up, analytics, advertising, font download,
+remote scoring service, or Akshi-operated API. Nothing is sent to Aliyesha.
 
 Checking still requires network access. While the app is active it can contact:
 
@@ -236,8 +257,12 @@ Checking still requires network access. While the app is active it can contact:
 Akshi does not use a third-party favicon proxy or public DNS-over-HTTPS provider.
 The registries, configured sites, mail-policy sites, and DNS resolver can observe
 ordinary connection information such as the requesting IP address and queried
-names. Removing the app normally removes its local data. If the monitor list is
-important, keep an independent record of the domains you manage.
+names. Akshi opts its private data out of ordinary Android and iOS device and
+cloud backups. Removing the app normally removes its local data, subject to
+operating-system behavior.
+
+Read the complete [Akshi Privacy Policy](PRIVACY.md) for storage, retention,
+network-recipient, backup, and contact details.
 
 ## When information is unavailable
 
@@ -245,13 +270,24 @@ Some domain registries do not publish a usable expiry date through RDAP, and
 temporary network, DNS, firewall, or TLS problems can prevent a check. Akshi
 preserves the last useful result where possible and displays the latest error.
 If the device is offline, Akshi says so directly and continues to show the last
-saved values. A timeout, DNS failure, unavailable source, invalid response, and TLS
-connection failure are kept distinct. Try again on a reliable connection before
-treating an unavailable result as a registration, certificate, or mail problem.
+saved values. A timeout, DNS failure, unavailable source, invalid response, and
+TLS connection failure are kept distinct. Try again on a reliable connection
+before treating an unavailable result as a registration, certificate, or mail
+problem.
+
 ## If a check fails while adding a monitor
 
-Akshi prepares the domain, certificate, icon, DNS, and Email observations while the app is open. A temporary network problem is saved as a clear unavailable result alongside the monitor; it does not create a misleading duplicate on the next attempt. A device-storage or validation failure is different: the monitor is not saved, and Akshi explains that directly.
+Akshi prepares the domain, certificate, icon, DNS, and Email observations while
+the app is open. A temporary network problem is saved as a clear unavailable
+result alongside the monitor; it does not create a misleading duplicate on the
+next attempt. A device-storage or validation failure is different: the monitor
+is not saved, and Akshi explains that directly.
 
 ## Crash reports
 
-If Akshi encounters an unexpected error, it records a private diagnostic on the device containing the time, error type, message, technical context, stack trace, and platform version. Akshi does not upload it. Open **Settings → Crash reports** to read or copy a report for support, or delete one report/all reports. These diagnostics do not prevent a serious unhandled error from closing the app; they are a record for the next launch, not a promise that the app can recover.
+If Akshi encounters an unexpected error, it records a private diagnostic on the
+device containing the time, error type, message, technical context, stack trace,
+and platform version. Akshi does not upload it. Open **Settings → Crash reports**
+to read, copy, or delete reports. These diagnostics do not prevent a serious
+unhandled error from closing the app; they are a record for the next launch,
+not a promise that the app can recover.

@@ -1,0 +1,19 @@
+Akshi is a private, local-first monitor for domain registration, TLS
+certificates, DNS records, and published email-domain configuration.
+
+Choose the checks that matter for each domain. Akshi connects directly from
+your device while the app is active, stores the latest observations locally,
+and schedules consolidated expiry reminders through the operating system.
+
+Features include:
+
+• Domain registration dates and available registrar information through RDAP
+• X.509 validity, trust, hostname, algorithm, and fingerprint details
+• A, AAAA, CNAME, MX, NS, TXT, and CAA DNS snapshots
+• MX, SPF, DMARC, MTA-STS, TLS-RPT, and explicit DKIM checks
+• One daily reminder containing every domain that needs attention
+• Local tags, cached website icons, and light and dark themes
+• No account, advertising, analytics, tracking, or central Akshi server
+
+Checks occur when Akshi is opened, resumed, refreshed, or updated. Akshi is a
+renewal and configuration companion, not a real-time availability monitor.

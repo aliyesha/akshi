@@ -86,7 +86,7 @@ contain rules that can be tested without Flutter.
 `lib/main.dart` calls `runApp` with `AkshiApp`. `AkshiApp` creates the Riverpod
 scope, selects the light/dark theme, and owns the app lifecycle observer. On a
 foreground transition it asks the monitor controller to refresh enabled
-monitors and asks the notification service to reconcile the local schedule.
+monitors and asks the reminder controller to reconcile the local schedule.
 
 `appRouter` is a `GoRouter` tree. The home route lists monitors. A monitor route
 opens a compact overview, with child routes for `domain`, `tls`, `email`, and
@@ -118,10 +118,11 @@ commands, then assigns fresh `AsyncData` after persistence. Screens watch the
 provider and render loading, error, or data states. A screen should not mutate
 the database directly.
 
-The controller uses a single `_refreshOperation` for portfolio refreshes. This
-prevents two simultaneous pull-to-refresh actions from starting overlapping
-sets of checks. Individual monitor checks still update the same repository and
-reload the provider after completion.
+The controller uses a single `_refreshOperation` for portfolio refreshes and
+coalesces checks for the same monitor. A shared FIFO `AsyncConcurrencyGate`
+admits only submitted work and caps active external I/O at ten operations.
+Selected work therefore grows naturally from one operation up to the ceiling;
+the gate never creates a fixed batch of ten.
 
 ## Monitor creation and editing
 
@@ -130,12 +131,25 @@ registration is always enabled. TLS and Email are independent optional checks;
 the TLS hostname may differ from the registration hostname and Email can be
 configured for sending, receiving, or both.
 
-`MonitorController.add` creates a new immutable `MonitorEntry`, persists it in
-a transaction with its tag links, requests notification permission, reloads
-the list, and runs its first check. `updateMonitor` compares the check
-definition with the stored entry. If the definition changed, previous result
-data is intentionally cleared and the new definition is checked from a clean
-state. A label/tag-only edit retains result data.
+`MonitorController.add` commits the immutable monitor definition and tag links
+in one SQLite transaction, reloads Riverpod, and returns immediately. The form
+navigates to the summary without waiting for the network.
+`monitorProvisioningProvider` carries the live initial-check stage across that
+navigation. The summary explains that source and connection speed determine
+the duration and remains usable while checks run.
+
+The initial observation is a second atomic boundary. Domain, DNS, TLS, and site
+identity start concurrently when selected; Email starts after the exact DNS
+snapshot it analyzes is available. Results join in memory and replace the
+monitor row once, so readers see either the saved definition with no snapshot
+or one internally consistent domain/TLS/Email snapshot—never a partially
+updated mixture. Expected source failures are stored as typed unavailable
+observations; an orchestration failure leaves the definition intact and exposes
+a retry message on the summary.
+
+`updateMonitor` uses the same preparation-before-persistence boundary. A changed
+check definition clears obsolete results before preparing fresh observations;
+a name/tag-only edit retains existing result data.
 
 `MonitorRepository.delete` removes monitor-tag links and the monitor row in one
 transaction. SQLite foreign keys are enabled as an additional cascade safety
@@ -144,8 +158,9 @@ deleted monitor cannot remain in an in-memory list or scheduled digest.
 
 ## One foreground check
 
-`MonitorController._performCheck` is the central orchestration method. It runs
-independent checks and records independent outcomes:
+`MonitorController._performCheck` is the atomic persistence boundary.
+`_prepareCheck` starts independent selected work concurrently through the
+shared dynamic I/O gate and records independent outcomes:
 
 1. If enabled, `TlsCheckService` opens a direct TLS socket and parses the
    presented X.509 certificate.
@@ -155,16 +170,19 @@ independent checks and records independent outcomes:
 3. `SiteIconService` discovers and caches a declared HTTPS site icon when the
    cache is absent or stale.
 4. `DnsSnapshotService` asks the device resolver for explicit record types and
-   stores every query as answered, absent, or failed.
+   stores every query as answered, absent, or failed. Each native query, rather
+   than the outer snapshot, acquires one shared I/O slot.
 5. `EmailPostureService` analyzes the already captured DNS snapshot. It does
    not issue another DNS request. Its MTA-STS check may fetch the published
    HTTPS policy only when the corresponding DNS record exists.
 6. The controller stamps `lastCheckedAt`, persists the complete immutable
-   result, reloads Riverpod state, reconciles reminders, and emits one grouped
-   change notification when semantic data changed.
+   result, reloads Riverpod state, and rebuilds scheduled expiry reminders.
 
-Each external operation is isolated with `try/catch`. A failed TLS check does
-not erase a successful registration result. A failed DNS query does not erase
+Each external operation is isolated with `try/catch`. TLS ports are validated
+only as the protocol-neutral range 1 through 65535. The TLS service performs one
+direct handshake on the exact endpoint; it records certificate trust failures
+without reconnecting and classifies DNS, closed-port, and wrong-protocol errors
+separately. A failed TLS check does not erase a successful registration result. A failed DNS query does not erase
 successful MX or DMARC facts. Failure classification turns platform exceptions,
 timeouts, offline conditions, and invalid responses into user-readable
 `CheckFailure` values.
@@ -203,37 +221,60 @@ change. A failed refresh is not treated as a configuration change.
 
 ## Persistence
 
-`AppDatabase` opens the local `akshi_data.db` SQLite database with foreign keys
+`AppDatabase` opens the local `akshi.db` SQLite database with foreign keys
 enabled. The `monitors` table stores the monitor definition, latest domain/TLS/
 Email values, activities, cached icon, and serialized DNS snapshot. Tags use a
-normalized many-to-many `monitor_tags` table.
+normalized many-to-many `monitor_tags` table. `TagPolicy` caps reusable tags
+at ten; `TagRepository.create` enforces that limit inside the insert
+transaction so rapid create intents cannot bypass the UI count.
 
 `MonitorEntry.toMap` is the storage boundary. Dates are UTC ISO-8601 strings,
 boolean values are SQLite integers, lists and rich results are JSON, and icon
 bytes are a BLOB. `MonitorEntry.fromMap` performs the inverse conversion.
 Repositories never expose raw SQLite rows to presentation code.
 
-This development iteration uses a clean schema rather than a migration layer.
-When the schema changes during unreleased development, clear the app's local
-database by uninstalling the development app or using the platform's app-data
-reset before testing. Do not add compatibility readers for an unreleased
-schema.
+Schema version 1 is the baseline for the first public release. During
+pre-release development, incompatible schema changes require uninstalling the
+development build or clearing its app data before testing. Once version 1.0.0
+is published, every schema change that can affect an installed release must use
+an explicit, tested SQLite migration. New model readers should represent the
+current schema rather than accumulating undocumented compatibility branches.
 
-## Change and notification behavior
+## Expiry notification behavior
 
-The controller compares the previous and new certificate fingerprint, domain
-expiry, Email finding signature, and DNS semantic values. It emits a change
-event only after the new row has persisted successfully.
+`ExpiryAlarmPlanner` is pure domain code. For each enabled Domain/TLS expiry,
+it subtracts the two configurable calendar-day offsets and fixed one-day
+offset, resolves the configured local time in the explicit device time zone,
+drops non-future instants, and groups all collisions into one alarm per local
+date. DNS, Email, connectivity, and ordinary state changes never notify.
 
-Expiry reminders are computed by the pure `reminder_digest.dart` domain code.
-Two configurable warning offsets and a fixed one-day reminder are grouped by
-local calendar date. Multiple checks for one monitor become one digest item;
-multiple monitors become one daily notification. `NotificationService` owns
-permission, scheduling, cancellation, and tap payloads. Tap payloads are
-decoded by `notification_destination.dart` and routed through GoRouter.
+`ReminderController` serializes every request from startup, resume, monitor
+CRUD/refresh, settings changes, and manual repair. Each run reads fresh
+repositories. `AlarmReconciler` compares the pure desired map with decoded
+pending requests and incrementally creates, replaces, or deletes only changed
+dates. Stable IDs are derived from the date. A full owned-alarm rebuild is
+bounded to one repair attempt after corrupt inventory or failed verification.
 
-The operating system controls exact delivery timing. Akshi schedules local
-notifications only; it does not run a background network checker.
+The SQLite `alarm_audit` ledger records one immutable row per date/revision.
+The reconciler records Computed before platform mutation, Platform accepted
+after the scheduling call returns, and Pending verified only after exact
+post-write comparison. The ledger is non-authoritative and never feeds the
+planner. It retains at most 365 days and 1,000 revisions. Settings → Reminder
+ledger groups rows by daily alarm and exposes the full Domain/TLS snapshot and
+revision history. It explicitly does not claim delivery.
+
+On Android, the plugin schedules with `AlarmManager` and its pending API reads
+the plugin's private persisted scheduled-notification cache. On iOS, pending
+requests are OS-backed. Akshi uses inexact allow-while-idle scheduling and does
+not request exact-alarm access. The operating system controls final delivery.
+
+Settings persistence is desired truth: save first, then reconcile. Failure
+keeps the user's choice and exposes Needs attention for a later retry; there is
+no compensating rollback. Notification payloads route to the explanatory
+expiry-reminder screen with the alarm date and affected monitor IDs.
+
+Akshi does not run a background network checker or keep persistent domain
+connections.
 
 ## UI, theme, fonts, and icons
 
@@ -244,15 +285,22 @@ are bundled assets, so the app never downloads fonts at runtime. JetBrains Mono
 is used for fingerprints, hostnames, DNS values, and other copyable technical
 strings; slashed-zero and tabular figures improve scanning.
 
+All visible clock values use the centralized `date_time_formatter.dart` helper
+with `alwaysUse24HourFormat`; the reminder picker is forced to the same 24-hour
+contract. Dates remain locale-aware.
+
 Phosphor Icons are packaged with the app. Duotone icons identify information
 sections; regular icons are used where a quiet action glyph reads better. A
 widget should use semantic labels or tooltips for icon-only actions. Avoid
 inventing one-off painted logos when an existing open-source icon communicates
 the intent.
 
-Interactive cards use `Material` plus `InkWell` so backgrounds do not hide
-ink splashes. Attention cards use status-aware amber/coral/error tints and a
-short bell pulse. They must respect `MediaQuery.disableAnimations` and
+Monitor record cards use the shared `MonitorSurface` and `MonitorIconBadge`
+components so Domain, TLS, Email, and DNS have the same clipping, radius, base
+surface, and icon geometry on every supported device. Status borders and tints
+remain intentional data signals. Interactive cards use `Material` plus `InkWell`
+so backgrounds do not hide ink splashes. Attention cards use status-aware
+amber/coral/error tints and a short bell pulse. They must respect `MediaQuery.disableAnimations` and
 `accessibleNavigation`.
 
 ## Testing strategy
@@ -272,9 +320,15 @@ snapshots:
 | `email_posture_service_test.dart` | concrete mail facts, duplicate SPF, and per-query failure isolation |
 | `rdap_service_test.dart` | bootstrap, registry parsing, missing fields, and response errors |
 | `certificate_*_test.dart` | human-readable subject and algorithm formatting |
+| `tls_endpoint_test.dart` | protocol-neutral port bounds and DNS/reachability/handshake failures |
 | `reminder_*_test.dart` | daily grouping, offsets, duplicate checks, and limits |
 | `notification_destination_test.dart` | notification payload routing and encoding |
+| `settings_alarm_transaction_test.dart` | serialized alarm commit, rollback, and non-schedule settings |
+| `settings_reminder_debounce_test.dart` | three-second restartable confirmation and cancel restore |
+| `notification_settings_screen_test.dart` | visible permission progress and complete alarm refresh |
 | `app_settings_test.dart` / `monitor_tag_test.dart` | settings and tag persistence/domain rules |
+| `crash_log_test.dart` | diagnostic serialization, retention, deletion, and concurrent writes |
+| `platform_privacy_resources_test.dart` | backup exclusion and release-signing safeguards |
 
 When adding a service, first test its pure parser or policy function. When a
 platform channel is unavoidable, use Flutter's
@@ -332,6 +386,28 @@ Before opening a pull request, check:
 - notification taps reach the exact intended route;
 - documentation and tests describe every new user-visible rule.
 
+## Release and F-Droid workflow
+
+Akshi is licensed under `GPL-3.0-or-later`; legal and privacy material lives in
+`LICENSE`, `COPYRIGHT`, `PRIVACY.md`, and `THIRD_PARTY_NOTICES.md`. Android and
+iOS exclude the application data directories from ordinary device and cloud
+backups. The Android release configuration intentionally contains no debug
+signing assignment because release channels provide their own signing keys.
+
+Before creating a public release:
+
+1. run formatting, analysis, tests, and both platform builds;
+2. verify every direct and transitive dependency remains FLOSS;
+3. confirm the public repository and issue-tracker URLs;
+4. add the Fastlane icon and representative phone screenshots;
+5. update `CHANGELOG.md` and the version-code changelog;
+6. commit the verified release state and create a matching immutable tag; and
+7. run `fdroid rewritemeta`, `fdroid lint`, and an isolated F-Droid build.
+
+The upstream listing text is in `fastlane/metadata/android/en-US`. The
+`fdroid/com.aliyesha.akshi.yml` file is a submission draft; the finalized
+version belongs in the external `fdroiddata` repository.
+
 ## Useful source-reading order
 
 For a first contribution, read these files in order:
@@ -347,26 +423,25 @@ For a first contribution, read these files in order:
 
 This order follows the direction of data through the application and keeps UI
 decisions grounded in the domain contracts.
-## Save ordering and failure boundaries
-
-Adding or editing a monitor follows a deliberate two-phase flow:
-
-1. Form values are normalized and validated.
-2. Foreground RDAP, TLS, favicon, DNS, and Email work runs against an immutable in-memory draft.
-3. Every expected network failure is converted into a typed, human-readable check failure while previous successful values remain intact.
-4. The completed aggregate and tag links are inserted or updated in one SQLite transaction.
-5. Riverpod state reloads only after the transaction succeeds. Notification permission and scheduling are post-save side effects and cannot report a committed monitor as unsaved.
-
-The form receives a `MonitorSaveProgress` callback for the same ordering, so the user sees each active stage and a coarse progress indicator instead of a generic spinner. This ordering prevents the duplicate-domain symptom where a row was committed before a later platform or network exception reached the form. Repository failures remain save failures; network failures are saved as explicit unavailable observations.
 
 ## Local crash diagnostics
 
-Top-level Flutter and platform error hooks write a bounded newest-first JSON array to the app-private `akshi_crash_logs.json` file. The file is independent of SQLite so a database failure does not remove the diagnostics path. Writes use a temporary sibling file and rename, and retention is capped at 50 entries. The store catches its own errors so diagnostics never create a second failure.
+Top-level Flutter and platform error hooks write a bounded, newest-first JSON
+array to the app-private `akshi_crash_logs.json` file. The file is independent
+of SQLite, so a database failure does not remove the diagnostics path. Writes
+use a temporary sibling file and rename, and retention is capped at 50
+entries. The store catches its own errors so diagnostics never create a second
+failure.
 
-Crash capture records the exception type, message, stack trace, context, timestamp, and platform version. The platform handler returns `false`, preserving normal unhandled-error behavior; logging is observational, not a crash-recovery mechanism. Users can inspect, copy, or delete individual reports from Settings. No report is uploaded automatically.
+Crash capture records the exception type, message, stack trace, context,
+timestamp, and platform version. The platform handler returns `false`,
+preserving normal unhandled-error behavior; logging is observational, not a
+crash-recovery mechanism. Users can inspect, copy, or delete individual
+reports from Settings. No report is uploaded automatically.
 
-Tests must cover malformed JSON, retention trimming, deletion, storage failure boundaries, and the distinction between a saved monitor with unavailable checks and a failed database transaction.
-
+Tests for this subsystem should cover malformed JSON, retention trimming,
+deletion, storage-failure boundaries, and the distinction between a saved
+monitor with unavailable checks and a failed database transaction.
 
 ## Runtime logging
 
@@ -388,7 +463,4 @@ types. Responses, DNS/TLS contents, certificate fingerprints, labels, DKIM
 selectors, arbitrary textbox text, URLs with query data, and raw exception
 messages are never passed to the logger. Caught errors are emitted with a
 sanitized error type plus stack trace; the user-facing classifier remains the
-source of messages shown in the UI. Dart permits any non-null object to be
-thrown, so operational boundaries use plain `catch (error, stackTrace)` rather
-than `on Object` or `on Exception`: this catches both ordinary exceptions and
-runtime `Error` values without pretending they share a Java-style hierarchy.
+source of messages shown in the UI.

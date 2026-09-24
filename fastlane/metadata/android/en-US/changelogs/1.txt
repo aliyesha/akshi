@@ -1,0 +1,4 @@
+Initial release with local-first domain registration, TLS certificate, DNS,
+and email-configuration checks. Includes consolidated expiry reminders,
+focused attention navigation, tags, website icons, local diagnostics, and
+light and dark themes. No account, analytics, advertising, or Akshi server.

@@ -8,7 +8,9 @@ expiry reminders on the device.
 The name comes from Sanskrit **akṣi** (अक्षि), meaning **eye**: the app keeps a
 quiet eye on renewal dates and directs attention only when action is useful.
 
-The product guide is available in [app_usage.md](app_usage.md).
+Read the [product guide](app_usage.md), [privacy policy](PRIVACY.md),
+[developer guide](developer.md), [changelog](CHANGELOG.md), and
+[third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Technical principles
 
@@ -27,8 +29,8 @@ The product guide is available in [app_usage.md](app_usage.md).
   decoded if necessary, and cached locally.
 - Checks run at launch, foreground resume, manual refresh, and after endpoint
   changes. Akshi does not perform hidden background network scans.
-- Local notifications are rebuilt from the latest stored results whenever a
-  check or reminder setting changes.
+- Local expiry alarms are incrementally reconciled with the latest stored
+  results whenever a check or reminder setting can change the desired plan.
 
 ## Design rationale
 
@@ -76,7 +78,8 @@ flutter test
 
 Unit tests cover hostname normalization, expiry boundaries, status precedence,
 settings behavior, persistence mapping, DNS record decoding, mail-policy parsing,
-and daily reminder aggregation.
+daily reminder aggregation, native resource contracts, backup exclusion, and
+release-signing safeguards.
 
 ## Domain assets and checks
 
@@ -124,22 +127,21 @@ test/                        pure domain and persistence unit tests
 `MonitorEntry` stores independent registration, certificate, Email posture,
 and DNS snapshot data. The monitor route is a compact overview; Domain, TLS,
 Email, and DNS use focused child routes rather than tabs or one growing page.
-`NotificationService` owns device permission and scheduling. Reminder grouping
-is implemented as pure domain logic in `reminder_digest.dart`, keeping the
-notification policy deterministic and independently testable.
+`NotificationService` is the thin platform scheduling adapter. Reminder
+planning and date grouping live in `features/reminders/domain/expiry_alarm.dart`,
+while the incremental reconciler verifies pending requests. A local Reminder
+Ledger records computed, platform-accepted, and pending-verified proof without
+claiming operating-system delivery.
 
 ## Reminder policy
 
 The user selects two early-warning offsets; a final one-day offset is always
 included. Events sharing a local calendar date are combined into one scheduled
 notification. A hostname appears only once even when both its domain and
-certificate trigger on that date. The preview names the affected component,
-such as `example.com · TLS certificate` or
-`example.com · domain + TLS certificate`, and then reports any remaining count.
-
-Changes discovered by a multi-site refresh are also emitted as one summary.
-Both scheduled expiry alerts and immediate change alerts deduplicate by
-hostname and use the same three-name preview policy.
+certificate trigger on that date. The preview names the affected component and
+timing, such as `example.com · TLS certificate expires in 10 days` or
+`example.com · domain + TLS certificate expire in 5 days`, and then reports
+any remaining count. Ordinary state changes do not trigger notifications.
 
 Akshi schedules only the earliest 60 daily digests. This stays within practical
 mobile notification limits; opening the app recalculates the schedule and rolls
@@ -149,7 +151,9 @@ the window forward.
 
 Akshi has no central server. It sends no monitor list, results, telemetry, or
 account data to aliyesha.com or to an Akshi-operated service. Stored data remains
-in the application's local SQLite database.
+in the application's local SQLite database. Android and iOS backup exclusion is
+enabled so ordinary device and cloud backups do not copy Akshi's private data.
+See [PRIVACY.md](PRIVACY.md) for the complete policy and platform limitations.
 
 The app makes only these task-specific network requests while it is active:
 
@@ -183,3 +187,27 @@ ownership and does not scrape legacy WHOIS data to fill gaps. A failed refresh
 records whether the device is offline, a lookup timed out, DNS failed, or the
 source returned unusable data. Akshi keeps the previous successful values and
 labels them as saved results instead of erasing them or presenting them as fresh.
+
+## Privacy, licensing, and support
+
+Akshi is free and open-source software licensed under
+[GPL-3.0-or-later](LICENSE). Copyright © 2026 aliyesha.com (Aliyesha).
+Project-owned launcher and notification artwork is released under the same
+license. Bundled and linked components retain the licenses documented in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The complete privacy policy is available in [PRIVACY.md](PRIVACY.md). Privacy
+and support questions may be sent to
+[ops@aliyeshamail.com](mailto:ops@aliyeshamail.com).
+
+Release history is recorded in [CHANGELOG.md](CHANGELOG.md). Developer
+architecture, testing, and contribution guidance is maintained in
+[developer.md](developer.md).
+
+## F-Droid preparation
+
+Fastlane-compatible listing text and release notes live under `fastlane/`.
+The draft F-Droid build recipe under `fdroid/` pins the Flutter revision
+recorded by this project. Before submission, the public source repository,
+release tag, icon, screenshots, dependency scan, and isolated F-Droid build
+must all be verified as described in [fdroid/README.md](fdroid/README.md).
