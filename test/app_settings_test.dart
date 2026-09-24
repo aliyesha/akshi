@@ -5,6 +5,7 @@ void main() {
   test('defaults match the product reminder policy', () {
     const settings = AppSettings();
 
+    expect(settings.remindersEnabled, isFalse);
     expect(settings.firstWarningDays, 10);
     expect(settings.secondWarningDays, 5);
     expect(settings.notificationHour, 9);
@@ -18,12 +19,43 @@ void main() {
       secondWarningDays: 7,
       notificationHour: 18,
       themeMode: AkshiThemeMode.dark,
+      remindersEnabled: true,
     );
 
+    expect(updated.remindersEnabled, isTrue);
     expect(updated.firstWarningDays, 10);
     expect(updated.secondWarningDays, 7);
     expect(updated.notificationHour, 18);
     expect(updated.notificationMinute, 0);
     expect(updated.themeMode, AkshiThemeMode.dark);
+  });
+
+  test('schedule equality ignores appearance but detects alarm inputs', () {
+    const original = AppSettings();
+
+    expect(
+      original.hasSameReminderSchedule(
+        original.copyWith(themeMode: AkshiThemeMode.dark),
+      ),
+      isTrue,
+    );
+    expect(
+      original.hasSameReminderSchedule(
+        original.copyWith(firstWarningDays: 30),
+      ),
+      isFalse,
+    );
+    expect(
+      original.hasSameReminderSchedule(
+        original.copyWith(notificationMinute: 15),
+      ),
+      isFalse,
+    );
+    expect(
+      original.hasSameReminderSchedule(
+        original.copyWith(remindersEnabled: true),
+      ),
+      isFalse,
+    );
   });
 }

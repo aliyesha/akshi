@@ -11,91 +11,123 @@ class AppDatabase {
   /// Opens the database lazily and returns the cached connection thereafter.
   ///
   /// Lazy initialization keeps app startup light while preserving one shared
-  /// connection for monitor and tag repositories.
+  /// connection for monitor, tag, and reminder-ledger repositories.
   Future<Database> get instance async {
     final current = _database;
     if (current != null) return current;
     final root = await getDatabasesPath();
     return _database = await openDatabase(
-      p.join(root, 'akshi_data.db'),
+      p.join(root, 'akshi.db'),
       version: 1,
       onConfigure: (database) async {
         await database.execute('PRAGMA foreign_keys = ON');
       },
-      onCreate: (database, version) async {
-        await database.execute('''
-          CREATE TABLE monitors (
-            id TEXT PRIMARY KEY,
-            hostname TEXT NOT NULL,
-            tls_hostname TEXT NOT NULL,
-            tls_port INTEGER NOT NULL,
-            checks_certificate INTEGER NOT NULL DEFAULT 0,
-            checks_email INTEGER NOT NULL DEFAULT 0,
-            label TEXT,
-            enabled INTEGER NOT NULL DEFAULT 1,
-            mail_sends INTEGER NOT NULL DEFAULT 1,
-            mail_receives INTEGER NOT NULL DEFAULT 1,
-            dkim_selectors_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            domain_expires_at TEXT,
-            domain_registered_at TEXT,
-            domain_updated_at TEXT,
-            domain_registrar TEXT,
-            domain_public_registrant TEXT,
-            domain_nameservers_json TEXT NOT NULL,
-            certificate_expires_at TEXT,
-            certificate_valid_from TEXT,
-            last_checked_at TEXT,
-            domain_source TEXT,
-            certificate_issuer TEXT,
-            certificate_subject TEXT,
-            certificate_fingerprint TEXT,
-            previous_certificate_fingerprint TEXT,
-            tls_trusted INTEGER,
-            domain_error TEXT,
-            certificate_error TEXT,
-            domain_activity_json TEXT NOT NULL,
-            certificate_activity_json TEXT NOT NULL,
-            email_activity_json TEXT NOT NULL,
-            certificate_hostname_matches INTEGER,
-            certificate_sans_json TEXT NOT NULL,
-            certificate_serial_number TEXT,
-            certificate_signature_algorithm TEXT,
-            certificate_public_key_algorithm TEXT,
-            certificate_public_key_details TEXT,
-            email_posture_json TEXT,
-            dns_snapshot_json TEXT,
-            site_icon_format TEXT,
-            site_icon_bytes BLOB,
-            site_icon_source_url TEXT,
-            site_icon_checked_at TEXT
-          )
-        ''');
-        await database.execute(
-          'CREATE UNIQUE INDEX monitor_domain ON monitors(hostname)',
-        );
-        await database.execute('''
-          CREATE TABLE tags (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-            color_argb INTEGER NOT NULL,
-            created_at TEXT NOT NULL
-          )
-        ''');
-        await database.execute('''
-          CREATE TABLE monitor_tags (
-            monitor_id TEXT NOT NULL,
-            tag_id TEXT NOT NULL,
-            PRIMARY KEY (monitor_id, tag_id),
-            FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
-            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-          )
-        ''');
-        await database.execute(
-          'CREATE INDEX monitor_tags_tag ON monitor_tags(tag_id)',
-        );
-      },
+      onCreate: (database, version) => _createSchema(database),
+    );
+  }
+
+  Future<void> _createSchema(Database database) async {
+    await database.execute('''
+      CREATE TABLE monitors (
+        id TEXT PRIMARY KEY,
+        hostname TEXT NOT NULL,
+        tls_hostname TEXT NOT NULL,
+        tls_port INTEGER NOT NULL,
+        checks_certificate INTEGER NOT NULL DEFAULT 0,
+        checks_email INTEGER NOT NULL DEFAULT 0,
+        label TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        mail_sends INTEGER NOT NULL DEFAULT 1,
+        mail_receives INTEGER NOT NULL DEFAULT 1,
+        dkim_selectors_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        domain_expires_at TEXT,
+        domain_registered_at TEXT,
+        domain_updated_at TEXT,
+        domain_registrar TEXT,
+        domain_public_registrant TEXT,
+        domain_nameservers_json TEXT NOT NULL,
+        certificate_expires_at TEXT,
+        certificate_valid_from TEXT,
+        last_checked_at TEXT,
+        domain_source TEXT,
+        certificate_issuer TEXT,
+        certificate_subject TEXT,
+        certificate_fingerprint TEXT,
+        previous_certificate_fingerprint TEXT,
+        tls_trusted INTEGER,
+        domain_error TEXT,
+        certificate_error TEXT,
+        domain_activity_json TEXT NOT NULL,
+        certificate_activity_json TEXT NOT NULL,
+        email_activity_json TEXT NOT NULL,
+        certificate_hostname_matches INTEGER,
+        certificate_sans_json TEXT NOT NULL,
+        certificate_serial_number TEXT,
+        certificate_signature_algorithm TEXT,
+        certificate_public_key_algorithm TEXT,
+        certificate_public_key_details TEXT,
+        email_posture_json TEXT,
+        dns_snapshot_json TEXT,
+        site_icon_format TEXT,
+        site_icon_bytes BLOB,
+        site_icon_source_url TEXT,
+        site_icon_checked_at TEXT
+      )
+    ''');
+    await database.execute(
+      'CREATE UNIQUE INDEX monitor_domain ON monitors(hostname)',
+    );
+    await database.execute('''
+      CREATE TABLE tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        color_argb INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await database.execute('''
+      CREATE TABLE monitor_tags (
+        monitor_id TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        PRIMARY KEY (monitor_id, tag_id),
+        FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      )
+    ''');
+    await database.execute(
+      'CREATE INDEX monitor_tags_tag ON monitor_tags(tag_id)',
+    );
+    await database.execute('''
+      CREATE TABLE alarm_audit (
+        audit_key TEXT PRIMARY KEY,
+        alarm_date TEXT NOT NULL,
+        notification_id INTEGER NOT NULL,
+        revision TEXT NOT NULL,
+        scheduled_utc TEXT NOT NULL,
+        time_zone_id TEXT NOT NULL,
+        requested_time TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        monitor_count INTEGER NOT NULL,
+        reason_count INTEGER NOT NULL,
+        domain_reason_count INTEGER NOT NULL,
+        tls_reason_count INTEGER NOT NULL,
+        computed_at TEXT NOT NULL,
+        submitted_at TEXT,
+        verified_at TEXT,
+        cancelled_at TEXT,
+        failed_at TEXT,
+        error_category TEXT,
+        platform TEXT NOT NULL,
+        os_version TEXT NOT NULL
+      )
+    ''');
+    await database.execute(
+      'CREATE INDEX alarm_audit_date ON alarm_audit(alarm_date DESC)',
+    );
+    await database.execute(
+      'CREATE INDEX alarm_audit_computed ON alarm_audit(computed_at DESC)',
     );
   }
 }
