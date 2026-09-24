@@ -1,3 +1,5 @@
+import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/services/external_link_service.dart';
 import 'package:akshi/core/widgets/akshi_mark.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 import 'package:go_router/go_router.dart';
@@ -63,18 +65,57 @@ class AboutScreen extends StatelessWidget {
                 'and operators who want renewal awareness without another '
                 'service to deploy, secure, pay for, and maintain.',
           ),
+          const SizedBox(height: 12),
+          const _AboutCard(
+            icon: PhosphorIconsDuotone.shieldCheck,
+            title: 'Privacy and support',
+            body:
+                'Akshi does not send monitor data or diagnostics to Aliyesha. '
+                'For privacy or support questions, contact '
+                'ops@aliyeshamail.com.',
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => showLicensePage(
+              context: context,
+              applicationName: 'Akshi',
+              applicationLegalese:
+                  'Copyright © 2026 aliyesha.com (Aliyesha)\n'
+                  'Licensed under GPL-3.0-or-later',
+            ),
+            icon: const PhosphorIcon(PhosphorIconsRegular.scales),
+            label: const Text('Open-source licenses'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
+          ),
           const SizedBox(height: 22),
-          Text(
-            'An aliyesha.com project',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          TextButton.icon(
+            onPressed: () => _openAliyeshaWebsite(context),
+            icon: const PhosphorIcon(PhosphorIconsRegular.globe, size: 18),
+            label: const Text('An aliyesha.com project'),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
       ),
     ),
   );
+}
+
+Future<void> _openAliyeshaWebsite(BuildContext context) async {
+  try {
+    await ExternalLinkService.openHttps(Uri.parse('https://aliyesha.com'));
+  } catch (error, stackTrace) {
+    appLogger.error('ui.about.external_link.failed', error, stackTrace);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not open aliyesha.com on this device.'),
+      ),
+    );
+  }
 }
 
 class _AboutCard extends StatelessWidget {

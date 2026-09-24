@@ -5,6 +5,8 @@ import 'package:akshi/features/monitors/presentation/monitor_detail_screen.dart'
 import 'package:akshi/features/monitors/presentation/monitor_dns_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_overview_screen.dart';
 import 'package:akshi/features/monitors/presentation/monitor_form_screen.dart';
+import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
+import 'package:akshi/features/reminders/presentation/reminder_ledger_screen.dart';
 import 'package:akshi/features/settings/presentation/crash_logs_screen.dart';
 import 'package:akshi/features/settings/presentation/about_screen.dart';
 import 'package:akshi/features/settings/presentation/settings_screen.dart';
@@ -23,6 +25,7 @@ final appRouter = GoRouter(
       path: '/attention',
       builder: (context, state) => AttentionScreen(
         source: state.uri.queryParameters['source'] ?? 'current',
+        alarmDate: state.uri.queryParameters['date'],
         monitorIds:
             state.uri.queryParameters['ids']
                 ?.split(',')
@@ -84,6 +87,18 @@ final appRouter = GoRouter(
         GoRoute(
           path: 'crash-logs',
           builder: (context, state) => const CrashLogsScreen(),
+        ),
+        GoRoute(
+          path: 'reminder-ledger',
+          builder: (context, state) => const ReminderLedgerScreen(),
+          routes: <RouteBase>[
+            GoRoute(
+              path: ':date',
+              builder: (context, state) => ReminderLedgerDetailScreen(
+                date: AlarmDate.parse(state.pathParameters['date']!),
+              ),
+            ),
+          ],
         ),
         GoRoute(
           path: 'about',
