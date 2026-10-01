@@ -1,5 +1,6 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/crash/crash_log.dart';
+import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -87,7 +88,7 @@ class _CrashLogTile extends StatelessWidget {
     child: ExpansionTile(
       leading: const PhosphorIcon(PhosphorIconsDuotone.warningCircle),
       title: Text(log.errorType),
-      subtitle: Text('${log.occurredAt.toLocal()} · ${log.context}'),
+      subtitle: Text('${formatLocalDateTime(log.occurredAt)} · ${log.context}'),
       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       children: <Widget>[
         SelectableText(log.message),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:akshi/core/crash/crash_log.dart';
 import 'package:akshi/core/crash/crash_log_store.dart';
 import 'package:akshi/core/services/async_concurrency_gate.dart';
@@ -25,7 +27,11 @@ final checkConcurrencyGateProvider = Provider<AsyncConcurrencyGate>(
 );
 
 /// Local database shared by repositories through Riverpod.
-final databaseProvider = Provider<AppDatabase>((ref) => AppDatabase());
+final databaseProvider = Provider<AppDatabase>((ref) {
+  final database = AppDatabase();
+  ref.onDispose(database.dispose);
+  return database;
+});
 
 final monitorRepositoryProvider = Provider<MonitorRepository>(
   (ref) => MonitorRepository(ref.watch(databaseProvider)),
@@ -54,18 +60,18 @@ final checkFailureClassifierProvider = Provider<CheckFailureClassifier>(
 );
 
 final dnsSnapshotServiceProvider = Provider<DnsSnapshotService>(
-  (ref) => DnsSnapshotService(
-    gate: ref.watch(checkConcurrencyGateProvider),
-  ),
+  (ref) => DnsSnapshotService(gate: ref.watch(checkConcurrencyGateProvider)),
 );
 
 final emailPostureServiceProvider = Provider<EmailPostureService>(
   (ref) => EmailPostureService(),
 );
 
-final notificationServiceProvider = Provider<NotificationService>(
-  (ref) => NotificationService(),
-);
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  final service = NotificationService();
+  ref.onDispose(() => unawaited(service.dispose()));
+  return service;
+});
 
 final alarmAuditRepositoryProvider = Provider<AlarmAuditRepository>(
   (ref) => AlarmAuditRepository(ref.watch(databaseProvider)),

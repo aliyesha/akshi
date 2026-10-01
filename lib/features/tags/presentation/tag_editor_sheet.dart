@@ -15,14 +15,12 @@ Future<TagDraft?> showTagEditor(
   BuildContext context, {
   MonitorTag? tag,
   int? currentCount,
-}) =>
-    showModalBottomSheet<TagDraft>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) =>
-          _TagEditorSheet(tag: tag, currentCount: currentCount),
-    );
+}) => showModalBottomSheet<TagDraft>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  builder: (context) => _TagEditorSheet(tag: tag, currentCount: currentCount),
+);
 
 class _TagEditorSheet extends StatefulWidget {
   const _TagEditorSheet({this.tag, this.currentCount});
@@ -91,7 +89,8 @@ class _TagEditorSheetState extends State<_TagEditorSheet> {
                 widget.tag == null ? 'Create tag' : 'Edit tag',
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
-              if (widget.tag == null && widget.currentCount != null) ...<Widget>[
+              if (widget.tag == null &&
+                  widget.currentCount != null) ...<Widget>[
                 const SizedBox(height: 6),
                 Text(
                   '${widget.currentCount} of ${TagPolicy.maxCount} used · '

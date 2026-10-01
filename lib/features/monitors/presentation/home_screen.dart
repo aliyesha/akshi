@@ -9,6 +9,7 @@ import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
@@ -30,7 +31,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _searchController = TextEditingController();
   var _query = '';
   String? _selectedTagId;
-  var _refreshing = false;
 
   @override
   void dispose() {
@@ -41,22 +41,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final monitors = ref.watch(monitorControllerProvider);
+    final refresh = ref.watch(monitorRefreshProvider);
     final settings =
-        ref.watch(settingsControllerProvider).value ?? const AppSettings();
+        ref.watch(settingsControllerProvider).value ?? AppSettings();
     return Scaffold(
       floatingActionButton: FloatingActionButton(
         tooltip: 'Add monitor',
-        onPressed: () => context.push('/monitor/new'),
+        onPressed: refresh.isRunning
+            ? null
+            : () => context.push('/monitor/new'),
         child: const PhosphorIcon(PhosphorIconsRegular.plus),
       ),
       body: SafeArea(
         bottom: false,
         child: monitors.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, stack) => AsyncErrorView(
-            error: error,
-            onRetry: () => ref.invalidate(monitorControllerProvider),
-          ),
+          error: (error, stack) {
+            appLogger.error('ui.home.load.failed', error, stack);
+            return AsyncErrorView(
+              onRetry: () => ref.invalidate(monitorControllerProvider),
+            );
+          },
           data: (items) {
             final tags = _availableTags(items);
             final offline = items.any(_hasOfflineFailure);
@@ -112,13 +117,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     actions: <Widget>[
                       IconButton(
-                        tooltip: _refreshing ? 'Refreshing…' : 'Refresh all',
-                        onPressed: items.isEmpty || _refreshing
+                        tooltip: refresh.isRunning
+                            ? 'Refreshing…'
+                            : 'Refresh all',
+                        onPressed: items.isEmpty || refresh.isRunning
                             ? null
                             : () => _refreshAll(),
                         icon: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 180),
-                          child: _refreshing
+                          child: refresh.isRunning
                               ? const SizedBox.square(
                                   key: ValueKey<String>('refresh-progress'),
                                   dimension: 20,
@@ -142,6 +149,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(width: 8),
                     ],
                   ),
+                  if (refresh.shouldShowStatus)
+                    const SliverPadding(
+                      padding: EdgeInsets.fromLTRB(18, 12, 18, 0),
+                      sliver: SliverToBoxAdapter(child: MonitorRefreshBanner()),
+                    ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
                     sliver: SliverToBoxAdapter(
@@ -168,8 +180,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               PhosphorIconsDuotone.magnifyingGlass,
                             ),
                           ),
-                          trailing:
-                              _query.isEmpty && _selectedTagId == null
+                          trailing: _query.isEmpty && _selectedTagId == null
                               ? null
                               : <Widget>[
                                   IconButton(
@@ -269,12 +280,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _refreshAll({bool announce = true}) async {
     final controller = ref.read(monitorControllerProvider.notifier);
-    if (_refreshing) {
-      await controller.refreshAll();
-      return;
-    }
-
-    setState(() => _refreshing = true);
     final enabledCount =
         (ref.read(monitorControllerProvider).value ?? const <MonitorEntry>[])
             .where((monitor) => monitor.enabled)
@@ -303,10 +308,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _refreshing = false);
       }
     }
   }
@@ -479,9 +480,12 @@ class _SwipeableMonitorCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final refresh = ref.watch(monitorRefreshProvider);
     return Dismissible(
       key: ValueKey<String>(monitor.id),
-      direction: DismissDirection.horizontal,
+      direction: refresh.isRunning
+          ? DismissDirection.none
+          : DismissDirection.horizontal,
       dismissThresholds: const <DismissDirection, double>{
         DismissDirection.startToEnd: .35,
         DismissDirection.endToStart: .35,
@@ -551,9 +555,8 @@ class _SwipeableMonitorCard extends ConsumerWidget {
     } catch (error, stackTrace) {
       appLogger.error('ui.home.delete.failed', error, stackTrace);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not delete monitor: $error')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
       }
     }
     return false;
@@ -714,7 +717,7 @@ class _MonitorCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    _freshness(monitor.lastCheckedAt),
+                    _attemptFreshness(monitor.lastAttemptedAt),
                     style: Theme.of(context).textTheme.labelMedium
                         ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
@@ -833,21 +836,21 @@ bool _hasOfflineFailure(MonitorEntry monitor) {
   return failures.any((failure) => failure.isConnectivityInterruption);
 }
 
-String _freshness(DateTime? date) {
+String _attemptFreshness(DateTime? date) {
   if (date == null) {
-    return 'Never checked';
+    return 'Never attempted';
   }
   final elapsed = DateTime.now().difference(date);
   if (elapsed.inMinutes < 1) {
-    return 'Checked just now';
+    return 'Attempted just now';
   }
   if (elapsed.inHours < 1) {
-    return 'Checked ${elapsed.inMinutes}m ago';
+    return 'Attempted ${elapsed.inMinutes}m ago';
   }
   if (elapsed.inDays < 1) {
-    return 'Checked ${elapsed.inHours}h ago';
+    return 'Attempted ${elapsed.inHours}h ago';
   }
-  return 'Checked ${elapsed.inDays}d ago';
+  return 'Attempted ${elapsed.inDays}d ago';
 }
 
 String _monitorSubtitle(MonitorEntry monitor) {

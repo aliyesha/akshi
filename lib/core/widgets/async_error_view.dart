@@ -2,9 +2,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
 class AsyncErrorView extends StatelessWidget {
-  const AsyncErrorView({required this.error, required this.onRetry, super.key});
+  const AsyncErrorView({required this.onRetry, super.key});
 
-  final Object error;
   final VoidCallback onRetry;
 
   @override
@@ -22,7 +21,7 @@ class AsyncErrorView extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            error.toString(),
+            'Akshi couldn’t load this information. Please try again.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,

@@ -1,5 +1,7 @@
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 import 'package:akshi/features/tags/domain/tag_policy.dart';
@@ -15,10 +17,13 @@ class TagsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tags = ref.watch(tagControllerProvider);
+    final refresh = ref.watch(monitorRefreshProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Tags')),
       floatingActionButton:
-          tags.value != null && TagPolicy.canCreate(tags.value!.length)
+          !refresh.isRunning &&
+              tags.value != null &&
+              TagPolicy.canCreate(tags.value!.length)
           ? FloatingActionButton(
               tooltip: 'Create tag',
               onPressed: () => _create(context, ref, tags.value!.length),
@@ -27,9 +32,19 @@ class TagsScreen extends ConsumerWidget {
           : null,
       body: tags.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(child: Text(error.toString())),
+        error: (error, stack) {
+          appLogger.error('ui.tags.load.failed', error, stack);
+          return AsyncErrorView(
+            onRetry: () => ref.invalidate(tagControllerProvider),
+          );
+        },
         data: (items) => Column(
           children: <Widget>[
+            if (refresh.shouldShowStatus)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(18, 8, 18, 0),
+                child: MonitorRefreshBanner(),
+              ),
             _TagCapacity(count: items.length),
             Expanded(
               child: items.isEmpty
@@ -56,6 +71,7 @@ class TagsScreen extends ConsumerWidget {
                               child: TagPill(tag: tag),
                             ),
                             trailing: PopupMenuButton<String>(
+                              enabled: !refresh.isRunning,
                               onSelected: (action) => action == 'edit'
                                   ? _edit(context, ref, tag)
                                   : _delete(context, ref, tag),
@@ -87,10 +103,7 @@ class TagsScreen extends ConsumerWidget {
     WidgetRef ref,
     int currentCount,
   ) async {
-    final draft = await showTagEditor(
-      context,
-      currentCount: currentCount,
-    );
+    final draft = await showTagEditor(context, currentCount: currentCount);
     if (draft == null || !context.mounted) return;
     try {
       await ref
@@ -115,7 +128,6 @@ class TagsScreen extends ConsumerWidget {
           .updateTag(
             tag.copyWith(name: draft.name, colorArgb: draft.colorArgb),
           );
-      ref.invalidate(monitorControllerProvider);
     } catch (error, stackTrace) {
       appLogger.error('ui.tags.update.failed', error, stackTrace);
       if (context.mounted) _showError(context, error);
@@ -147,20 +159,26 @@ class TagsScreen extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(tagControllerProvider.notifier).delete(tag.id);
-    ref.invalidate(monitorControllerProvider);
+    try {
+      await ref.read(tagControllerProvider.notifier).delete(tag.id);
+    } catch (error, stackTrace) {
+      appLogger.error('ui.tags.delete.failed', error, stackTrace);
+      if (context.mounted) _showError(context, error);
+    }
   }
 
   void _showError(BuildContext context, Object error) {
     final message = switch (error) {
-      TagLimitReachedException() => error.toString(),
+      MonitorRefreshInProgressException() =>
+        'Wait for the monitor refresh to finish.',
+      TagLimitReachedException() =>
+        'You already have ${TagPolicy.maxCount} tags. Delete one before creating another.',
       _ when error.toString().contains('UNIQUE constraint failed') =>
         'A tag with that name already exists.',
-      _ => error.toString(),
+      _ => 'Akshi could not update tags on this device. Please try again.',
     };
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -187,9 +205,7 @@ class _TagCapacity extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           PhosphorIcon(
-            atLimit
-                ? PhosphorIconsDuotone.info
-                : PhosphorIconsDuotone.tag,
+            atLimit ? PhosphorIconsDuotone.info : PhosphorIconsDuotone.tag,
             color: atLimit ? scheme.onTertiaryContainer : scheme.primary,
           ),
           const SizedBox(width: 11),

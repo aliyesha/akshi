@@ -5,6 +5,7 @@ import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/tls_endpoint.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 import 'package:akshi/features/tags/domain/tag_policy.dart';
@@ -17,9 +18,15 @@ import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
 class MonitorFormScreen extends ConsumerStatefulWidget {
-  const MonitorFormScreen({this.monitorId, super.key});
+  const MonitorFormScreen.create({super.key})
+    : isEditing = false,
+      monitorId = '';
 
-  final String? monitorId;
+  const MonitorFormScreen.edit({required this.monitorId, super.key})
+    : isEditing = true;
+
+  final bool isEditing;
+  final String monitorId;
 
   @override
   ConsumerState<MonitorFormScreen> createState() => _MonitorFormScreenState();
@@ -55,12 +62,34 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final items =
-        ref.watch(monitorControllerProvider).value ?? const <MonitorEntry>[];
+    final monitors = ref.watch(monitorControllerProvider);
+    late final List<MonitorEntry> items;
+    if (widget.isEditing) {
+      switch (monitors) {
+        case AsyncData(:final value):
+          items = value;
+        case AsyncError():
+          return _MonitorLoadFailure(
+            error: 'Akshi could not load saved monitors from this device. Please try again.',
+            onRetry: () => ref.invalidate(monitorControllerProvider),
+          );
+        case _:
+          return const _MonitorFormLoading();
+      }
+    } else {
+      items = switch (monitors) {
+        AsyncData(:final value) => value,
+        _ => const <MonitorEntry>[],
+      };
+    }
     final tags = ref.watch(tagControllerProvider).value ?? const <MonitorTag>[];
+    final refresh = ref.watch(monitorRefreshProvider);
     final atTagLimit = !TagPolicy.canCreate(tags.length);
-    final editing = widget.monitorId != null;
-    final original = editing ? _find(items, widget.monitorId!) : null;
+    final editing = widget.isEditing;
+    final original = editing ? _find(items, widget.monitorId) : null;
+    if (editing && original == null) {
+      return const _MonitorNotFound();
+    }
     if (!_initialized && (!editing || original != null)) {
       _initialized = true;
       if (original != null) {
@@ -91,6 +120,10 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
             children: <Widget>[
+              if (refresh.shouldShowStatus) ...<Widget>[
+                const MonitorRefreshBanner(),
+                const SizedBox(height: 14),
+              ],
               _Intro(editing: editing),
               const SizedBox(height: 22),
               _FormPanel(
@@ -122,7 +155,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                     maxLength: 48,
                     decoration: const InputDecoration(
                       labelText: 'Name (optional)',
-                      hintText: 'Production mail',
+                      hintText: 'Production Website',
                       helperText: 'A friendly name shown prominently; the domain stays visible.',
                       helperMaxLines: 2,
                       prefixIcon: PhosphorIcon(
@@ -219,7 +252,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                 _FormPanel(
                   icon: PhosphorIconsDuotone.envelopeSimple,
                   title: 'Email configuration',
-                  subtitle: 'Inspect only the public mail records you use.',
+                  subtitle: 'Standard mail records are found automatically.',
                   children: <Widget>[
                     const _EmailCheckNote(),
                     const SizedBox(height: 12),
@@ -231,28 +264,28 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                       onReceivesChanged: (value) =>
                           setState(() => _mailReceives = value),
                     ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: _dkimSelectors,
-                      decoration: const InputDecoration(
-                        labelText: 'DKIM selectors',
-                        hintText: 'Optional · selector1, selector2',
-                        helperText: 'Provider-specific names that cannot be discovered reliably.',
-                        helperMaxLines: 2,
-                        prefixIcon: PhosphorIcon(PhosphorIconsDuotone.key),
+                    if (_mailSends) ...<Widget>[
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: _dkimSelectors,
+                        decoration: const InputDecoration(
+                          labelText: 'DKIM selector names (optional)',
+                          hintText: 'google, selector1, selector2',
+                          helperText: 'Leave blank if unsure. For selector1._domainkey.example.com, enter selector1.',
+                          helperMaxLines: 3,
+                          prefixIcon: PhosphorIcon(PhosphorIconsDuotone.key),
+                        ),
+                        autocorrect: false,
+                        validator: (value) {
+                          final selectors = _parseSelectors(value ?? '');
+                          return selectors.any(
+                                (selector) => !_isValidDkimSelector(selector),
+                              )
+                              ? 'Use DNS names containing letters, numbers, hyphens, and optional dots'
+                              : null;
+                        },
                       ),
-                      autocorrect: false,
-                      validator: (value) {
-                        final selectors = _parseSelectors(value ?? '');
-                        return selectors.any(
-                              (selector) =>
-                                  !RegExp(r'^[a-zA-Z0-9_-]{1,63}$')
-                                      .hasMatch(selector),
-                            )
-                            ? 'Use letters, numbers, hyphens, and underscores'
-                            : null;
-                      },
-                    ),
+                    ],
                   ],
                 ),
               ],
@@ -279,9 +312,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .tertiaryContainer
+                        color: Theme.of(context).colorScheme.tertiaryContainer
                             .withValues(alpha: .62),
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -353,7 +384,9 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
               ],
               const SizedBox(height: 26),
               FilledButton.icon(
-                onPressed: _saving ? null : () => _save(original),
+                onPressed: _saving || refresh.isRunning
+                    ? null
+                    : () => _save(original),
                 icon: _saving
                     ? const SizedBox.square(
                         dimension: 18,
@@ -422,14 +455,15 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       if (!mounted) {
         return;
       }
-      final duplicate = error.toString().contains('UNIQUE constraint failed');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            duplicate ? 'A tag with that name already exists.' : '$error',
-          ),
-        ),
-      );
+      final message = switch (error) {
+        MonitorRefreshInProgressException() =>
+          'Wait for the monitor refresh to finish.',
+        _ when error.toString().contains('UNIQUE constraint failed') =>
+          'A tag with that name already exists.',
+        _ => userFacingError(error),
+      };
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -449,7 +483,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Choose sending, receiving, or both for this Email domain.',
+            'Choose whether this domain sends email, receives email, or both.',
           ),
         ),
       );
@@ -471,7 +505,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       final tlsPort = _checksCertificate
           ? requireValidTlsPort(int.parse(_port.text))
           : 443;
-      if (original == null) {
+      if (!widget.isEditing) {
         saved = await controller.add(
           hostname: hostname,
           tlsHostname: tlsHostname,
@@ -490,6 +524,9 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
           },
         );
       } else {
+        if (original == null || original.id != widget.monitorId) {
+          throw StateError('Monitor no longer exists');
+        }
         saved = await controller.updateMonitor(
           original.copyWith(
             hostname: hostname,
@@ -535,6 +572,158 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
   }
 
   String _friendlyError(Object error) => userFacingError(error);
+}
+
+class _MonitorFormLoading extends StatelessWidget {
+  const _MonitorFormLoading();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      leading: _backButton(context),
+      title: const Text('Edit monitor'),
+    ),
+    body: SafeArea(
+      child: Center(
+        child: Semantics(
+          label: 'Loading monitor',
+          child: const CircularProgressIndicator(),
+        ),
+      ),
+    ),
+  );
+}
+
+class _MonitorNotFound extends StatelessWidget {
+  const _MonitorNotFound();
+
+  @override
+  Widget build(BuildContext context) => _MonitorRouteMessage(
+    icon: PhosphorIconsDuotone.magnifyingGlass,
+    title: 'Monitor not found',
+    message: 'This monitor may have been deleted or is no longer available on this device.',
+    primaryLabel: 'Back to monitors',
+    primaryIcon: PhosphorIconsDuotone.caretLeft,
+    onPrimary: () => context.go('/'),
+  );
+}
+
+class _MonitorLoadFailure extends StatelessWidget {
+  const _MonitorLoadFailure({required this.error, required this.onRetry});
+
+  final String error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => _MonitorRouteMessage(
+    icon: PhosphorIconsDuotone.warningCircle,
+    title: 'Couldn’t load monitor',
+    message: error,
+    primaryLabel: 'Try again',
+    primaryIcon: PhosphorIconsRegular.arrowsClockwise,
+    onPrimary: onRetry,
+    secondaryLabel: 'Back to monitors',
+    onSecondary: () => context.go('/'),
+  );
+}
+
+class _MonitorRouteMessage extends StatelessWidget {
+  const _MonitorRouteMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.primaryLabel,
+    required this.primaryIcon,
+    required this.onPrimary,
+    this.secondaryLabel,
+    this.onSecondary,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String primaryLabel;
+  final IconData primaryIcon;
+  final VoidCallback onPrimary;
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        leading: _backButton(context),
+        title: const Text('Edit monitor'),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow,
+                  border: Border.all(color: scheme.outlineVariant),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Container(
+                      width: 64,
+                      height: 64,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: PhosphorIcon(
+                        icon,
+                        size: 34,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: onPrimary,
+                        icon: PhosphorIcon(primaryIcon),
+                        label: Text(primaryLabel),
+                      ),
+                    ),
+                    if (secondaryLabel case final label?) ...<Widget>[
+                      const SizedBox(height: 8),
+                      TextButton(onPressed: onSecondary, child: Text(label)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SaveProgressPanel extends StatelessWidget {
@@ -852,7 +1041,7 @@ class _EmailCheckNote extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Akshi reads public DNS through this device. Receiving checks MX, MTA-STS, and TLS-RPT; sending checks SPF and DMARC. DKIM is checked only for selectors you enter.',
+              'Akshi finds standard mail records automatically. Leave both roles on for a domain that sends and receives email. Only DKIM needs optional selector names from your mail provider. Akshi does not send messages or test delivery.',
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: colors.foreground, height: 1.4),
             ),
@@ -886,14 +1075,20 @@ class _MailDirectionCard extends StatelessWidget {
         SwitchListTile(
           value: sends,
           onChanged: onSendsChanged,
-          title: const Text('This domain sends email'),
+          title: const Text('Sends email from this domain'),
+          subtitle: const Text(
+            'Automatically checks SPF and DMARC. DKIM is checked only for selector names you add below.',
+          ),
           secondary: const PhosphorIcon(PhosphorIconsDuotone.paperPlaneTilt),
         ),
         const Divider(height: 1),
         SwitchListTile(
           value: receives,
           onChanged: onReceivesChanged,
-          title: const Text('This domain receives email'),
+          title: const Text('Receives email at this domain'),
+          subtitle: const Text(
+            'Automatically checks MX, MTA-STS, and TLS reporting records.',
+          ),
           secondary: const PhosphorIcon(PhosphorIconsDuotone.trayArrowDown),
         ),
       ],
@@ -907,3 +1102,13 @@ List<String> _parseSelectors(String value) => value
     .where((selector) => selector.isNotEmpty)
     .toSet()
     .toList(growable: false);
+
+bool _isValidDkimSelector(String selector) =>
+    selector.length <= 253 &&
+    selector
+        .split('.')
+        .every(
+          (label) =>
+              RegExp(r'^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$')
+                  .hasMatch(label),
+        );

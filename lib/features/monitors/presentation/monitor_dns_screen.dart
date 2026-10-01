@@ -5,6 +5,7 @@ import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/monitors/presentation/widgets/monitor_surface.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,11 +23,10 @@ class MonitorDnsScreen extends ConsumerStatefulWidget {
 }
 
 class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
-  var _checking = false;
-
   @override
   Widget build(BuildContext context) {
     final items = ref.watch(monitorControllerProvider);
+    final refresh = ref.watch(monitorRefreshProvider);
     final monitor = _find(items.value ?? const <MonitorEntry>[]);
     if (monitor == null) {
       return Scaffold(
@@ -38,6 +38,11 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         ),
       );
     }
+    final checking = ref.watch(
+      monitorCheckActivityProvider.select(
+        (active) => active.contains(monitor.id),
+      ),
+    );
     final snapshot = monitor.dnsSnapshot;
     final visible =
         snapshot?.queries
@@ -57,8 +62,10 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Check now',
-            onPressed: _checking ? null : () => _refresh(monitor),
-            icon: _checking
+            onPressed: checking || refresh.isRunning
+                ? null
+                : () => _refresh(monitor),
+            icon: checking
                 ? const SizedBox.square(
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
@@ -71,6 +78,10 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
         children: <Widget>[
+          if (refresh.shouldShowStatus) ...<Widget>[
+            const MonitorRefreshBanner(),
+            const SizedBox(height: 14),
+          ],
           Text(monitor.hostname, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 6),
           Text(
@@ -83,7 +94,7 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           if (snapshot != null) ...<Widget>[
             const SizedBox(height: 8),
             Text(
-              'Checked ${_formatDateTime(snapshot.checkedAt)}',
+              'Snapshot captured ${_formatDateTime(snapshot.checkedAt)}',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -91,7 +102,11 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           ],
           const SizedBox(height: 20),
           if (snapshot == null)
-            _EmptyDns(onCheck: () => _refresh(monitor))
+            _EmptyDns(
+              onCheck: checking || refresh.isRunning
+                  ? null
+                  : () => _refresh(monitor),
+            )
           else if (visible.isEmpty)
             const _NoPublishedRecords()
           else
@@ -102,7 +117,8 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           if (snapshot != null && absentCount > 0) ...<Widget>[
             const SizedBox(height: 8),
             Text(
-              '$absentCount requested record ${absentCount == 1 ? 'group was' : 'groups were'} not published.',
+              '$absentCount requested record ${absentCount == 1 ? 'group is' : 'groups are'} '
+              'not published. Missing types are normal and do not affect health.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -121,8 +137,6 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
-    if (_checking) return;
-    setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
     } catch (error, stackTrace) {
@@ -137,8 +151,6 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
       }
-    } finally {
-      if (mounted) setState(() => _checking = false);
     }
   }
 }
@@ -152,13 +164,10 @@ class _QueryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final failed = query.state == DnsQueryState.failed;
+    final info = AkshiTheme.infoSurface(scheme);
     return MonitorSurface(
-      color: failed
-          ? Color.alphaBlend(
-              scheme.error.withValues(alpha: .08),
-              scheme.surfaceContainerLowest,
-            )
-          : scheme.surfaceContainerLowest,
+      color: failed ? info.background : scheme.surfaceContainerLowest,
+      border: failed ? BorderSide(color: info.border) : null,
       child: failed
           ? Padding(
               padding: const EdgeInsets.all(16),
@@ -175,7 +184,8 @@ class _QueryCard extends StatelessWidget {
                         const SizedBox(height: 5),
                         Text(
                           query.error ?? 'This lookup could not be completed.',
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: info.foreground),
                         ),
                       ],
                     ),
@@ -244,7 +254,9 @@ class _DnsTypeIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final foreground = failed ? scheme.error : scheme.primary;
+    final foreground = failed
+        ? AkshiTheme.infoSurface(scheme).accent
+        : scheme.primary;
     return MonitorIconBadge(
       icon: failed ? PhosphorIconsDuotone.cloudSlash : _dnsIcon(type),
       color: foreground,
@@ -253,8 +265,8 @@ class _DnsTypeIcon extends StatelessWidget {
 }
 
 IconData _dnsIcon(DnsRecordType type) => switch (type) {
-  DnsRecordType.a || DnsRecordType.aaaa =>
-    PhosphorIconsDuotone.globeHemisphereWest,
+  DnsRecordType.a ||
+  DnsRecordType.aaaa => PhosphorIconsDuotone.globeHemisphereWest,
   DnsRecordType.mx => PhosphorIconsDuotone.envelopeSimpleOpen,
   DnsRecordType.txt => PhosphorIconsDuotone.listBullets,
   DnsRecordType.caa => PhosphorIconsDuotone.certificate,
@@ -326,7 +338,7 @@ class _RecordRow extends StatelessWidget {
 class _EmptyDns extends StatelessWidget {
   const _EmptyDns({required this.onCheck});
 
-  final VoidCallback onCheck;
+  final VoidCallback? onCheck;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -349,7 +361,9 @@ class _NoPublishedRecords extends StatelessWidget {
   Widget build(BuildContext context) => const Center(
     child: Padding(
       padding: EdgeInsets.symmetric(vertical: 32),
-      child: Text('No requested DNS records were published.'),
+      child: Text(
+        'No requested DNS records were published. This is a valid snapshot.',
+      ),
     ),
   );
 }

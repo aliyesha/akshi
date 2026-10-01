@@ -16,6 +16,130 @@ final monitorControllerProvider =
       MonitorController.new,
     );
 
+/// One process-lifetime view of the active portfolio refresh.
+class MonitorRefreshState {
+  const MonitorRefreshState.idle({this.lastCompletedAt, this.lastFailedAt})
+    : startedAt = null,
+      completed = 0,
+      total = 0;
+
+  const MonitorRefreshState.running({
+    required this.startedAt,
+    required this.completed,
+    required this.total,
+    this.lastCompletedAt,
+    this.lastFailedAt,
+  });
+
+  final DateTime? startedAt;
+  final DateTime? lastCompletedAt;
+  final DateTime? lastFailedAt;
+  final int completed;
+  final int total;
+
+  bool get isRunning => startedAt != null;
+
+  bool get isFinalizing => isRunning && total > 0 && completed >= total;
+
+  bool get hasUnresolvedFailure => !isRunning && lastFailedAt != null;
+
+  bool get shouldShowStatus => isRunning || hasUnresolvedFailure;
+
+  double? get fraction => total == 0 ? null : completed / total;
+
+  bool completedWithin(Duration maximumAge, {DateTime? now}) {
+    final completedAt = lastCompletedAt;
+    if (completedAt == null) return false;
+    final age = (now ?? DateTime.now()).difference(completedAt);
+    return !age.isNegative && age < maximumAge;
+  }
+}
+
+/// Publishes portfolio-refresh progress without replacing the saved monitor list.
+final monitorRefreshProvider =
+    NotifierProvider<MonitorRefreshController, MonitorRefreshState>(
+      MonitorRefreshController.new,
+    );
+
+class MonitorRefreshController extends Notifier<MonitorRefreshState> {
+  int _activeMutations = 0;
+  Completer<void>? _mutationsDrained;
+
+  @override
+  MonitorRefreshState build() => const MonitorRefreshState.idle();
+
+  void start({required int total}) {
+    state = MonitorRefreshState.running(
+      startedAt: DateTime.now(),
+      completed: 0,
+      total: total,
+      lastCompletedAt: state.lastCompletedAt,
+      lastFailedAt: state.lastFailedAt,
+    );
+  }
+
+  void setTotal(int total) {
+    if (!state.isRunning) return;
+    state = MonitorRefreshState.running(
+      startedAt: state.startedAt!,
+      completed: state.completed > total ? total : state.completed,
+      total: total,
+      lastCompletedAt: state.lastCompletedAt,
+      lastFailedAt: state.lastFailedAt,
+    );
+  }
+
+  void advance() {
+    if (!state.isRunning) return;
+    state = MonitorRefreshState.running(
+      startedAt: state.startedAt!,
+      completed: state.completed < state.total
+          ? state.completed + 1
+          : state.total,
+      total: state.total,
+      lastCompletedAt: state.lastCompletedAt,
+      lastFailedAt: state.lastFailedAt,
+    );
+  }
+
+  Future<T> runMutation<T>(Future<T> Function() mutation) async {
+    if (state.isRunning) {
+      throw MonitorRefreshInProgressException();
+    }
+
+    _activeMutations++;
+    try {
+      return await mutation();
+    } finally {
+      _activeMutations--;
+      if (_activeMutations == 0) {
+        final drained = _mutationsDrained;
+        _mutationsDrained = null;
+        drained?.complete();
+      }
+    }
+  }
+
+  Future<void> waitForMutations() {
+    if (_activeMutations == 0) return Future<void>.value();
+    return (_mutationsDrained ??= Completer<void>()).future;
+  }
+
+  void finish({required bool succeeded}) {
+    final finishedAt = DateTime.now();
+    state = MonitorRefreshState.idle(
+      lastCompletedAt: succeeded ? finishedAt : state.lastCompletedAt,
+      lastFailedAt: succeeded ? null : finishedAt,
+    );
+  }
+}
+
+/// A monitor command cannot mutate the snapshot during a portfolio refresh.
+class MonitorRefreshInProgressException extends StateError {
+  MonitorRefreshInProgressException()
+    : super('A monitor refresh is already running. Wait for it to finish.');
+}
+
 /// Ordered stages exposed while a monitor is being prepared and saved.
 enum MonitorSaveStage {
   preparing,
@@ -51,10 +175,7 @@ typedef MonitorProgressCallback = void Function(MonitorSaveProgress progress);
 
 /// Cross-screen state for a monitor's initial background snapshot.
 class MonitorProvisioning {
-  const MonitorProvisioning({
-    required this.progress,
-    this.failure,
-  });
+  const MonitorProvisioning({required this.progress, this.failure});
 
   final MonitorSaveProgress progress;
   final String? failure;
@@ -62,10 +183,11 @@ class MonitorProvisioning {
   bool get isRunning => failure == null;
 }
 
-final monitorProvisioningProvider = NotifierProvider<
-  MonitorProvisioningController,
-  Map<String, MonitorProvisioning>
->(MonitorProvisioningController.new);
+final monitorProvisioningProvider =
+    NotifierProvider<
+      MonitorProvisioningController,
+      Map<String, MonitorProvisioning>
+    >(MonitorProvisioningController.new);
 
 class MonitorProvisioningController
     extends Notifier<Map<String, MonitorProvisioning>> {
@@ -97,11 +219,37 @@ class MonitorProvisioningController
   }
 }
 
+/// Cross-screen activity for complete manual monitor checks.
+final monitorCheckActivityProvider =
+    NotifierProvider<MonitorCheckActivityController, Set<String>>(
+      MonitorCheckActivityController.new,
+    );
+
+class MonitorCheckActivityController extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const <String>{};
+
+  void start(String monitorId) {
+    if (state.contains(monitorId)) return;
+    state = Set<String>.unmodifiable(<String>{...state, monitorId});
+  }
+
+  void finish(String monitorId) {
+    if (!state.contains(monitorId)) return;
+    final next = <String>{...state}..remove(monitorId);
+    state = Set<String>.unmodifiable(next);
+  }
+}
+
 /// Coordinates monitor definitions, foreground checks, persistence, and alerts.
 class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
+  static const _lifecycleRefreshMaximumAge = Duration(minutes: 15);
+
   Future<void>? _refreshOperation;
-  final Map<String, Future<_CheckOutcome>> _checkOperations =
-      <String, Future<_CheckOutcome>>{};
+  final Map<String, Future<MonitorEntry>> _manualCheckOperations =
+      <String, Future<MonitorEntry>>{};
+  final Map<String, Future<MonitorEntry>> _checkOperations =
+      <String, Future<MonitorEntry>>{};
 
   /// Loads the complete monitor list from SQLite when the provider is first read.
   @override
@@ -113,6 +261,34 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   /// Navigation never waits for network sources. Selected checks join in memory
   /// and replace the observation fields as one consistent database row.
   Future<MonitorEntry> add({
+    required String hostname,
+    required String tlsHostname,
+    required int tlsPort,
+    bool checksCertificate = false,
+    bool checksEmail = false,
+    bool mailSends = true,
+    bool mailReceives = true,
+    List<String> dkimSelectors = const <String>[],
+    String? label,
+    Iterable<String> tagIds = const <String>[],
+    MonitorProgressCallback? onProgress,
+  }) => _runCommand(
+    () => _add(
+      hostname: hostname,
+      tlsHostname: tlsHostname,
+      tlsPort: tlsPort,
+      checksCertificate: checksCertificate,
+      checksEmail: checksEmail,
+      mailSends: mailSends,
+      mailReceives: mailReceives,
+      dkimSelectors: dkimSelectors,
+      label: label,
+      tagIds: tagIds,
+      onProgress: onProgress,
+    ),
+  );
+
+  Future<MonitorEntry> _add({
     required String hostname,
     required String tlsHostname,
     required int tlsPort,
@@ -207,17 +383,22 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         provisioning.clear(monitorId);
         return;
       }
-      final outcome = await _runCheck(
+      final updated = await _runCheck(
         monitor,
         flow: flow,
         onProgress: (progress) => provisioning.update(monitorId, progress),
       );
-      if (!outcome.persisted) {
+      final persisted = await ref
+          .read(monitorRepositoryProvider)
+          .updateObservationsIfPresent(updated);
+      if (!persisted) {
         provisioning.clear(monitorId);
         return;
       }
-      await _reload();
-      await _rescheduleReminders(flow: flow);
+      final published = await _reload(unlessRefreshing: true);
+      if (published) {
+        await _rescheduleReminders(flow: flow);
+      }
       provisioning.clear(monitorId);
       flow.info('initial_check.completed');
     } catch (error, stackTrace) {
@@ -235,8 +416,16 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }
 
   /// Saves an edited definition and clears stale results when its check inputs
-  /// changed. Label and tag edits retain the latest successful observations.
+  /// changed. Label and tag edits retain the latest verified observations.
   Future<MonitorEntry> updateMonitor(
+    MonitorEntry monitor, {
+    Iterable<String>? tagIds,
+    MonitorProgressCallback? onProgress,
+  }) => _runCommand(
+    () => _updateMonitor(monitor, tagIds: tagIds, onProgress: onProgress),
+  );
+
+  Future<MonitorEntry> _updateMonitor(
     MonitorEntry monitor, {
     Iterable<String>? tagIds,
     MonitorProgressCallback? onProgress,
@@ -283,23 +472,27 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
             updatedAt: DateTime.now(),
           )
         : monitor.copyWith(updatedAt: DateTime.now());
-    onProgress?.call(
-      _progress(
-        MonitorSaveStage.preparing,
-        'Preparing ${updated.hostname}…',
-        .04,
-      ),
-    );
     late final MonitorEntry prepared;
-    try {
-      prepared = await _prepareCheck(
-        updated,
-        onProgress: onProgress,
-        flow: flow,
+    if (checkDefinitionChanged) {
+      onProgress?.call(
+        _progress(
+          MonitorSaveStage.preparing,
+          'Preparing ${updated.hostname}…',
+          .04,
+        ),
       );
-    } catch (error, stackTrace) {
-      flow.error('checks.prepare.failed', error, stackTrace);
-      rethrow;
+      try {
+        prepared = await _prepareCheck(
+          updated,
+          onProgress: onProgress,
+          flow: flow,
+        );
+      } catch (error, stackTrace) {
+        flow.error('checks.prepare.failed', error, stackTrace);
+        rethrow;
+      }
+    } else {
+      prepared = updated;
     }
     onProgress?.call(
       _progress(MonitorSaveStage.saving, 'Saving monitor…', .88),
@@ -322,7 +515,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }
 
   /// Removes a monitor, reloads state, and removes its reminder participation.
-  Future<void> delete(String id) async {
+  Future<void> delete(String id) => _runCommand(() => _delete(id));
+
+  Future<void> _delete(String id) async {
     final flow = appLogger.start(
       'monitor.delete',
       data: <String, Object?>{'monitorId': id},
@@ -341,29 +536,65 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }
 
   /// Refreshes enabled monitors as one coalesced foreground operation.
-  Future<void> refreshAll() =>
-      _refreshOperation ??= _runRefreshAll().whenComplete(() {
-        _refreshOperation = null;
-      });
+  ///
+  /// Lifecycle callers can skip a recently completed refresh. Explicit user
+  /// actions use the default forced behavior.
+  Future<void> refreshAll({bool force = true}) {
+    final active = _refreshOperation;
+    if (active != null) return active;
 
-  /// Runs enabled monitor checks in parallel, then refreshes expiry reminders.
+    final refresh = ref.read(monitorRefreshProvider);
+    if (!force && refresh.completedWithin(_lifecycleRefreshMaximumAge)) {
+      return Future<void>.value();
+    }
+
+    late final Future<void> operation;
+    operation = _runRefreshAll().whenComplete(() {
+      if (identical(_refreshOperation, operation)) {
+        _refreshOperation = null;
+      }
+    });
+    _refreshOperation = operation;
+    return operation;
+  }
+
+  /// Prepares every enabled monitor, then publishes one committed snapshot.
   Future<void> _runRefreshAll() async {
     final flow = appLogger.start('monitor.refresh_all');
+    final refresh = ref.read(monitorRefreshProvider.notifier);
+    final knownTotal =
+        state.value?.where((monitor) => monitor.enabled).length ?? 0;
+    refresh.start(total: knownTotal);
+    var succeeded = false;
     try {
-      final monitors =
-          state.value ?? await ref.read(monitorRepositoryProvider).all();
-      final enabled = monitors.where((monitor) => monitor.enabled).toList();
+      await refresh.waitForMutations();
+      final repository = ref.read(monitorRepositoryProvider);
+      final monitors = await repository.all();
+      final enabled = monitors
+          .where((monitor) => monitor.enabled)
+          .toList(growable: false);
+      refresh.setTotal(enabled.length);
       flow.info(
         'checks.started',
         data: <String, Object?>{'count': enabled.length},
       );
-      await Future.wait(enabled.map(_runCheck));
+      final observations = await Future.wait(
+        enabled.map((monitor) async {
+          final updated = await _runCheck(monitor, flow: flow);
+          refresh.advance();
+          return updated;
+        }),
+      );
+      await repository.updateObservationsAtomically(observations);
       await _reload();
       await _rescheduleReminders(flow: flow);
+      succeeded = true;
       flow.info('completed', data: <String, Object?>{'count': enabled.length});
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
       rethrow;
+    } finally {
+      refresh.finish(succeeded: succeeded);
     }
   }
 
@@ -371,7 +602,24 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   ///
   /// A missing row after the check is reported as a state error rather than
   /// silently reintroducing deleted data.
-  Future<MonitorEntry> check(String id) async {
+  Future<MonitorEntry> check(String id) {
+    final active = _manualCheckOperations[id];
+    if (active != null) return active;
+
+    final activity = ref.read(monitorCheckActivityProvider.notifier);
+    activity.start(id);
+    late final Future<MonitorEntry> operation;
+    operation = _runCommand(() => _check(id)).whenComplete(() {
+      if (identical(_manualCheckOperations[id], operation)) {
+        _manualCheckOperations.remove(id);
+        activity.finish(id);
+      }
+    });
+    _manualCheckOperations[id] = operation;
+    return operation;
+  }
+
+  Future<MonitorEntry> _check(String id) async {
     final monitor = await ref.read(monitorRepositoryProvider).byId(id);
     if (monitor == null) {
       throw StateError('Monitor no longer exists');
@@ -386,14 +634,17 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       },
     );
     try {
-      final outcome = await _runCheck(monitor, flow: flow);
-      await _reload();
-      await _rescheduleReminders(flow: flow);
-      if (!outcome.persisted) {
+      final updated = await _runCheck(monitor, flow: flow);
+      final persisted = await ref
+          .read(monitorRepositoryProvider)
+          .updateObservationsIfPresent(updated);
+      if (!persisted) {
         throw StateError('Monitor no longer exists');
       }
+      await _reload();
+      await _rescheduleReminders(flow: flow);
       flow.info('completed');
-      return outcome.monitor;
+      return updated;
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
       rethrow;
@@ -404,8 +655,8 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   ///
   /// Domain, DNS, TLS, and site identity are independent and start together.
   /// Email analysis starts after DNS because it consumes that exact snapshot.
-  /// All patches join in memory and [_performCheck] writes one coherent row, so
-  /// readers never observe a partially refreshed domain/TLS/Email snapshot.
+  /// All patches join in memory. The caller selects the persistence boundary,
+  /// so readers never observe a partially refreshed domain/TLS/Email snapshot.
   Future<MonitorEntry> _prepareCheck(
     MonitorEntry monitor, {
     MonitorProgressCallback? onProgress,
@@ -467,8 +718,8 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       ),
       track(
         dnsFuture.then(
-          (snapshot) => (MonitorEntry current) =>
-              current.copyWith(dnsSnapshot: snapshot),
+          (snapshot) =>
+              (MonitorEntry current) => current.copyWith(dnsSnapshot: snapshot),
         ),
         MonitorSaveStage.dns,
         'DNS',
@@ -509,10 +760,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         .92,
       ),
     );
-    return updated.copyWith(
-      updatedAt: attemptedAt,
-      lastCheckedAt: attemptedAt,
-    );
+    return updated.completeAttempt(attemptedAt);
   }
 
   Future<_MonitorPatch> _domainPatch(
@@ -536,7 +784,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         domainPublicRegistrant: domain.publicRegistrant,
         domainNameServers: domain.nameServers,
         domainSource: domain.source,
-        domainActivity: monitor.domainActivity.succeeded(attemptedAt),
+        domainActivity: monitor.domainActivity.verified(attemptedAt),
         domainError: null,
       );
     } catch (error, stackTrace) {
@@ -567,11 +815,13 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }) async {
     flow?.info('check.started', data: <String, Object?>{'stage': 'tls'});
     try {
-      final certificate = await ref.read(checkConcurrencyGateProvider).run(
-        () => ref
-            .read(tlsCheckServiceProvider)
-            .check(monitor.tlsHostname, monitor.tlsPort),
-      );
+      final certificate = await ref
+          .read(checkConcurrencyGateProvider)
+          .run(
+            () => ref
+                .read(tlsCheckServiceProvider)
+                .check(monitor.tlsHostname, monitor.tlsPort),
+          );
       return (MonitorEntry current) => current.copyWith(
         certificateValidFrom: certificate.validFrom,
         certificateExpiresAt: certificate.expiresAt,
@@ -586,7 +836,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         certificateSignatureAlgorithm: certificate.signatureAlgorithm,
         certificatePublicKeyAlgorithm: certificate.publicKeyAlgorithm,
         certificatePublicKeyDetails: certificate.publicKeyDetails,
-        certificateActivity: monitor.certificateActivity.succeeded(attemptedAt),
+        certificateActivity: monitor.certificateActivity.verified(attemptedAt),
         certificateError: null,
       );
     } catch (error, stackTrace) {
@@ -617,11 +867,13 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }) async {
     flow?.info('check.started', data: <String, Object?>{'stage': 'icon'});
     try {
-      final icon = await ref.read(checkConcurrencyGateProvider).run(
-        () => ref
-            .read(siteIconServiceProvider)
-            .discover(monitor.tlsHostname, monitor.tlsPort),
-      );
+      final icon = await ref
+          .read(checkConcurrencyGateProvider)
+          .run(
+            () => ref
+                .read(siteIconServiceProvider)
+                .discover(monitor.tlsHostname, monitor.tlsPort),
+          );
       return icon == null
           ? _identityPatch
           : (MonitorEntry current) => current.copyWith(siteIcon: icon);
@@ -644,20 +896,22 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }) async {
     flow?.info('check.started', data: <String, Object?>{'stage': 'email'});
     try {
-      final email = await ref.read(checkConcurrencyGateProvider).run(
-        () => ref
-            .read(emailPostureServiceProvider)
-            .check(
-              dnsSnapshot,
-              monitor.hostname,
-              sends: monitor.mailSends,
-              receives: monitor.mailReceives,
-              dkimSelectors: monitor.dkimSelectors,
-            ),
-      );
+      final email = await ref
+          .read(checkConcurrencyGateProvider)
+          .run(
+            () => ref
+                .read(emailPostureServiceProvider)
+                .check(
+                  dnsSnapshot,
+                  monitor.hostname,
+                  sends: monitor.mailSends,
+                  receives: monitor.mailReceives,
+                  dkimSelectors: monitor.dkimSelectors,
+                ),
+          );
       return (MonitorEntry current) => current.copyWith(
         emailPosture: email,
-        emailActivity: monitor.emailActivity.succeeded(attemptedAt),
+        emailActivity: monitor.emailActivity.verified(attemptedAt),
       );
     } catch (error, stackTrace) {
       flow?.error(
@@ -679,7 +933,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     }
   }
 
-  Future<_CheckOutcome> _runCheck(
+  Future<MonitorEntry> _runCheck(
     MonitorEntry monitor, {
     AppLogFlow? flow,
     MonitorProgressCallback? onProgress,
@@ -687,26 +941,23 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     final active = _checkOperations[monitor.id];
     if (active != null) return active;
 
-    late final Future<_CheckOutcome> operation;
-    operation = _performCheck(
-      monitor,
-      flow: flow,
-      onProgress: onProgress,
-    ).whenComplete(() {
-      if (identical(_checkOperations[monitor.id], operation)) {
-        _checkOperations.remove(monitor.id);
-      }
-    });
+    late final Future<MonitorEntry> operation;
+    operation = _performCheck(monitor, flow: flow, onProgress: onProgress)
+        .whenComplete(() {
+          if (identical(_checkOperations[monitor.id], operation)) {
+            _checkOperations.remove(monitor.id);
+          }
+        });
     _checkOperations[monitor.id] = operation;
     return operation;
   }
 
-  /// Persists one prepared result for an existing monitor and reports changes.
-  Future<_CheckOutcome> _performCheck(
+  /// Produces one coherent observation set without writing persistent state.
+  Future<MonitorEntry> _performCheck(
     MonitorEntry monitor, {
     AppLogFlow? flow,
     MonitorProgressCallback? onProgress,
-  }) async {
+  }) {
     final trace =
         flow ??
         appLogger.start(
@@ -719,28 +970,11 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
           },
         );
     trace.info('checks.started');
-    final updated = await _prepareCheck(
-      monitor,
-      flow: trace,
-      onProgress: onProgress,
-    );
-    trace.info('persistence.started');
-    late final bool persisted;
-    try {
-      persisted = await ref
-          .read(monitorRepositoryProvider)
-          .updateIfPresent(updated);
-    } catch (error, stackTrace) {
-      trace.error('persistence.failed', error, stackTrace);
-      rethrow;
-    }
-    trace.info(
-      'persistence.succeeded',
-      data: <String, Object?>{'present': persisted},
-    );
-
-    return (monitor: updated, persisted: persisted);
+    return _prepareCheck(monitor, flow: trace, onProgress: onProgress);
   }
+
+  Future<T> _runCommand<T>(Future<T> Function() command) =>
+      ref.read(monitorRefreshProvider.notifier).runMutation(command);
 
   /// Rebuilds reminders without turning a saved monitor operation into failure.
   Future<void> _rescheduleReminders({required AppLogFlow flow}) async {
@@ -751,9 +985,14 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     }
   }
 
-  /// Reloads the provider from SQLite so every screen observes persisted state.
-  Future<void> _reload() async {
-    state = AsyncData(await ref.read(monitorRepositoryProvider).all());
+  /// Reloads persisted state unless a portfolio refresh owns publication.
+  Future<bool> _reload({bool unlessRefreshing = false}) async {
+    final monitors = await ref.read(monitorRepositoryProvider).all();
+    if (unlessRefreshing && ref.read(monitorRefreshProvider).isRunning) {
+      return false;
+    }
+    state = AsyncData(monitors);
+    return true;
   }
 }
 
@@ -768,8 +1007,6 @@ bool _sameStrings(List<String> left, List<String> right) {
 typedef _MonitorPatch = MonitorEntry Function(MonitorEntry current);
 
 MonitorEntry _identityPatch(MonitorEntry current) => current;
-
-typedef _CheckOutcome = ({MonitorEntry monitor, bool persisted});
 
 MonitorSaveProgress _progress(
   MonitorSaveStage stage,

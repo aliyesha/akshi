@@ -53,4 +53,37 @@ void main() {
     expect(await gate.run(() async => 42), 42);
     expect(gate.activeCount, 0);
   });
+
+  test('starts queued operations in FIFO order', () async {
+    final gate = AsyncConcurrencyGate(maximum: 1);
+    final firstRelease = Completer<void>();
+    final started = <int>[];
+
+    Future<void> task(int index, [Future<void>? release]) => gate.run(() async {
+      started.add(index);
+      if (release != null) await release;
+    });
+
+    final operations = <Future<void>>[
+      task(0, firstRelease.future),
+      task(1),
+      task(2),
+      task(3),
+    ];
+    await Future<void>.delayed(Duration.zero);
+
+    expect(started, <int>[0]);
+    expect(gate.waitingCount, 3);
+
+    firstRelease.complete();
+    await Future.wait(operations);
+
+    expect(started, <int>[0, 1, 2, 3]);
+    expect(gate.activeCount, 0);
+    expect(gate.waitingCount, 0);
+  });
+
+  test('rejects a non-positive ceiling in every build mode', () {
+    expect(() => AsyncConcurrencyGate(maximum: 0), throwsRangeError);
+  });
 }

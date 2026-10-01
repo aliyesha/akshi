@@ -8,7 +8,11 @@ import 'dart:collection';
 /// The gate never creates work to fill the window; it only caps work requested
 /// by enabled monitor checks.
 class AsyncConcurrencyGate {
-  AsyncConcurrencyGate({required this.maximum}) : assert(maximum > 0);
+  AsyncConcurrencyGate({required this.maximum}) {
+    if (maximum < 1) {
+      throw RangeError.range(maximum, 1, null, 'maximum');
+    }
+  }
 
   final int maximum;
   final Queue<Completer<void>> _waiters = Queue<Completer<void>>();

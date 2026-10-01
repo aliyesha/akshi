@@ -1,8 +1,10 @@
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
@@ -26,18 +28,20 @@ class AttentionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final monitors = ref.watch(monitorControllerProvider);
+    final refresh = ref.watch(monitorRefreshProvider);
     final settings =
-        ref.watch(settingsControllerProvider).value ?? const AppSettings();
-    final title =
-        source == 'expiry' ? 'Expiry reminder' : 'Needs attention';
+        ref.watch(settingsControllerProvider).value ?? AppSettings();
+    final title = source == 'expiry' ? 'Expiry reminder' : 'Needs attention';
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: monitors.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => AsyncErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(monitorControllerProvider),
-        ),
+        error: (error, stack) {
+          appLogger.error('ui.attention.load.failed', error, stack);
+          return AsyncErrorView(
+            onRetry: () => ref.invalidate(monitorControllerProvider),
+          );
+        },
         data: (items) {
           final visible = _visible(items, settings);
           final missing = monitorIds.length - visible.length;
@@ -48,6 +52,10 @@ class AttentionScreen extends ConsumerWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
               children: <Widget>[
+                if (refresh.shouldShowStatus) ...<Widget>[
+                  const MonitorRefreshBanner(),
+                  const SizedBox(height: 14),
+                ],
                 _AttentionHeader(
                   count: visible.length,
                   source: source,

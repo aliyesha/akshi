@@ -1,4 +1,5 @@
 import 'package:akshi/features/monitors/domain/check_activity.dart';
+import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
@@ -52,7 +53,7 @@ void main() {
         ).copyWith(
           domainExpiresAt: DateTime.utc(2026, 8, 31),
           domainRegisteredAt: DateTime.utc(2026, 2, 1),
-          domainUpdatedAt: DateTime.utc(2026, 6, 12),
+          domainUpdatedAt: DateTime.utc(2026, 6, 14),
           domainRegistrar: 'Example Registrar',
           domainPublicRegistrant: 'Example Studio',
           domainNameServers: const <String>[
@@ -72,7 +73,7 @@ void main() {
     expect(restored.certificateFingerprint, 'abc123');
     expect(restored.domainExpiresAt?.toUtc(), DateTime.utc(2026, 8, 31));
     expect(restored.domainRegisteredAt?.toUtc(), DateTime.utc(2026, 2, 1));
-    expect(restored.domainUpdatedAt?.toUtc(), DateTime.utc(2026, 6, 12));
+    expect(restored.domainUpdatedAt?.toUtc(), DateTime.utc(2026, 6, 14));
     expect(restored.domainRegistrar, 'Example Registrar');
     expect(restored.domainPublicRegistrant, 'Example Studio');
     expect(restored.domainNameServers, <String>[
@@ -105,9 +106,42 @@ void main() {
     expect(monitor.overallStatus(now: now), MonitorStatus.critical);
   });
 
+  test('DNS inventory never changes expiry or TLS health', () {
+    final monitor =
+        entry(
+          domainExpiresAt: now.add(const Duration(days: 40)),
+          certificateExpiresAt: now.add(const Duration(days: 40)),
+        ).copyWith(
+          dnsSnapshot: DnsSnapshot(
+            checkedAt: now,
+            queries: const <DnsQueryResult>[
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.a,
+                state: DnsQueryState.absent,
+              ),
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.aaaa,
+                state: DnsQueryState.absent,
+              ),
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.txt,
+                state: DnsQueryState.failed,
+                error: 'Temporary resolver failure',
+              ),
+            ],
+          ),
+        );
+
+    expect(monitor.dnsSnapshot?.hasFailures, isTrue);
+    expect(monitor.overallStatus(now: now), MonitorStatus.healthy);
+  });
+
   test('offline refresh keeps the last saved expiry health', () {
     final occurredAt = now.add(const Duration(minutes: 1));
-    final lastSucceededAt = now.subtract(const Duration(days: 1));
+    final lastVerifiedAt = now.subtract(const Duration(days: 1));
     final failure = CheckFailure(
       kind: CheckFailureKind.offline,
       message: 'No network connection. Showing the last saved result.',
@@ -121,7 +155,8 @@ void main() {
       checksCertificate: true,
       createdAt: now,
       updatedAt: occurredAt,
-      lastCheckedAt: occurredAt,
+      lastAttemptedAt: occurredAt,
+      lastVerifiedAt: lastVerifiedAt,
       domainExpiresAt: now.add(const Duration(days: 90)),
       certificateExpiresAt: now.add(const Duration(days: 60)),
       tlsTrusted: true,
@@ -129,12 +164,12 @@ void main() {
       certificateError: failure.message,
       domainActivity: CheckActivity(
         lastAttemptedAt: occurredAt,
-        lastSucceededAt: lastSucceededAt,
+        lastVerifiedAt: lastVerifiedAt,
         failure: failure,
       ),
       certificateActivity: CheckActivity(
         lastAttemptedAt: occurredAt,
-        lastSucceededAt: lastSucceededAt,
+        lastVerifiedAt: lastVerifiedAt,
         failure: failure,
       ),
     );
@@ -214,6 +249,241 @@ void main() {
     expect(
       restored.emailPosture?.findings.single.facts.single.value,
       'v=spf1 -all',
+    );
+  });
+
+  test('check activity stores attempted and verified timestamps', () {
+    final attemptedAt = DateTime.utc(2026, 6, 14, 9);
+    final verifiedAt = DateTime.utc(2026, 6, 11, 8);
+    final activity = CheckActivity(
+      lastAttemptedAt: attemptedAt,
+      lastVerifiedAt: verifiedAt,
+    );
+
+    expect(activity.toJson(), <String, Object?>{
+      'last_attempted_at': attemptedAt.toIso8601String(),
+      'last_verified_at': verifiedAt.toIso8601String(),
+      'failure': null,
+    });
+
+    final restored = CheckActivity.fromJson(activity.toJson());
+    expect(restored.lastAttemptedAt?.toUtc(), attemptedAt);
+    expect(restored.lastVerifiedAt?.toUtc(), verifiedAt);
+    expect(restored.failure, isNull);
+  });
+
+  test('complete attempt advances attempt and verification together', () {
+    final attemptedAt = DateTime.utc(2026, 6, 14, 9);
+    final activity = CheckActivity(
+      lastAttemptedAt: attemptedAt,
+      lastVerifiedAt: attemptedAt,
+    );
+    final completed = entry()
+        .copyWith(
+          domainActivity: activity,
+          certificateActivity: activity,
+          dnsSnapshot: DnsSnapshot(
+            checkedAt: attemptedAt,
+            queries: const <DnsQueryResult>[
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.a,
+                state: DnsQueryState.absent,
+              ),
+            ],
+          ),
+        )
+        .completeAttempt(attemptedAt);
+
+    expect(completed.lastAttemptedAt, attemptedAt);
+    expect(completed.lastVerifiedAt, attemptedAt);
+
+    final restored = MonitorEntry.fromMap(completed.toMap());
+    expect(restored.lastAttemptedAt?.toUtc(), attemptedAt);
+    expect(restored.lastVerifiedAt?.toUtc(), attemptedAt);
+  });
+
+  test('failed source advances attempt and preserves prior verification', () {
+    final previousVerifiedAt = DateTime.utc(2026, 6, 11, 9);
+    final attemptedAt = DateTime.utc(2026, 6, 14, 9);
+    final failure = CheckFailure(
+      kind: CheckFailureKind.sourceUnavailable,
+      message: 'Registration source unavailable',
+      occurredAt: attemptedAt,
+    );
+    final completed = entry()
+        .copyWith(
+          lastAttemptedAt: previousVerifiedAt,
+          lastVerifiedAt: previousVerifiedAt,
+          domainActivity: CheckActivity(
+            lastAttemptedAt: attemptedAt,
+            lastVerifiedAt: previousVerifiedAt,
+            failure: failure,
+          ),
+          certificateActivity: CheckActivity(
+            lastAttemptedAt: attemptedAt,
+            lastVerifiedAt: attemptedAt,
+          ),
+          dnsSnapshot: DnsSnapshot(
+            checkedAt: attemptedAt,
+            queries: const <DnsQueryResult>[
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.a,
+                state: DnsQueryState.absent,
+              ),
+            ],
+          ),
+        )
+        .completeAttempt(attemptedAt);
+
+    expect(completed.lastAttemptedAt, attemptedAt);
+    expect(completed.lastVerifiedAt, previousVerifiedAt);
+  });
+
+  test('failed DNS query blocks full verification', () {
+    final attemptedAt = DateTime.utc(2026, 6, 14, 9);
+    final activity = CheckActivity(
+      lastAttemptedAt: attemptedAt,
+      lastVerifiedAt: attemptedAt,
+    );
+    final completed = entry()
+        .copyWith(
+          domainActivity: activity,
+          certificateActivity: activity,
+          dnsSnapshot: DnsSnapshot(
+            checkedAt: attemptedAt,
+            queries: const <DnsQueryResult>[
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.a,
+                state: DnsQueryState.failed,
+                error: 'Resolver unavailable',
+              ),
+            ],
+          ),
+        )
+        .completeAttempt(attemptedAt);
+
+    expect(completed.lastAttemptedAt, attemptedAt);
+    expect(completed.lastVerifiedAt, isNull);
+  });
+
+  test('unavailable email evidence blocks full verification', () {
+    final attemptedAt = DateTime.utc(2026, 6, 14, 9);
+    final activity = CheckActivity(
+      lastAttemptedAt: attemptedAt,
+      lastVerifiedAt: attemptedAt,
+    );
+    final completed = entry()
+        .copyWith(
+          checksEmail: true,
+          domainActivity: activity,
+          certificateActivity: activity,
+          emailActivity: activity,
+          emailPosture: EmailPosture(
+            checkedAt: attemptedAt,
+            findings: const <MailFinding>[
+              MailFinding(
+                id: 'mta-sts',
+                title: 'MTA-STS',
+                state: MailFindingState.unavailable,
+                summary: 'The HTTPS policy could not be verified.',
+              ),
+            ],
+          ),
+          dnsSnapshot: DnsSnapshot(
+            checkedAt: attemptedAt,
+            queries: const <DnsQueryResult>[
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.a,
+                state: DnsQueryState.absent,
+              ),
+            ],
+          ),
+        )
+        .completeAttempt(attemptedAt);
+
+    expect(completed.lastAttemptedAt, attemptedAt);
+    expect(completed.lastVerifiedAt, isNull);
+  });
+
+  test('observed unhealthy email evidence can be fully verified', () {
+    final attemptedAt = DateTime.utc(2026, 6, 14, 9);
+    final activity = CheckActivity(
+      lastAttemptedAt: attemptedAt,
+      lastVerifiedAt: attemptedAt,
+    );
+    final completed = entry()
+        .copyWith(
+          checksEmail: true,
+          domainActivity: activity,
+          certificateActivity: activity,
+          emailActivity: activity,
+          emailPosture: EmailPosture(
+            checkedAt: attemptedAt,
+            findings: const <MailFinding>[
+              MailFinding(
+                id: 'spf',
+                title: 'SPF',
+                state: MailFindingState.invalid,
+                summary: 'Multiple SPF policies are published.',
+              ),
+            ],
+          ),
+          dnsSnapshot: DnsSnapshot(
+            checkedAt: attemptedAt,
+            queries: const <DnsQueryResult>[
+              DnsQueryResult(
+                name: 'example.com',
+                type: DnsRecordType.a,
+                state: DnsQueryState.absent,
+              ),
+            ],
+          ),
+        )
+        .completeAttempt(attemptedAt);
+
+    expect(completed.lastAttemptedAt, attemptedAt);
+    expect(completed.lastVerifiedAt, attemptedAt);
+  });
+
+  test('observation mapping cannot overwrite monitor definitions', () {
+    final monitor =
+        entry(
+          domainExpiresAt: DateTime.utc(2026, 8, 31),
+          certificateExpiresAt: DateTime.utc(2026, 8, 20),
+        ).copyWith(
+          lastAttemptedAt: DateTime.utc(2026, 6, 14, 9),
+          lastVerifiedAt: DateTime.utc(2026, 6, 14, 8),
+        );
+
+    final observations = monitor.toObservationMap();
+    const definitionColumns = <String>{
+      'id',
+      'hostname',
+      'tls_hostname',
+      'tls_port',
+      'checks_certificate',
+      'checks_email',
+      'label',
+      'enabled',
+      'mail_sends',
+      'mail_receives',
+      'dkim_selectors_json',
+      'created_at',
+      'updated_at',
+    };
+
+    expect(observations.keys.toSet().intersection(definitionColumns), isEmpty);
+    expect(observations['domain_expires_at'], isNotNull);
+    expect(observations['certificate_expires_at'], isNotNull);
+    expect(observations['last_attempted_at'], isNotNull);
+    expect(observations['last_verified_at'], isNotNull);
+    expect(
+      monitor.toMap().keys.toSet(),
+      containsAll(<String>{...definitionColumns, ...observations.keys}),
     );
   });
 }

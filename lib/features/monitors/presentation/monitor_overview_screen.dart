@@ -8,6 +8,7 @@ import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
@@ -28,11 +29,10 @@ class MonitorOverviewScreen extends ConsumerStatefulWidget {
 }
 
 class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
-  var _checking = false;
-
   @override
   Widget build(BuildContext context) {
     final items = ref.watch(monitorControllerProvider);
+    final refresh = ref.watch(monitorRefreshProvider);
     final monitor = _find(items.value ?? const <MonitorEntry>[]);
     if (monitor == null) {
       return Scaffold(
@@ -44,10 +44,14 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         ),
       );
     }
+    final checking = ref.watch(
+      monitorCheckActivityProvider.select(
+        (active) => active.contains(monitor.id),
+      ),
+    );
     final settings =
-        ref.watch(settingsControllerProvider).value ?? const AppSettings();
-    final provisioning =
-        ref.watch(monitorProvisioningProvider)[monitor.id];
+        ref.watch(settingsControllerProvider).value ?? AppSettings();
+    final provisioning = ref.watch(monitorProvisioningProvider)[monitor.id];
     final findings = findingsForMonitor(
       monitor,
       warningDays: settings.firstWarningDays,
@@ -72,25 +76,36 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Edit',
-            onPressed: (provisioning?.isRunning ?? false)
+            onPressed:
+                checking ||
+                    refresh.isRunning ||
+                    (provisioning?.isRunning ?? false)
                 ? null
                 : () => context.push('/monitor/${monitor.id}/edit'),
             icon: const PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
           ),
           IconButton(
             tooltip: 'Delete',
-            onPressed: () => _delete(monitor),
+            onPressed: checking || refresh.isRunning
+                ? null
+                : () => _delete(monitor),
             icon: const PhosphorIcon(PhosphorIconsDuotone.trash),
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => _refresh(monitor),
+        onRefresh: refresh.isRunning
+            ? () => ref.read(monitorControllerProvider.notifier).refreshAll()
+            : () => _refresh(monitor),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
           children: <Widget>[
+            if (refresh.shouldShowStatus) ...<Widget>[
+              const MonitorRefreshBanner(),
+              const SizedBox(height: 14),
+            ],
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -134,10 +149,13 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
                 StatusPill(status: overall),
                 const Spacer(),
                 FilledButton.icon(
-                  onPressed: _checking || (provisioning?.isRunning ?? false)
+                  onPressed:
+                      checking ||
+                          refresh.isRunning ||
+                          (provisioning?.isRunning ?? false)
                       ? null
                       : () => _refresh(monitor),
-                  icon: _checking
+                  icon: checking
                       ? const SizedBox.square(
                           dimension: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
@@ -146,7 +164,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
                           PhosphorIconsRegular.arrowsClockwise,
                           size: 17,
                         ),
-                  label: Text(_checking ? 'Checking' : 'Check now'),
+                  label: Text(checking ? 'Checking' : 'Check now'),
                 ),
               ],
             ),
@@ -171,23 +189,26 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
               summary: dns == null
                   ? 'No DNS snapshot yet'
                   : failedQueries > 0
-                  ? '$recordCount records · $failedQueries lookups unavailable'
-                  : '$recordCount records from ${dns.queries.where((query) => query.state == DnsQueryState.answered).length} groups',
-              status: dns == null
-                  ? MonitorStatus.unknown
-                  : failedQueries > 0
-                  ? MonitorStatus.unavailable
-                  : MonitorStatus.healthy,
+                  ? '$recordCount records captured · '
+                        '$failedQueries lookups could not be read'
+                  : '$recordCount records captured',
+              status: null,
               onTap: () => context.push('/monitor/${monitor.id}/dns'),
             ),
             const SizedBox(height: 18),
             Text(
-              monitor.lastCheckedAt == null
-                  ? 'Not checked yet'
-                  : 'Last checked ${_formatDateTime(monitor.lastCheckedAt!)}',
+              <String>[
+                monitor.lastAttemptedAt == null
+                    ? 'No check attempted yet'
+                    : 'Last attempt ${_formatDateTime(monitor.lastAttemptedAt!)}',
+                monitor.lastVerifiedAt == null
+                    ? 'Never fully verified'
+                    : 'Last verified ${_formatDateTime(monitor.lastVerifiedAt!)}',
+              ].join('\n'),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5,
               ),
             ),
           ],
@@ -204,9 +225,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
-    if (_checking) return;
     ref.read(monitorProvisioningProvider.notifier).clear(monitor.id);
-    setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
     } catch (error, stackTrace) {
@@ -221,8 +240,6 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
       }
-    } finally {
-      if (mounted) setState(() => _checking = false);
     }
   }
 
@@ -252,8 +269,22 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
-    if (mounted) context.go('/');
+    try {
+      await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
+      if (mounted) context.go('/');
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'ui.monitor_overview.delete.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'monitorId': monitor.id},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+      }
+    }
   }
 }
 
@@ -267,12 +298,8 @@ class _ProvisioningCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final failed = provisioning.failure != null;
     final colors = AkshiTheme.progressSurface(scheme);
-    final background = failed
-        ? scheme.errorContainer
-        : colors.background;
-    final foreground = failed
-        ? scheme.onErrorContainer
-        : colors.foreground;
+    final background = failed ? scheme.errorContainer : colors.background;
+    final foreground = failed ? scheme.onErrorContainer : colors.foreground;
     final accent = failed ? scheme.error : colors.accent;
     return Semantics(
       liveRegion: true,
@@ -281,9 +308,7 @@ class _ProvisioningCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: background,
           border: Border.all(
-            color: failed
-                ? scheme.error.withValues(alpha: .45)
-                : colors.border,
+            color: failed ? scheme.error.withValues(alpha: .45) : colors.border,
           ),
           borderRadius: BorderRadius.circular(20),
         ),
@@ -332,10 +357,8 @@ class _ProvisioningCard extends StatelessWidget {
               failed
                   ? 'The monitor definition is saved safely. Use Check now to retry the initial snapshot.'
                   : 'Initial checks continue in the background and are saved together as one consistent snapshot. They can take time and depend on your connection and each source, so please be patient.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: foreground,
-                height: 1.4,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: foreground, height: 1.4),
             ),
           ],
         ),
@@ -349,27 +372,30 @@ class _SectionCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.summary,
-    required this.status,
+    this.status,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String summary;
-  final MonitorStatus status;
+  final MonitorStatus? status;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accent = monitorStatusColor(scheme, status);
-    final attention = switch (status) {
+    final currentStatus = status;
+    final accent = currentStatus == null
+        ? scheme.primary
+        : monitorStatusColor(scheme, currentStatus);
+    final attention = switch (currentStatus) {
       MonitorStatus.warning ||
       MonitorStatus.critical ||
       MonitorStatus.expired ||
       MonitorStatus.failed ||
       MonitorStatus.unavailable => true,
-      MonitorStatus.unknown || MonitorStatus.healthy => false,
+      MonitorStatus.unknown || MonitorStatus.healthy || null => false,
     };
     return Material(
       color: attention
@@ -421,8 +447,10 @@ class _SectionCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              StatusPill(status: status),
-              const SizedBox(width: 4),
+              if (currentStatus != null) ...<Widget>[
+                StatusPill(status: currentStatus),
+                const SizedBox(width: 4),
+              ],
               const PhosphorIcon(PhosphorIconsDuotone.caretRight, size: 18),
             ],
           ),

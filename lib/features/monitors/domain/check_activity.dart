@@ -52,8 +52,7 @@ class CheckFailure {
 
 extension CheckFailureMeaning on CheckFailure? {
   bool get isConnectivityInterruption => switch (this?.kind) {
-    CheckFailureKind.offline ||
-    CheckFailureKind.internetUnavailable => true,
+    CheckFailureKind.offline || CheckFailureKind.internetUnavailable => true,
     _ => false,
   };
 }
@@ -61,29 +60,29 @@ extension CheckFailureMeaning on CheckFailure? {
 class CheckActivity {
   const CheckActivity({
     this.lastAttemptedAt,
-    this.lastSucceededAt,
+    this.lastVerifiedAt,
     this.failure,
   });
 
   final DateTime? lastAttemptedAt;
-  final DateTime? lastSucceededAt;
+  final DateTime? lastVerifiedAt;
   final CheckFailure? failure;
 
   bool get hasCurrentFailure => failure != null;
-  bool get hasSavedResult => lastSucceededAt != null;
+  bool get hasVerifiedResult => lastVerifiedAt != null;
 
-  CheckActivity succeeded(DateTime at) =>
-      CheckActivity(lastAttemptedAt: at, lastSucceededAt: at);
+  CheckActivity verified(DateTime at) =>
+      CheckActivity(lastAttemptedAt: at, lastVerifiedAt: at);
 
   CheckActivity failed(CheckFailure value) => CheckActivity(
     lastAttemptedAt: value.occurredAt,
-    lastSucceededAt: lastSucceededAt,
+    lastVerifiedAt: lastVerifiedAt,
     failure: value,
   );
 
   Map<String, Object?> toJson() => <String, Object?>{
     'last_attempted_at': lastAttemptedAt?.toUtc().toIso8601String(),
-    'last_succeeded_at': lastSucceededAt?.toUtc().toIso8601String(),
+    'last_verified_at': lastVerifiedAt?.toUtc().toIso8601String(),
     'failure': failure?.toJson(),
   };
 
@@ -97,21 +96,10 @@ class CheckActivity {
     final failure = json['failure'];
     return CheckActivity(
       lastAttemptedAt: readDate('last_attempted_at'),
-      lastSucceededAt: readDate('last_succeeded_at'),
+      lastVerifiedAt: readDate('last_verified_at'),
       failure: failure is Map
           ? CheckFailure.fromJson(Map<String, Object?>.from(failure))
           : null,
     );
   }
-}
-
-DateTime? latestCheckTime(Iterable<CheckActivity> activities) {
-  DateTime? latest;
-  for (final activity in activities) {
-    final candidate = activity.lastAttemptedAt;
-    if (candidate != null && (latest == null || candidate.isAfter(latest))) {
-      latest = candidate;
-    }
-  }
-  return latest;
 }

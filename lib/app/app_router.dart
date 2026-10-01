@@ -37,7 +37,7 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/monitor/new',
       pageBuilder: (context, state) =>
-          _sheetPage(state: state, child: const MonitorFormScreen()),
+          _sheetPage(state: state, child: const MonitorFormScreen.create()),
     ),
     GoRoute(
       path: '/monitor/:id',
@@ -74,7 +74,9 @@ final appRouter = GoRouter(
           path: 'edit',
           pageBuilder: (context, state) => _sheetPage(
             state: state,
-            child: MonitorFormScreen(monitorId: state.pathParameters['id']!),
+            child: MonitorFormScreen.edit(
+              monitorId: state.pathParameters['id']!,
+            ),
           ),
         ),
       ],

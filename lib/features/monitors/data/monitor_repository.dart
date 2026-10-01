@@ -80,18 +80,48 @@ class MonitorRepository {
 
   /// Persists a check result only if the monitor row still exists.
   ///
-  /// The boolean prevents a check that raced with deletion from recreating data
-  /// or producing a misleading notification.
-  Future<bool> updateIfPresent(MonitorEntry monitor) async {
+  /// The boolean rejects a result when deletion or a definition edit changed
+  /// the row after the check captured its inputs.
+  Future<bool> updateObservationsIfPresent(MonitorEntry monitor) async {
     final database = await _database.instance;
     final changed = await database.update(
       'monitors',
-      monitor.toMap(),
-      where: 'id = ?',
-      whereArgs: <Object?>[monitor.id],
+      monitor.toObservationMap(),
+      where: 'id = ? AND updated_at = ?',
+      whereArgs: <Object?>[
+        monitor.id,
+        monitor.updatedAt.toUtc().toIso8601String(),
+      ],
       conflictAlgorithm: ConflictAlgorithm.abort,
     );
     return changed == 1;
+  }
+
+  /// Commits a portfolio snapshot or rolls it all back if a definition changed.
+  Future<void> updateObservationsAtomically(
+    Iterable<MonitorEntry> monitors,
+  ) async {
+    final entries = monitors.toList(growable: false);
+    if (entries.isEmpty) return;
+
+    final database = await _database.instance;
+    await database.transaction((transaction) async {
+      for (final monitor in entries) {
+        final changed = await transaction.update(
+          'monitors',
+          monitor.toObservationMap(),
+          where: 'id = ? AND updated_at = ?',
+          whereArgs: <Object?>[
+            monitor.id,
+            monitor.updatedAt.toUtc().toIso8601String(),
+          ],
+          conflictAlgorithm: ConflictAlgorithm.abort,
+        );
+        if (changed != 1) {
+          throw StateError('Monitor no longer exists');
+        }
+      }
+    });
   }
 
   /// Deletes tag links and the monitor row atomically.

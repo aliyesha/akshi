@@ -35,7 +35,8 @@ class MonitorEntry {
     this.domainNameServers = const <String>[],
     this.certificateExpiresAt,
     this.certificateValidFrom,
-    this.lastCheckedAt,
+    this.lastAttemptedAt,
+    this.lastVerifiedAt,
     this.domainSource,
     this.certificateIssuer,
     this.certificateSubject,
@@ -80,7 +81,8 @@ class MonitorEntry {
   final List<String> domainNameServers;
   final DateTime? certificateExpiresAt;
   final DateTime? certificateValidFrom;
-  final DateTime? lastCheckedAt;
+  final DateTime? lastAttemptedAt;
+  final DateTime? lastVerifiedAt;
   final String? domainSource;
   final String? certificateIssuer;
   final String? certificateSubject;
@@ -115,12 +117,30 @@ class MonitorEntry {
       previousCertificateFingerprint != null &&
       previousCertificateFingerprint != certificateFingerprint;
 
-  /// Returns the latest attempted check across the enabled check families.
-  DateTime? get latestAttemptedAt => latestCheckTime(<CheckActivity>[
-    domainActivity,
-    if (checksCertificate) certificateActivity,
-    if (checksEmail) emailActivity,
-  ]);
+  /// Records one finished run and advances verification only for a complete,
+  /// failure-free observation set from that same attempt.
+  MonitorEntry completeAttempt(DateTime attemptedAt) {
+    final activities = <CheckActivity>[
+      domainActivity,
+      if (checksCertificate) certificateActivity,
+      if (checksEmail) emailActivity,
+    ];
+    final sourcesVerified = activities.every(
+      (activity) =>
+          activity.failure == null &&
+          activity.lastAttemptedAt == attemptedAt &&
+          activity.lastVerifiedAt == attemptedAt,
+    );
+    final dnsVerified = dnsSnapshot != null && !dnsSnapshot!.hasFailures;
+    final emailVerified =
+        !checksEmail || (emailPosture != null && !emailPosture!.hasUnavailable);
+    return copyWith(
+      lastAttemptedAt: attemptedAt,
+      lastVerifiedAt: sourcesVerified && dnsVerified && emailVerified
+          ? attemptedAt
+          : lastVerifiedAt,
+    );
+  }
 
   /// Calculates a user-facing whole-day distance from now to an expiry value.
   int? daysUntil(DateTime? value) => value?.difference(DateTime.now()).inDays;
@@ -140,7 +160,7 @@ class MonitorEntry {
         certificateActivity.failure.isConnectivityInterruption;
     final emailConnectionInterrupted =
         emailActivity.failure.isConnectivityInterruption;
-    if (lastCheckedAt == null &&
+    if (lastVerifiedAt == null &&
         ((domainError != null && !domainConnectionInterrupted) ||
             (checksCertificate &&
                 certificateError != null &&
@@ -222,7 +242,8 @@ class MonitorEntry {
     List<String>? domainNameServers,
     DateTime? certificateExpiresAt,
     DateTime? certificateValidFrom,
-    DateTime? lastCheckedAt,
+    DateTime? lastAttemptedAt,
+    DateTime? lastVerifiedAt,
     String? domainSource,
     String? certificateIssuer,
     String? certificateSubject,
@@ -276,7 +297,8 @@ class MonitorEntry {
     domainNameServers: domainNameServers ?? this.domainNameServers,
     certificateExpiresAt: certificateExpiresAt ?? this.certificateExpiresAt,
     certificateValidFrom: certificateValidFrom ?? this.certificateValidFrom,
-    lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
+    lastAttemptedAt: lastAttemptedAt ?? this.lastAttemptedAt,
+    lastVerifiedAt: lastVerifiedAt ?? this.lastVerifiedAt,
     domainSource: domainSource ?? this.domainSource,
     certificateIssuer: certificateIssuer ?? this.certificateIssuer,
     certificateSubject: certificateSubject ?? this.certificateSubject,
@@ -333,6 +355,14 @@ class MonitorEntry {
     'enabled': enabled ? 1 : 0,
     'created_at': createdAt.toUtc().toIso8601String(),
     'updated_at': updatedAt.toUtc().toIso8601String(),
+    'mail_sends': mailSends ? 1 : 0,
+    'mail_receives': mailReceives ? 1 : 0,
+    'dkim_selectors_json': jsonEncode(dkimSelectors),
+    ...toObservationMap(),
+  };
+
+  /// Serializes only fields produced by external monitor checks.
+  Map<String, Object?> toObservationMap() => <String, Object?>{
     'domain_expires_at': domainExpiresAt?.toUtc().toIso8601String(),
     'domain_registered_at': domainRegisteredAt?.toUtc().toIso8601String(),
     'domain_updated_at': domainUpdatedAt?.toUtc().toIso8601String(),
@@ -341,7 +371,8 @@ class MonitorEntry {
     'domain_nameservers_json': jsonEncode(domainNameServers),
     'certificate_expires_at': certificateExpiresAt?.toUtc().toIso8601String(),
     'certificate_valid_from': certificateValidFrom?.toUtc().toIso8601String(),
-    'last_checked_at': lastCheckedAt?.toUtc().toIso8601String(),
+    'last_attempted_at': lastAttemptedAt?.toUtc().toIso8601String(),
+    'last_verified_at': lastVerifiedAt?.toUtc().toIso8601String(),
     'domain_source': domainSource,
     'certificate_issuer': certificateIssuer,
     'certificate_subject': certificateSubject,
@@ -350,9 +381,6 @@ class MonitorEntry {
     'tls_trusted': tlsTrusted == null ? null : (tlsTrusted! ? 1 : 0),
     'domain_error': domainError,
     'certificate_error': certificateError,
-    'mail_sends': mailSends ? 1 : 0,
-    'mail_receives': mailReceives ? 1 : 0,
-    'dkim_selectors_json': jsonEncode(dkimSelectors),
     'domain_activity_json': jsonEncode(domainActivity.toJson()),
     'certificate_activity_json': jsonEncode(certificateActivity.toJson()),
     'email_activity_json': jsonEncode(emailActivity.toJson()),
@@ -447,7 +475,8 @@ class MonitorEntry {
       domainNameServers: stringList('domain_nameservers_json'),
       certificateExpiresAt: date('certificate_expires_at'),
       certificateValidFrom: date('certificate_valid_from'),
-      lastCheckedAt: date('last_checked_at'),
+      lastAttemptedAt: date('last_attempted_at'),
+      lastVerifiedAt: date('last_verified_at'),
       domainSource: map['domain_source'] as String?,
       certificateIssuer: map['certificate_issuer'] as String?,
       certificateSubject: map['certificate_subject'] as String?,

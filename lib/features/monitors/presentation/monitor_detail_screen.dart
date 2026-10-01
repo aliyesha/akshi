@@ -13,6 +13,7 @@ import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
+import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/monitors/presentation/widgets/monitor_surface.dart';
 import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
@@ -48,7 +49,6 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   List<MonitorFinding> _attentionFindings = const <MonitorFinding>[];
   late MonitorCheckKind? _activeFocusKind;
   late bool _focusVisitSettled;
-  var _checking = false;
   var _focusScrollScheduled = false;
   var _visibilityScanScheduled = false;
 
@@ -83,8 +83,9 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final items = ref.watch(monitorControllerProvider);
+    final refresh = ref.watch(monitorRefreshProvider);
     final settings =
-        ref.watch(settingsControllerProvider).value ?? const AppSettings();
+        ref.watch(settingsControllerProvider).value ?? AppSettings();
     final monitor = _find(items.value ?? const <MonitorEntry>[]);
     if (monitor == null) {
       return Scaffold(
@@ -96,6 +97,11 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ),
       );
     }
+    final checking = ref.watch(
+      monitorCheckActivityProvider.select(
+        (active) => active.contains(monitor.id),
+      ),
+    );
     final status = monitor.overallStatus(
       warningDays: settings.firstWarningDays,
       criticalDays: settings.secondWarningDays,
@@ -142,19 +148,25 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Edit',
-            onPressed: () => context.push('/monitor/${monitor.id}/edit'),
+            onPressed: checking || refresh.isRunning
+                ? null
+                : () => context.push('/monitor/${monitor.id}/edit'),
             icon: const PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
           ),
           IconButton(
             tooltip: 'Delete',
-            onPressed: () => _delete(monitor),
+            onPressed: checking || refresh.isRunning
+                ? null
+                : () => _delete(monitor),
             icon: const PhosphorIcon(PhosphorIconsDuotone.trash),
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => _refresh(monitor),
+        onRefresh: refresh.isRunning
+            ? () => ref.read(monitorControllerProvider.notifier).refreshAll()
+            : () => _refresh(monitor),
         child: SingleChildScrollView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
@@ -162,6 +174,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              if (refresh.shouldShowStatus) ...<Widget>[
+                const MonitorRefreshBanner(),
+                const SizedBox(height: 14),
+              ],
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
@@ -209,8 +225,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   StatusPill(status: status),
                   const Spacer(),
                   FilledButton.icon(
-                    onPressed: _checking ? null : () => _refresh(monitor),
-                    icon: _checking
+                    onPressed: checking || refresh.isRunning
+                        ? null
+                        : () => _refresh(monitor),
+                    icon: checking
                         ? const SizedBox.square(
                             dimension: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
@@ -219,7 +237,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                             PhosphorIconsRegular.arrowsClockwise,
                             size: 17,
                           ),
-                    label: Text(_checking ? 'Checking' : 'Check now'),
+                    label: Text(checking ? 'Checking' : 'Check now'),
                   ),
                 ],
               ),
@@ -321,18 +339,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                     _InfoRow(
                       icon: PhosphorIconsDuotone.calendarCheck,
                       label: 'Registered',
-                      value: _domainDate(
-                        monitor,
-                        monitor.domainRegisteredAt,
-                      ),
+                      value: _domainDate(monitor, monitor.domainRegisteredAt),
                     ),
                     _InfoRow(
                       icon: PhosphorIconsRegular.clock,
                       label: 'Last changed',
-                      value: _domainDate(
-                        monitor,
-                        monitor.domainUpdatedAt,
-                      ),
+                      value: _domainDate(monitor, monitor.domainUpdatedAt),
                     ),
                     _InfoRow(
                       icon: PhosphorIconsRegular.network,
@@ -465,7 +477,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  'Published configuration, not a delivery or reputation score.',
+                  'Published configuration only; Akshi does not test mail delivery, reputation, or live mail flow.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -473,7 +485,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 if (monitor.emailPosture != null) ...<Widget>[
                   const SizedBox(height: 8),
                   Text(
-                    'DNS data checked ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
+                    'Email configuration analyzed ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -486,7 +498,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                         ? PhosphorIconsDuotone.info
                         : PhosphorIconsDuotone.cloudSlash,
                     title: monitor.emailActivity.failure == null
-                        ? 'Email not checked yet'
+                        ? 'Email not analyzed yet'
                         : 'Email DNS lookup unavailable',
                     message: monitor.emailActivity.failure?.message ?? 'Run a check to inspect the domain’s public mail records.',
                     error: monitor.emailActivity.failure != null,
@@ -506,10 +518,17 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 children: <Widget>[
                   _InfoRow(
                     icon: PhosphorIconsRegular.clock,
-                    label: 'Last checked',
-                    value: monitor.lastCheckedAt == null
+                    label: 'Last attempted',
+                    value: monitor.lastAttemptedAt == null
                         ? 'Never'
-                        : _formatDateTime(monitor.lastCheckedAt!),
+                        : _formatDateTime(monitor.lastAttemptedAt!),
+                  ),
+                  _InfoRow(
+                    icon: PhosphorIconsDuotone.checkCircle,
+                    label: 'Last verified',
+                    value: monitor.lastVerifiedAt == null
+                        ? 'Never'
+                        : _formatDateTime(monitor.lastVerifiedAt!),
                     last: true,
                   ),
                 ],
@@ -654,10 +673,6 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
-    if (_checking) {
-      return;
-    }
-    setState(() => _checking = true);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
     } catch (error, stackTrace) {
@@ -671,10 +686,6 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _checking = false);
       }
     }
   }
@@ -707,9 +718,23 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
     if (confirmed != true) {
       return;
     }
-    await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
-    if (mounted) {
-      context.go('/');
+    try {
+      await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
+      if (mounted) {
+        context.go('/');
+      }
+    } catch (error, stackTrace) {
+      appLogger.error(
+        'ui.monitor_detail.delete.failed',
+        error,
+        stackTrace,
+        data: <String, Object?>{'monitorId': monitor.id},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+      }
     }
   }
 }
@@ -1139,10 +1164,7 @@ class _MailFindingCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              MonitorIconBadge(
-                icon: icon,
-                color: color,
-              ),
+              MonitorIconBadge(icon: icon, color: color),
               const SizedBox(width: 11),
               Expanded(
                 child: Text(
@@ -1262,10 +1284,7 @@ String _domainText(
   return value ?? unpublished;
 }
 
-String _domainDate(
-  MonitorEntry monitor,
-  DateTime? value,
-) {
+String _domainDate(MonitorEntry monitor, DateTime? value) {
   if (monitor.domainSource == null) {
     return 'Not available';
   }

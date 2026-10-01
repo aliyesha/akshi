@@ -8,16 +8,31 @@ void main() {
     expect(format24HourTime(hour: 23, minute: 59), '23:59');
   });
 
-  test('date-time formatting is context-free and unambiguous', () {
+  test('calendar dates use day, full month name, and year', () {
+    expect(formatCalendarDate(year: 2026, month: 5, day: 24), '24 May 2026');
+  });
+
+  test('local date-time formatting is context-free and unambiguous', () {
     expect(
-      formatLocalDateTime(DateTime(2026, 9, 23, 21, 7)),
-      '2026-09-23 · 21:07',
+      formatLocalDateTime(DateTime(2026, 8, 23, 21, 7)),
+      '23 August 2026 · 21:07',
+    );
+  });
+
+  test('diagnostic UTC timestamps use the same date and clock contract', () {
+    expect(
+      formatUtcDateTime(DateTime.utc(2026, 5, 24, 18, 5)),
+      '24 May 2026 · 18:05 UTC',
     );
   });
 
   test('invalid clock values fail at the formatter boundary', () {
+    expect(() => format24HourTime(hour: 24, minute: 0), throwsRangeError);
+  });
+
+  test('invalid calendar values fail at the formatter boundary', () {
     expect(
-      () => format24HourTime(hour: 24, minute: 0),
+      () => formatCalendarDate(year: 2026, month: 2, day: 29),
       throwsRangeError,
     );
   });

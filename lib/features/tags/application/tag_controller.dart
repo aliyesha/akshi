@@ -1,5 +1,6 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/tags/domain/monitor_tag.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -11,7 +12,12 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
   @override
   Future<List<MonitorTag>> build() => ref.watch(tagRepositoryProvider).all();
 
-  Future<MonitorTag> create({
+  Future<MonitorTag> create({required String name, required int colorArgb}) =>
+      ref
+          .read(monitorRefreshProvider.notifier)
+          .runMutation(() => _create(name: name, colorArgb: colorArgb));
+
+  Future<MonitorTag> _create({
     required String name,
     required int colorArgb,
   }) async {
@@ -36,7 +42,11 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
     return tag;
   }
 
-  Future<void> updateTag(MonitorTag tag) async {
+  Future<void> updateTag(MonitorTag tag) => ref
+      .read(monitorRefreshProvider.notifier)
+      .runMutation(() => _updateTag(tag));
+
+  Future<void> _updateTag(MonitorTag tag) async {
     final flow = appLogger.start(
       'tag.update',
       data: <String, Object?>{'tagId': tag.id, 'colorArgb': tag.colorArgb},
@@ -46,6 +56,7 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
           .read(tagRepositoryProvider)
           .update(tag.copyWith(name: tag.name.trim()));
       await _reload();
+      ref.invalidate(monitorControllerProvider);
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
       rethrow;
@@ -53,7 +64,10 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
     flow.info('completed');
   }
 
-  Future<void> delete(String id) async {
+  Future<void> delete(String id) =>
+      ref.read(monitorRefreshProvider.notifier).runMutation(() => _delete(id));
+
+  Future<void> _delete(String id) async {
     final flow = appLogger.start(
       'tag.delete',
       data: <String, Object?>{'tagId': id},
@@ -62,6 +76,7 @@ class TagController extends AsyncNotifier<List<MonitorTag>> {
       await ref.read(tagRepositoryProvider).delete(id);
       await _reload();
       ref.invalidate(monitorRepositoryProvider);
+      ref.invalidate(monitorControllerProvider);
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
       rethrow;

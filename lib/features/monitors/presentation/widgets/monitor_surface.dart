@@ -60,10 +60,6 @@ class MonitorIconBadge extends StatelessWidget {
       color: color.withValues(alpha: .1),
       borderRadius: BorderRadius.circular(size * .3),
     ),
-    child: PhosphorIcon(
-      icon,
-      size: size * .52,
-      color: color,
-    ),
+    child: PhosphorIcon(icon, size: size * .52, color: color),
   );
 }
