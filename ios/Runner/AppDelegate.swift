@@ -118,13 +118,21 @@ import UserNotifications
           DispatchQueue.main.async { result(status) }
         }
       case "openNotificationSettings":
-        guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else {
+        let settingsUrlString: String
+        if #available(iOS 15.4, *) {
+          settingsUrlString = UIApplication.openNotificationSettingsURLString
+        } else {
+          settingsUrlString = UIApplication.openSettingsURLString
+        }
+        guard let settingsUrl = URL(string: settingsUrlString) else {
           result(false)
           return
         }
         UIApplication.shared.open(settingsUrl, options: [:]) { opened in
           result(opened)
         }
+      case "markNotificationPermissionRequested":
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }

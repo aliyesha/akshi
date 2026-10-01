@@ -13,22 +13,37 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
-  test('opens this app notification settings through the platform channel', () async {
+  test(
+    'opens this app notification settings through the platform channel',
+    () async {
+      MethodCall? received;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        received = call;
+        return true;
+      });
+
+      expect(await SystemSettingsService.openNotificationSettings(), isTrue);
+      expect(received?.method, 'openNotificationSettings');
+      expect(received?.arguments, isNull);
+    },
+  );
+
+  test('reports when platform settings cannot be opened', () async {
+    messenger.setMockMethodCallHandler(channel, (_) async => false);
+
+    expect(await SystemSettingsService.openNotificationSettings(), isFalse);
+  });
+
+  test('marks that the OS notification permission was requested', () async {
     MethodCall? received;
     messenger.setMockMethodCallHandler(channel, (call) async {
       received = call;
       return true;
     });
 
-    expect(await SystemSettingsService.openNotificationSettings(), isTrue);
-    expect(received?.method, 'openNotificationSettings');
+    await SystemSettingsService.markNotificationPermissionRequested();
+    expect(received?.method, 'markNotificationPermissionRequested');
     expect(received?.arguments, isNull);
-  });
-
-  test('reports when platform settings cannot be opened', () async {
-    messenger.setMockMethodCallHandler(channel, (_) async => false);
-
-    expect(await SystemSettingsService.openNotificationSettings(), isFalse);
   });
 
   test('reads the current notification permission status', () async {

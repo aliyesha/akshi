@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/notification_destination.dart';
+import 'package:akshi/core/services/system_settings_service.dart';
 import 'package:akshi/features/reminders/application/alarm_reconciler.dart';
 import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -23,22 +24,41 @@ class NotificationService implements AlarmPlatformGateway {
       StreamController<String>.broadcast();
   Future<void>? _initialization;
   bool _initialized = false;
+  bool _disposed = false;
   String? _pendingRoute;
 
+  /// Routes produced when a validated notification is selected.
   Stream<String> get navigationRoutes => _navigationRoutes.stream;
 
+  /// Removes and returns the route captured before navigation subscribed.
   String? takePendingRoute() {
     final route = _pendingRoute;
     _pendingRoute = null;
     return route;
   }
 
-  Future<void> initialize() => _initialization ??= _initialize();
+  /// Initializes the plugin once, joining concurrent callers.
+  ///
+  /// A failed attempt clears itself so a later foreground operation can retry.
+  Future<void> initialize() {
+    _ensureActive();
+    if (_initialized) return Future<void>.value();
+    final active = _initialization;
+    if (active != null) return active;
+
+    late final Future<void> operation;
+    operation = _initialize().whenComplete(() {
+      if (identical(_initialization, operation)) {
+        _initialization = null;
+      }
+    });
+    _initialization = operation;
+    return operation;
+  }
 
   Future<void> _initialize() async {
-    if (_initialized) return;
     tz_data.initializeTimeZones();
-    await _plugin.initialize(
+    final initialized = await _plugin.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_notification'),
         iOS: DarwinInitializationSettings(
@@ -49,6 +69,10 @@ class NotificationService implements AlarmPlatformGateway {
       ),
       onDidReceiveNotificationResponse: _handleResponse,
     );
+    if (initialized == false) {
+      throw StateError('Notification plugin initialization failed');
+    }
+    if (_disposed) return;
     _initialized = true;
     try {
       final launchDetails = await _plugin.getNotificationAppLaunchDetails();
@@ -75,10 +99,12 @@ class NotificationService implements AlarmPlatformGateway {
   }
 
   void _handleResponse(NotificationResponse response) {
+    if (_disposed) return;
     _queuePayload(response.payload);
   }
 
   void _queuePayload(String? payload) {
+    if (_disposed) return;
     final destination = NotificationDestination.fromPayload(payload);
     if (destination == null) return;
     if (_navigationRoutes.hasListener) {
@@ -101,6 +127,7 @@ class NotificationService implements AlarmPlatformGateway {
             IOSFlutterLocalNotificationsPlugin
           >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
+      await SystemSettingsService.markNotificationPermissionRequested();
       return android ?? ios ?? true;
     } on Object catch (error, stackTrace) {
       appLogger.error(
@@ -172,4 +199,18 @@ class NotificationService implements AlarmPlatformGateway {
       threadIdentifier: 'expiry-reminders',
     ),
   );
+
+  /// Releases the navigation stream owned by this service.
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _pendingRoute = null;
+    await _navigationRoutes.close();
+  }
+
+  void _ensureActive() {
+    if (_disposed) {
+      throw StateError('NotificationService has been disposed');
+    }
+  }
 }

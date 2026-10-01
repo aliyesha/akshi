@@ -1,5 +1,16 @@
 import 'dart:convert';
 
+/// Conservative cross-platform ceiling for Akshi's local notification data.
+///
+/// Normal expiry payloads are only a few kilobytes. A 32 KiB boundary leaves
+/// ample room while preventing accidental unbounded data from reaching either
+/// native notification bridge.
+const maximumNotificationPayloadBytes = 32 * 1024;
+
+/// Whether [value] fits Akshi's UTF-8 notification payload boundary.
+bool notificationPayloadFits(String value) =>
+    utf8.encode(value).length <= maximumNotificationPayloadBytes;
+
 /// Navigation-only projection of a validated expiry-alarm payload.
 class NotificationDestination {
   const NotificationDestination({
@@ -20,7 +31,11 @@ class NotificationDestination {
   ).toString();
 
   static NotificationDestination? fromPayload(String? payload) {
-    if (payload == null || payload.isEmpty) return null;
+    if (payload == null ||
+        payload.isEmpty ||
+        !notificationPayloadFits(payload)) {
+      return null;
+    }
     try {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic> ||

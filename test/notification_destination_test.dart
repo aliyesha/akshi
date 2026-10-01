@@ -84,6 +84,38 @@ void main() {
     );
   });
 
+  test('oversized payloads are rejected before the native boundary', () {
+    final oversized = List<String>.filled(
+      maximumNotificationPayloadBytes + 1,
+      'x',
+    ).join();
+    expect(notificationPayloadFits(oversized), isFalse);
+    expect(NotificationDestination.fromPayload(oversized), isNull);
+
+    final utc = tz.UTC;
+    const date = AlarmDate(2026, 5, 14);
+    final oversizedAlarm = ExpiryAlarmSpec(
+      date: date,
+      scheduledAt: date.at(utc, 9, 0),
+      timeZoneId: utc.name,
+      items: <ExpiryAlarmItem>[
+        ExpiryAlarmItem(
+          monitorId: oversized,
+          hostname: 'example.com',
+          reasons: const <ExpiryAlarmReason>[
+            ExpiryAlarmReason(
+              kind: ExpiryAlarmKind.domainRegistration,
+              expiryDate: AlarmDate(2026, 5, 24),
+              warningDays: 10,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    expect(() => oversizedAlarm.payload, throwsStateError);
+  });
+
   test('observed parser rejects a modified integrity revision', () {
     final json = jsonDecode(alarm.payload) as Map<String, dynamic>;
     json['date'] = '2026-05-15';
@@ -108,5 +140,12 @@ void main() {
     expect(observed, isNotNull);
     expect(observed!.matches(alarm), isTrue);
     expect(observed.monitorIds, <String>['first-id', 'second-id']);
+  });
+
+  test('alarm dates reject impossible calendar days', () {
+    expect(AlarmDate.parse('2026-02-28'), const AlarmDate(2026, 2, 28));
+    for (final value in <String>['2026-02-29', '2026-06-31']) {
+      expect(() => AlarmDate.parse(value), throwsA(isA<FormatException>()));
+    }
   });
 }

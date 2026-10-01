@@ -19,12 +19,26 @@ enum NotificationPermissionStatus {
 /// Permission prompts are controlled by the OS and may only be shown once.
 /// This route gives users a deterministic recovery path after a denial.
 abstract final class SystemSettingsService {
-  static const _channel = MethodChannel(
-    'com.aliyesha.akshi/system_settings',
-  );
+  static const _channel = MethodChannel('com.aliyesha.akshi/system_settings');
 
   static Future<bool> openNotificationSettings() async =>
       await _channel.invokeMethod<bool>('openNotificationSettings') ?? false;
+
+  /// Records that Akshi has handed the notification request to the OS.
+  ///
+  /// Android needs this distinction because a denied runtime permission and a
+  /// permission that has never been requested otherwise have the same native
+  /// grant value. iOS reports `notDetermined` directly, so its implementation
+  /// is intentionally a no-op.
+  static Future<void> markNotificationPermissionRequested() async {
+    try {
+      await _channel.invokeMethod<bool>('markNotificationPermissionRequested');
+    } on MissingPluginException {
+      // Tests and unsupported platforms do not have a native marker.
+    } on PlatformException {
+      // Permission state remains authoritative even if the marker is unavailable.
+    }
+  }
 
   static Future<NotificationPermissionStatus>
   notificationPermissionStatus() async {
