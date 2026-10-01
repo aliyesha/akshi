@@ -1,45 +1,99 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:akshi/core/services/email_posture_service.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test(
-    'reports concrete healthy mail facts without inventing a score',
-    () async {
-      final snapshot = _snapshot(<DnsQueryResult>[
-        _answered('example.com', DnsRecordType.mx, <DnsRecord>[
-          _mx('example.com', 10, 'mail.example.com'),
-        ]),
-        _txt('example.com', <String>['v=spf1 mx -all']),
-        _txt('_dmarc.example.com', <String>['v=DMARC1; p=reject']),
-        _absent('_mta-sts.example.com', DnsRecordType.txt),
-        _txt('_smtp._tls.example.com', <String>[
-          'v=TLSRPTv1; rua=mailto:tls@example.com',
-        ]),
-        _txt('mail._domainkey.example.com', <String>[
-          'v=DKIM1; k=rsa; p=abc123',
-        ]),
-      ]);
+  group('bounded MTA-STS policy reader', () {
+    const reader = MtaStsPolicyReader(maxBytes: 64);
 
-      final posture = await EmailPostureService().check(
-        snapshot,
-        'example.com',
-        sends: true,
-        receives: true,
-        dkimSelectors: const <String>['mail'],
+    test('uses a 128 KiB production boundary', () {
+      expect(MtaStsPolicyReader.defaultMaxBytes, 128 * 1024);
+    });
+
+    test('reads valid UTF-8 policy text', () async {
+      final bytes = utf8.encode(
+        'version: STSv1\nmode: enforce\nmx: mail.example.com\nmax_age: 86400',
       );
 
-      MailFinding finding(String id) =>
-          posture.findings.singleWhere((finding) => finding.id == id);
-      expect(finding('mx').state, MailFindingState.healthy);
-      expect(finding('spf').state, MailFindingState.healthy);
-      expect(finding('dmarc').state, MailFindingState.healthy);
-      expect(finding('tls-rpt').state, MailFindingState.healthy);
-      expect(finding('dkim-mail').state, MailFindingState.healthy);
-      expect(finding('mta-sts').state, MailFindingState.informational);
-    },
-  );
+      final policy = await reader.read(
+        Stream<List<int>>.value(bytes),
+        contentLength: bytes.length,
+      );
+
+      expect(policy, contains('mode: enforce'));
+    });
+
+    test('rejects and cancels an oversized declared body', () async {
+      const smallReader = MtaStsPolicyReader(maxBytes: 4);
+      var wasCancelled = false;
+      final body = StreamController<List<int>>(
+        onCancel: () {
+          wasCancelled = true;
+        },
+      );
+      addTearDown(() => unawaited(body.close()));
+
+      await expectLater(
+        smallReader.read(body.stream, contentLength: 5),
+        throwsA(isA<FormatException>()),
+      );
+      expect(wasCancelled, isTrue);
+    });
+
+    test('applies one timeout to the complete response body', () async {
+      final body = StreamController<List<int>>();
+      addTearDown(() => unawaited(body.close()));
+      const impatientReader = MtaStsPolicyReader(
+        maxBytes: 64,
+        timeout: Duration(milliseconds: 20),
+      );
+
+      await expectLater(
+        impatientReader.read(body.stream, contentLength: null),
+        throwsA(isA<TimeoutException>()),
+      );
+    });
+  });
+
+  test('reports concrete mail facts without inventing validation', () async {
+    final snapshot = _snapshot(<DnsQueryResult>[
+      _answered('example.com', DnsRecordType.mx, <DnsRecord>[
+        _mx('example.com', 10, 'mail.example.com'),
+      ]),
+      _txt('example.com', <String>['v=spf1 mx -all']),
+      _txt('_dmarc.example.com', <String>['v=DMARC1; p=reject']),
+      _absent('_mta-sts.example.com', DnsRecordType.txt),
+      _txt('_smtp._tls.example.com', <String>[
+        'v=TLSRPTv1; rua=mailto:tls@example.com',
+      ]),
+      _txt('mail._domainkey.example.com', <String>['v=DKIM1; k=rsa; p=abc123']),
+    ]);
+
+    final posture = await EmailPostureService().check(
+      snapshot,
+      'example.com',
+      sends: true,
+      receives: true,
+      dkimSelectors: const <String>['mail'],
+    );
+
+    MailFinding finding(String id) =>
+        posture.findings.singleWhere((finding) => finding.id == id);
+    expect(finding('mx').state, MailFindingState.healthy);
+    expect(finding('spf').state, MailFindingState.informational);
+    expect(finding('dmarc').state, MailFindingState.informational);
+    expect(finding('tls-rpt').state, MailFindingState.informational);
+    expect(finding('dkim-mail').state, MailFindingState.informational);
+    expect(finding('mta-sts').state, MailFindingState.informational);
+    expect(
+      finding('spf').summary,
+      contains('does not test it against a sending server'),
+    );
+  });
 
   test('preserves repeated TXT values when validating SPF', () async {
     final snapshot = _snapshot(<DnsQueryResult>[
@@ -107,11 +161,35 @@ void main() {
       );
       expect(
         posture.findings.singleWhere((finding) => finding.id == 'dmarc').state,
-        MailFindingState.healthy,
+        MailFindingState.informational,
       );
       expect(posture.hasUnavailable, isTrue);
     },
   );
+
+  test('shows only findings for the selected email role', () async {
+    final snapshot = _snapshot(<DnsQueryResult>[
+      _answered('example.com', DnsRecordType.mx, <DnsRecord>[
+        _mx('example.com', 10, 'mail.example.com'),
+      ]),
+      _absent('_mta-sts.example.com', DnsRecordType.txt),
+      _absent('_smtp._tls.example.com', DnsRecordType.txt),
+    ]);
+
+    final posture = await EmailPostureService().check(
+      snapshot,
+      'example.com',
+      sends: false,
+      receives: true,
+      dkimSelectors: const <String>['ignored'],
+    );
+
+    expect(posture.findings.map((finding) => finding.id), <String>[
+      'mx',
+      'mta-sts',
+      'tls-rpt',
+    ]);
+  });
 }
 
 DnsSnapshot _snapshot(List<DnsQueryResult> queries) =>

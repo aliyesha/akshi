@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/services/bounded_response_reader.dart';
 import 'package:akshi/features/monitors/domain/check_result.dart';
 
 /// Reads public RDAP registration data using IANA's TLD bootstrap map.
@@ -13,6 +14,7 @@ class RdapService {
 
   static const _bootstrapUri = 'https://data.iana.org/rdap/dns.json';
   final HttpClient _client;
+  final _responseReader = const RdapResponseReader();
   Map<String, String>? _services;
 
   /// Resolves the registrable domain and returns normalized registration facts.
@@ -90,25 +92,94 @@ class RdapService {
     Uri uri, {
     bool allowNotFound = false,
   }) async {
-    final request = await _client
-        .getUrl(uri)
-        .timeout(const Duration(seconds: 12));
+    final request = await _client.getUrl(uri).timeout(_responseReader.timeout);
     request.headers.set(
       HttpHeaders.acceptHeader,
       'application/rdap+json, application/json',
     );
     request.headers.set(HttpHeaders.userAgentHeader, 'Akshi/0.1');
-    final response = await request.close().timeout(const Duration(seconds: 12));
+    final response = await request.close().timeout(_responseReader.timeout);
     if (allowNotFound && response.statusCode == HttpStatus.notFound) {
-      await response.drain<void>();
+      await cancelResponseBody(response);
       return null;
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      await response.drain<void>();
+      await cancelResponseBody(response);
       throw RdapException('Registry returned ${response.statusCode}');
     }
-    final body = await utf8.decoder.bind(response).join();
-    return jsonDecode(body) as Map<String, dynamic>;
+    return _responseReader.read(
+      response,
+      contentType: response.headers.value(HttpHeaders.contentTypeHeader),
+      contentLength: response.contentLength < 0 ? null : response.contentLength,
+    );
+  }
+}
+
+/// Reads one RDAP JSON object within explicit media, size, and time limits.
+class RdapResponseReader {
+  /// Creates a reader with explicit byte and total-duration limits.
+  const RdapResponseReader({
+    this.maxBytes = defaultMaxBytes,
+    this.timeout = defaultTimeout,
+  }) : assert(maxBytes > 0);
+
+  /// Two MiB comfortably covers ordinary bootstrap and domain responses while
+  /// keeping concurrent mobile checks within a predictable memory envelope.
+  static const defaultMaxBytes = 2 * 1024 * 1024;
+
+  /// Maximum time allowed from the first body read until completion.
+  static const defaultTimeout = Duration(seconds: 12);
+
+  /// Maximum response-body bytes buffered before JSON parsing.
+  final int maxBytes;
+
+  /// Maximum total duration allowed for reading the response body.
+  final Duration timeout;
+
+  /// Validates response metadata, reads at most [maxBytes], and requires a JSON
+  /// object. Unknown-length and chunked responses are bounded while streaming.
+  Future<Map<String, dynamic>> read(
+    Stream<List<int>> body, {
+    required String? contentType,
+    required int? contentLength,
+  }) async {
+    try {
+      _validateContentType(contentType);
+    } catch (_) {
+      await cancelResponseBody(body);
+      rethrow;
+    }
+
+    final bytes = await readBoundedResponseBody(
+      body,
+      maximumBytes: maxBytes,
+      timeout: timeout,
+      contentLength: contentLength,
+    );
+    final decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is! Map) {
+      throw const FormatException('RDAP response is not a JSON object.');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
+  void _validateContentType(String? value) {
+    if (value == null) {
+      throw const FormatException('RDAP response has no Content-Type.');
+    }
+
+    late final ContentType parsed;
+    try {
+      parsed = ContentType.parse(value);
+    } on FormatException {
+      throw const FormatException('RDAP response has an invalid Content-Type.');
+    }
+    final mimeType = parsed.mimeType.toLowerCase();
+    if (mimeType != 'application/rdap+json' && mimeType != 'application/json') {
+      throw FormatException(
+        'RDAP response uses unsupported Content-Type $mimeType.',
+      );
+    }
   }
 }
 

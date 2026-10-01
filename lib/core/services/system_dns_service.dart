@@ -85,11 +85,9 @@ class SystemDnsService {
 /// Every requested query is isolated behind its own failure boundary, so one
 /// unavailable record does not erase useful results from the other queries.
 class DnsSnapshotService {
-  DnsSnapshotService({
-    SystemDnsService? dns,
-    AsyncConcurrencyGate? gate,
-  }) : _dns = dns ?? const SystemDnsService(),
-       _gate = gate ?? AsyncConcurrencyGate(maximum: 10);
+  DnsSnapshotService({SystemDnsService? dns, AsyncConcurrencyGate? gate})
+    : _dns = dns ?? const SystemDnsService(),
+      _gate = gate ?? AsyncConcurrencyGate(maximum: 10);
 
   final SystemDnsService _dns;
   final AsyncConcurrencyGate _gate;
@@ -279,7 +277,11 @@ String _normalizeName(String name) =>
 
 /// Converts platform exceptions into user-facing, non-stack-trace text.
 String _errorMessage(Object error) => switch (error) {
-  PlatformException(:final message?) => message,
+  PlatformException(code: 'dns_error') =>
+    'The system DNS resolver could not complete this lookup.',
+  PlatformException() =>
+    'The system DNS resolver returned an invalid response.',
   TimeoutException() => 'The DNS lookup timed out.',
-  _ => error.toString(),
+  SocketException() => 'The device could not reach its DNS resolver.',
+  _ => 'This DNS lookup could not be completed.',
 };

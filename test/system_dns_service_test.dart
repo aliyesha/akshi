@@ -81,6 +81,72 @@ void main() {
     expect(result.records.map((record) => record.preference), <int>[10, 20]);
     expect(result.records.first.value, 'mail.example.com');
   });
+
+  test(
+    'snapshot requests only supported root records when email is off',
+    () async {
+      final requested = <({String name, int type})>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            final arguments = Map<String, Object?>.from(call.arguments as Map);
+            requested.add((
+              name: arguments['name']! as String,
+              type: arguments['type']! as int,
+            ));
+            return <String, Object?>{'records': <Object?>[]};
+          });
+
+      final snapshot = await DnsSnapshotService().check(
+        'example.com',
+        checkEmailSending: false,
+        checkEmailReceiving: false,
+        dkimSelectors: const <String>[],
+      );
+
+      expect(requested, hasLength(DnsRecordType.values.length));
+      expect(
+        requested,
+        unorderedEquals(
+          DnsRecordType.values.map(
+            (type) => (name: 'example.com', type: type.code),
+          ),
+        ),
+      );
+      expect(snapshot.hasFailures, isFalse);
+      expect(
+        snapshot.queries.every((query) => query.state == DnsQueryState.absent),
+        isTrue,
+      );
+    },
+  );
+
+  test('snapshot keeps native DNS details out of user-facing errors', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (_) => throw PlatformException(
+            code: 'dns_error',
+            message: 'private native resolver detail',
+          ),
+        );
+
+    final snapshot = await DnsSnapshotService().check(
+      'example.com',
+      checkEmailSending: false,
+      checkEmailReceiving: false,
+      dkimSelectors: const <String>[],
+    );
+
+    expect(snapshot.queries.map((query) => query.error).toSet(), <String>{
+      'The system DNS resolver could not complete this lookup.',
+    });
+    expect(
+      snapshot.queries.any(
+        (query) => query.error?.contains('private native') ?? false,
+      ),
+      isFalse,
+    );
+  });
 }
 
 Map<String, Object?> _nativeRecord({

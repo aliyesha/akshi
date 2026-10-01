@@ -10,10 +10,9 @@ abstract final class ExternalLinkService {
     if (uri.scheme != 'https' || uri.host.isEmpty) {
       throw ArgumentError.value(uri, 'uri', 'A valid HTTPS URL is required');
     }
-    final opened = await _channel.invokeMethod<bool>(
-      'open',
-      <String, Object?>{'url': uri.toString()},
-    );
+    final opened = await _channel.invokeMethod<bool>('open', <String, Object?>{
+      'url': uri.toString(),
+    });
     if (opened != true) {
       throw StateError('No application could open the link');
     }

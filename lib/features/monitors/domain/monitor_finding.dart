@@ -114,8 +114,7 @@ List<MonitorFinding> findingsForMonitor(
       MonitorFinding(
         kind: MonitorCheckKind.emailConfiguration,
         status:
-            emailUnavailable ||
-                (monitor.emailPosture?.hasUnavailable ?? false)
+            emailUnavailable || (monitor.emailPosture?.hasUnavailable ?? false)
             ? MonitorStatus.unavailable
             : monitor.emailPosture == null
             ? MonitorStatus.unknown

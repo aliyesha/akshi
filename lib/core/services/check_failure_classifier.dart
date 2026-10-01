@@ -11,13 +11,12 @@ import 'package:flutter/services.dart';
 /// Classification keeps the last successful observation meaningful when the
 /// device is offline or a public source is temporarily unavailable.
 class CheckFailureClassifier {
-  CheckFailureClassifier({
-    Connectivity? connectivity,
-    this._offlineCheck,
-  }) : _connectivity = connectivity ?? Connectivity();
+  CheckFailureClassifier({Connectivity? connectivity, this._offlineCheck})
+    : _connectivity = connectivity ?? Connectivity();
 
   final Connectivity _connectivity;
   final Future<bool> Function()? _offlineCheck;
+
   /// Reports whether every connectivity result currently indicates no network.
   Future<bool> get deviceIsOffline async {
     try {

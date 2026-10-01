@@ -26,10 +26,8 @@ void main() {
   });
 
   group('TLS endpoint failure reporting', () {
-    final classifier = CheckFailureClassifier(
-      offlineCheck: () async => false,
-    );
-    final occurredAt = DateTime.utc(2026, 9, 23);
+    final classifier = CheckFailureClassifier(offlineCheck: () async => false);
+    final occurredAt = DateTime.utc(2026, 8, 23);
 
     test('explains when a service does not speak direct TLS', () async {
       final failure = await classifier.classify(

@@ -134,31 +134,8 @@ class DnsSnapshot {
     return null;
   }
 
-  /// Compares configuration values while ignoring TTL and answer ordering.
-  ///
-  /// Failed current queries are skipped because temporary unavailability is
-  /// not evidence that a DNS configuration changed. Duplicate values remain
-  /// in the canonical lists, so adding or removing one repeated answer is
-  /// detected.
-  bool hasRecordChangesFrom(DnsSnapshot previous) {
-    for (final currentQuery in queries) {
-      if (currentQuery.state == DnsQueryState.failed) continue;
-      final previousQuery = previous.query(
-        currentQuery.name,
-        currentQuery.type,
-      );
-      if (previousQuery == null ||
-          previousQuery.state == DnsQueryState.failed) {
-        continue;
-      }
-      if (!_sameValues(currentQuery.records, previousQuery.records)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// Whether at least one query could not be completed.
+  /// Whether at least one query could not be completed. This is diagnostic
+  /// context only and must never participate in monitor health.
   bool get hasFailures =>
       queries.any((query) => query.state == DnsQueryState.failed);
 
@@ -178,27 +155,4 @@ class DnsSnapshot {
         )
         .toList(growable: false),
   );
-}
-
-/// Compares record multisets without considering resolver TTL churn.
-bool _sameValues(List<DnsRecord> left, List<DnsRecord> right) {
-  if (left.length != right.length) return false;
-  List<String> values(List<DnsRecord> records) {
-    final result = records
-        .map(
-          (record) =>
-              '${record.owner}|${record.type.name}|'
-              '${record.preference ?? ''}|${record.value}',
-        )
-        .toList();
-    result.sort();
-    return result;
-  }
-
-  final leftValues = values(left);
-  final rightValues = values(right);
-  return List<int>.generate(
-    leftValues.length,
-    (index) => index,
-  ).every((index) => leftValues[index] == rightValues[index]);
 }

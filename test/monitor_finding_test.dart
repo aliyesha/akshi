@@ -27,7 +27,8 @@ void main() {
     checksEmail: checksEmail,
     createdAt: now,
     updatedAt: now,
-    lastCheckedAt: now,
+    lastAttemptedAt: now,
+    lastVerifiedAt: now,
     domainExpiresAt: domainExpiry,
     certificateExpiresAt: certificateExpiry,
     tlsTrusted: tlsTrusted,
@@ -61,7 +62,7 @@ void main() {
     );
     final activity = CheckActivity(
       lastAttemptedAt: now,
-      lastSucceededAt: now.subtract(const Duration(days: 1)),
+      lastVerifiedAt: now.subtract(const Duration(days: 1)),
       failure: failure,
     );
     final findings = findingsForMonitor(
@@ -76,10 +77,10 @@ void main() {
       now: now,
     );
 
-    expect(
-      findings.map((finding) => finding.status),
-      <MonitorStatus>[MonitorStatus.healthy, MonitorStatus.healthy],
-    );
+    expect(findings.map((finding) => finding.status), <MonitorStatus>[
+      MonitorStatus.healthy,
+      MonitorStatus.healthy,
+    ]);
     expect(findings.any((finding) => finding.needsAttention), isFalse);
   });
 
@@ -122,7 +123,8 @@ void main() {
         checksEmail: true,
         createdAt: now,
         updatedAt: now,
-        lastCheckedAt: now,
+        lastAttemptedAt: now,
+        lastVerifiedAt: now,
         domainExpiresAt: now.add(const Duration(days: 90)),
         certificateExpiresAt: now.add(const Duration(days: 60)),
         tlsTrusted: true,
@@ -164,7 +166,8 @@ void main() {
         checksEmail: true,
         createdAt: now,
         updatedAt: now,
-        lastCheckedAt: now,
+        lastAttemptedAt: now,
+        lastVerifiedAt: now,
         domainExpiresAt: referenceTime.add(
           Duration(days: domainNeedsAttention ? 3 : 90),
         ),
@@ -251,7 +254,8 @@ void main() {
       checksEmail: true,
       createdAt: now,
       updatedAt: now,
-      lastCheckedAt: now,
+      lastAttemptedAt: now,
+      lastVerifiedAt: now,
       domainExpiresAt: now.add(const Duration(days: 90)),
       emailPosture: EmailPosture(
         checkedAt: now,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/services/bounded_response_reader.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 
@@ -14,6 +15,7 @@ class EmailPostureService {
   EmailPostureService({HttpClient? client}) : _client = client ?? HttpClient();
 
   final HttpClient _client;
+  final _policyReader = const MtaStsPolicyReader();
 
   /// Builds ordered findings for the enabled send/receive capabilities.
   ///
@@ -48,46 +50,38 @@ class EmailPostureService {
         : const <String>[];
 
     final findings = <MailFinding>[
-      _queryFinding(
-        receives ? snapshot.query(domain, DnsRecordType.mx) : null,
-        id: 'mx',
-        title: 'Mail exchange',
-        build: () => _mxFinding(mx, receives: receives),
-      ),
-      _queryFinding(
-        sends ? snapshot.query(domain, DnsRecordType.txt) : null,
-        id: 'spf',
-        title: 'SPF',
-        build: () => _spfFinding(rootTxt, sends: sends),
-      ),
-      _queryFinding(
-        sends ? snapshot.query('_dmarc.$domain', DnsRecordType.txt) : null,
-        id: 'dmarc',
-        title: 'DMARC',
-        build: () => _dmarcFinding(dmarc, sends: sends),
-      ),
-      await _mtaStsFromSnapshot(snapshot, domain, mtaSts, receives, mx),
-      _queryFinding(
-        receives
-            ? snapshot.query('_smtp._tls.$domain', DnsRecordType.txt)
-            : null,
-        id: 'tls-rpt',
-        title: 'TLS reporting',
-        build: () => _tlsRptFinding(tlsRpt, receives: receives),
-      ),
-    ];
-    for (final selector in sends ? dkimSelectors : const <String>[]) {
-      final name = '$selector._domainkey.$domain';
-      final values = _txt(snapshot, name);
-      findings.add(
+      if (receives)
         _queryFinding(
-          snapshot.query(name, DnsRecordType.txt),
-          id: 'dkim-$selector',
-          title: 'DKIM · $selector',
-          build: () => _dkimFinding(selector, values),
+          snapshot.query(domain, DnsRecordType.mx),
+          id: 'mx',
+          title: 'Mail exchange',
+          build: () => _mxFinding(mx),
         ),
-      );
-    }
+      if (sends)
+        _queryFinding(
+          snapshot.query(domain, DnsRecordType.txt),
+          id: 'spf',
+          title: 'SPF',
+          build: () => _spfFinding(rootTxt),
+        ),
+      if (sends)
+        _queryFinding(
+          snapshot.query('_dmarc.$domain', DnsRecordType.txt),
+          id: 'dmarc',
+          title: 'DMARC',
+          build: () => _dmarcFinding(dmarc),
+        ),
+      if (receives) await _mtaStsFromSnapshot(snapshot, domain, mtaSts, mx),
+      if (receives)
+        _queryFinding(
+          snapshot.query('_smtp._tls.$domain', DnsRecordType.txt),
+          id: 'tls-rpt',
+          title: 'TLS reporting',
+          build: () => _tlsRptFinding(tlsRpt),
+        ),
+      for (final selector in sends ? dkimSelectors : const <String>[])
+        _dkimFromSnapshot(snapshot, domain, selector),
+    ];
     appLogger.info(
       'service.email.check.completed',
       data: <String, Object?>{
@@ -103,17 +97,27 @@ class EmailPostureService {
     DnsSnapshot snapshot,
     String domain,
     List<String> records,
-    bool receives,
     List<DnsRecord> mx,
   ) async {
-    if (!receives) {
-      return _mtaStsFinding(domain, records, receives: false, mx: mx);
-    }
     final query = snapshot.query('_mta-sts.$domain', DnsRecordType.txt);
     if (query?.state == DnsQueryState.failed) {
       return _unavailableFinding('mta-sts', 'MTA-STS', query!);
     }
-    return _mtaStsFinding(domain, records, receives: true, mx: mx);
+    return _mtaStsFinding(domain, records, mx: mx);
+  }
+
+  MailFinding _dkimFromSnapshot(
+    DnsSnapshot snapshot,
+    String domain,
+    String selector,
+  ) {
+    final name = '$selector._domainkey.$domain';
+    return _queryFinding(
+      snapshot.query(name, DnsRecordType.txt),
+      id: 'dkim-$selector',
+      title: 'DKIM · $selector',
+      build: () => _dkimFinding(selector, _txt(snapshot, name)),
+    );
   }
 
   /// Converts a failed DNS query into an unavailable finding, otherwise builds it.
@@ -143,23 +147,13 @@ class EmailPostureService {
 
   /// Validates MTA-STS records and, when present, the HTTPS policy document.
   ///
-  /// MX coverage is checked against policy patterns; `none` remains
-  /// informational rather than an enforcement failure.
+  /// MX coverage is checked against policy patterns. Only a covered `enforce`
+  /// policy is healthy; non-enforcing modes remain informational.
   Future<MailFinding> _mtaStsFinding(
     String domain,
     List<String> records, {
-    required bool receives,
     required List<DnsRecord> mx,
   }) async {
-    if (!receives) {
-      return const MailFinding(
-        id: 'mta-sts',
-        title: 'MTA-STS',
-        state: MailFindingState.informational,
-        summary:
-            'Not checked because this domain is not marked for receiving mail.',
-      );
-    }
     final policies = records.where(_isMtaSts).toList(growable: false);
     if (policies.isEmpty) {
       return const MailFinding(
@@ -229,15 +223,24 @@ class EmailPostureService {
                   ),
                 )
                 .toList(growable: false);
+      final state = switch ((mode, unmatched.isEmpty)) {
+        (_, false) => MailFindingState.warning,
+        ('enforce', true) => MailFindingState.healthy,
+        _ => MailFindingState.informational,
+      };
+      final summary = unmatched.isNotEmpty
+          ? 'The HTTPS policy does not cover every current MX host.'
+          : switch (mode) {
+              'enforce' =>
+                'The enforced HTTPS policy covers the current MX hosts.',
+              'testing' => 'The testing policy covers the current MX hosts but does not enforce TLS.',
+              _ => 'The published policy uses mode "none" and does not enforce TLS.',
+            };
       return MailFinding(
         id: 'mta-sts',
         title: 'MTA-STS',
-        state: unmatched.isEmpty
-            ? MailFindingState.healthy
-            : MailFindingState.warning,
-        summary: unmatched.isEmpty
-            ? 'DNS and HTTPS policy are published and cover the current MX hosts.'
-            : 'The HTTPS policy does not cover every current MX host.',
+        state: state,
+        summary: summary,
         facts: <MailFact>[
           MailFact(label: 'Policy id', value: id),
           MailFact(label: 'Mode', value: mode!),
@@ -255,37 +258,63 @@ class EmailPostureService {
       return MailFinding(
         id: 'mta-sts',
         title: 'MTA-STS',
-        state: MailFindingState.warning,
+        state: MailFindingState.unavailable,
         summary: 'The DNS record exists, but the HTTPS policy could not be verified.',
         facts: <MailFact>[MailFact(label: 'Policy id', value: id)],
       );
     }
   }
 
-  /// Fetches a bounded text policy with short timeouts and no redirects.
-  ///
-  /// The size limit prevents a malformed endpoint from consuming unbounded
-  /// memory during a foreground check.
+  /// Fetches a bounded text policy with one total body deadline and no redirects.
   Future<String> _fetchText(Uri uri) async {
-    final request = await _client
-        .getUrl(uri)
-        .timeout(const Duration(seconds: 10));
+    final request = await _client.getUrl(uri).timeout(_policyReader.timeout);
     request
       ..followRedirects = false
       ..headers.set(HttpHeaders.acceptHeader, 'text/plain')
       ..headers.set(HttpHeaders.userAgentHeader, 'Akshi/1.0');
-    final response = await request.close().timeout(const Duration(seconds: 10));
+    final response = await request.close().timeout(_policyReader.timeout);
     if (response.statusCode != HttpStatus.ok) {
-      await response.drain<void>();
+      await cancelResponseBody(response);
       throw HttpException('HTTP ${response.statusCode}', uri: uri);
     }
-    final bytes = <int>[];
-    await for (final chunk in response.timeout(const Duration(seconds: 10))) {
-      bytes.addAll(chunk);
-      if (bytes.length > 128 * 1024) {
-        throw const FormatException('MTA-STS policy is too large');
-      }
-    }
+    return _policyReader.read(
+      response,
+      contentLength: response.contentLength < 0 ? null : response.contentLength,
+    );
+  }
+}
+
+/// Reads an MTA-STS policy within explicit size and time boundaries.
+class MtaStsPolicyReader {
+  /// Creates a bounded policy reader.
+  const MtaStsPolicyReader({
+    this.maxBytes = defaultMaxBytes,
+    this.timeout = defaultTimeout,
+  }) : assert(maxBytes > 0);
+
+  /// Maximum accepted production policy size.
+  static const defaultMaxBytes = 128 * 1024;
+
+  /// Maximum production duration for reading the complete response body.
+  static const defaultTimeout = Duration(seconds: 10);
+
+  /// Maximum accepted response bytes.
+  final int maxBytes;
+
+  /// Deadline applied to the complete response-body read.
+  final Duration timeout;
+
+  /// Returns strict UTF-8 policy text or throws when a boundary is exceeded.
+  Future<String> read(
+    Stream<List<int>> body, {
+    required int? contentLength,
+  }) async {
+    final bytes = await readBoundedResponseBody(
+      body,
+      maximumBytes: maxBytes,
+      timeout: timeout,
+      contentLength: contentLength,
+    );
     return utf8.decode(bytes);
   }
 }
@@ -297,21 +326,13 @@ List<String> _txt(DnsSnapshot snapshot, String name) => snapshot
     .toList(growable: false);
 
 /// Evaluates MX presence and records published exchanges as facts.
-MailFinding _mxFinding(List<DnsRecord> records, {required bool receives}) {
-  if (!receives) {
-    return const MailFinding(
-      id: 'mx',
-      title: 'Mail exchange',
-      state: MailFindingState.informational,
-      summary: 'Receiving checks are disabled for this domain.',
-    );
-  }
+MailFinding _mxFinding(List<DnsRecord> records) {
   if (records.isEmpty) {
     return const MailFinding(
       id: 'mx',
       title: 'Mail exchange',
       state: MailFindingState.warning,
-      summary: 'No MX records were found.',
+      summary: 'No MX record is published for incoming email.',
     );
   }
   if (records.any((record) => record.preference == 0 && record.value == '.')) {
@@ -327,7 +348,7 @@ MailFinding _mxFinding(List<DnsRecord> records, {required bool receives}) {
     title: 'Mail exchange',
     state: MailFindingState.healthy,
     summary:
-        '${records.length} receiving host${records.length == 1 ? '' : 's'} published.',
+        '${records.length} MX host${records.length == 1 ? ' is' : 's are'} published for incoming email.',
     facts: records
         .map(
           (record) => MailFact(
@@ -339,23 +360,15 @@ MailFinding _mxFinding(List<DnsRecord> records, {required bool receives}) {
   );
 }
 
-/// Evaluates whether exactly one usable SPF policy is published.
-MailFinding _spfFinding(List<String> values, {required bool sends}) {
-  if (!sends) {
-    return const MailFinding(
-      id: 'spf',
-      title: 'SPF',
-      state: MailFindingState.informational,
-      summary: 'Sending checks are disabled for this domain.',
-    );
-  }
+/// Reports SPF publication and only the limits visible in this record.
+MailFinding _spfFinding(List<String> values) {
   final records = values.where(_isSpf).toList(growable: false);
   if (records.isEmpty) {
     return const MailFinding(
       id: 'spf',
       title: 'SPF',
       state: MailFindingState.warning,
-      summary: 'No SPF policy is published.',
+      summary: 'No SPF record is published for this domain.',
     );
   }
   if (records.length > 1) {
@@ -363,52 +376,28 @@ MailFinding _spfFinding(List<String> values, {required bool sends}) {
       id: 'spf',
       title: 'SPF',
       state: MailFindingState.invalid,
-      summary: 'Multiple SPF records are published; SPF permits only one.',
+      summary: 'Multiple SPF records are published. SPF permits only one record at this name.',
     );
   }
   final record = records.single;
-  final lookupTerms = record
-      .split(RegExp(r'\s+'))
-      .where(
-        (term) => RegExp(
-          r'^[+?~-]?(include:|a(?::|$)|mx(?::|$)|ptr(?::|$)|exists:|redirect=)',
-          caseSensitive: false,
-        ).hasMatch(term),
-      )
-      .length;
   return MailFinding(
     id: 'spf',
     title: 'SPF',
-    state: lookupTerms > 10
-        ? MailFindingState.invalid
-        : MailFindingState.healthy,
-    summary: lookupTerms > 10
-        ? 'The policy declares more than the 10 permitted DNS-lookup terms.'
-        : 'One SPF policy is published.',
-    facts: <MailFact>[
-      MailFact(label: 'Policy', value: record),
-      MailFact(label: 'Declared lookup terms', value: '$lookupTerms of 10'),
-    ],
+    state: MailFindingState.informational,
+    summary: 'One SPF record is published. Akshi does not test it against a sending server.',
+    facts: <MailFact>[MailFact(label: 'Published policy', value: record)],
   );
 }
 
-/// Evaluates DMARC uniqueness and exposes policy tags as readable facts.
-MailFinding _dmarcFinding(List<String> values, {required bool sends}) {
-  if (!sends) {
-    return const MailFinding(
-      id: 'dmarc',
-      title: 'DMARC',
-      state: MailFindingState.informational,
-      summary: 'Sending checks are disabled for this domain.',
-    );
-  }
+/// Reports DMARC uniqueness and recognized policy tags as published facts.
+MailFinding _dmarcFinding(List<String> values) {
   final records = values.where(_isDmarc).toList(growable: false);
   if (records.isEmpty) {
     return const MailFinding(
       id: 'dmarc',
       title: 'DMARC',
       state: MailFindingState.warning,
-      summary: 'No DMARC policy is published.',
+      summary: 'No DMARC record is published for this domain.',
     );
   }
   if (records.length > 1) {
@@ -426,14 +415,14 @@ MailFinding _dmarcFinding(List<String> values, {required bool sends}) {
       id: 'dmarc',
       title: 'DMARC',
       state: MailFindingState.invalid,
-      summary: 'The DMARC policy is missing a valid p tag.',
+      summary: 'The DMARC record does not contain a recognized p policy.',
     );
   }
   return MailFinding(
     id: 'dmarc',
     title: 'DMARC',
-    state: MailFindingState.healthy,
-    summary: 'A valid DMARC policy is published.',
+    state: MailFindingState.informational,
+    summary: 'A DMARC record publishes the "$policy" policy.',
     facts: <MailFact>[
       MailFact(label: 'Policy', value: policy!),
       if (tags['sp'] case final subdomainPolicy?)
@@ -445,22 +434,14 @@ MailFinding _dmarcFinding(List<String> values, {required bool sends}) {
 }
 
 /// Evaluates TLS-RPT publication without assigning a vendor score.
-MailFinding _tlsRptFinding(List<String> values, {required bool receives}) {
-  if (!receives) {
-    return const MailFinding(
-      id: 'tls-rpt',
-      title: 'TLS reporting',
-      state: MailFindingState.informational,
-      summary: 'Receiving checks are disabled for this domain.',
-    );
-  }
+MailFinding _tlsRptFinding(List<String> values) {
   final records = values.where(_isTlsRpt).toList(growable: false);
   if (records.isEmpty) {
     return const MailFinding(
       id: 'tls-rpt',
       title: 'TLS reporting',
       state: MailFindingState.informational,
-      summary: 'No SMTP TLS reporting destination is published.',
+      summary: 'No TLS reporting record is published for this domain.',
     );
   }
   if (records.length > 1) {
@@ -468,7 +449,7 @@ MailFinding _tlsRptFinding(List<String> values, {required bool receives}) {
       id: 'tls-rpt',
       title: 'TLS reporting',
       state: MailFindingState.invalid,
-      summary: 'Multiple SMTP TLS reporting records are published.',
+      summary: 'Multiple TLS reporting records are published. Only one is permitted.',
     );
   }
   final destination = _tagValues(records.single)['rua'];
@@ -477,10 +458,10 @@ MailFinding _tlsRptFinding(List<String> values, {required bool receives}) {
     title: 'TLS reporting',
     state: destination == null
         ? MailFindingState.invalid
-        : MailFindingState.healthy,
+        : MailFindingState.informational,
     summary: destination == null
-        ? 'The TLS reporting record has no rua destination.'
-        : 'An SMTP TLS reporting destination is published.',
+        ? 'The TLS reporting record has no rua report destination.'
+        : 'A TLS reporting destination value is published.',
     facts: <MailFact>[
       if (destination != null)
         MailFact(label: 'Reports to', value: destination),
@@ -501,7 +482,7 @@ MailFinding _dkimFinding(String selector, List<String> values) {
       id: 'dkim-$selector',
       title: 'DKIM · $selector',
       state: MailFindingState.warning,
-      summary: 'No key was found for this user-supplied selector.',
+      summary: 'No DKIM record was found for this selector.',
     );
   }
   if (records.length > 1) {
@@ -509,7 +490,7 @@ MailFinding _dkimFinding(String selector, List<String> values) {
       id: 'dkim-$selector',
       title: 'DKIM · $selector',
       state: MailFindingState.invalid,
-      summary: 'Multiple keys were returned for this selector.',
+      summary: 'Multiple DKIM records were returned for this selector.',
     );
   }
   final tags = _tagValues(records.single);
@@ -520,10 +501,10 @@ MailFinding _dkimFinding(String selector, List<String> values) {
     title: 'DKIM · $selector',
     state: publicKey == null || publicKey.isEmpty
         ? MailFindingState.warning
-        : MailFindingState.healthy,
+        : MailFindingState.informational,
     summary: publicKey == null || publicKey.isEmpty
         ? 'The selector exists, but its key is absent or revoked.'
-        : 'A public key is published for this selector.',
+        : 'A DKIM public-key value is published for this selector.',
     facts: <MailFact>[
       MailFact(label: 'Algorithm', value: algorithm.toUpperCase()),
       MailFact(label: 'Selector', value: selector),
@@ -532,20 +513,22 @@ MailFinding _dkimFinding(String selector, List<String> values) {
 }
 
 /// Identifies an SPF TXT value by its version marker.
-bool _isSpf(String value) =>
-    value.trimLeft().toLowerCase().startsWith('v=spf1 ');
+bool _isSpf(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized == 'v=spf1' || normalized.startsWith('v=spf1 ');
+}
 
-/// Identifies a DMARC TXT value by its version marker.
+/// Identifies a DMARC TXT value by its exact version marker.
 bool _isDmarc(String value) =>
-    value.trimLeft().toLowerCase().startsWith('v=dmarc1');
+    value.trimLeft().toLowerCase().startsWith('v=dmarc1;');
 
-/// Identifies an MTA-STS TXT value by its version marker.
+/// Identifies an MTA-STS TXT value by its exact version marker.
 bool _isMtaSts(String value) =>
-    value.trimLeft().toLowerCase().startsWith('v=stsv1');
+    value.trimLeft().toLowerCase().startsWith('v=stsv1;');
 
-/// Identifies a TLS-RPT TXT value by its version marker.
+/// Identifies a TLS-RPT TXT value by its exact version marker.
 bool _isTlsRpt(String value) =>
-    value.trimLeft().toLowerCase().startsWith('v=tlsrptv1');
+    value.trimLeft().toLowerCase().startsWith('v=tlsrptv1;');
 
 Map<String, String> _tagValues(String record) {
   final result = <String, String>{};

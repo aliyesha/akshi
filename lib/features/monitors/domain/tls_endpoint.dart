@@ -16,12 +16,7 @@ String? validateTlsPort(String? input) {
 /// endpoint that the socket APIs can never address.
 int requireValidTlsPort(int port) {
   if (!isValidTlsPort(port)) {
-    throw RangeError.range(
-      port,
-      tlsPortMinimum,
-      tlsPortMaximum,
-      'tlsPort',
-    );
+    throw RangeError.range(port, tlsPortMinimum, tlsPortMaximum, 'tlsPort');
   }
   return port;
 }
