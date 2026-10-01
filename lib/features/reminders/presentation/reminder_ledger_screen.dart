@@ -112,9 +112,7 @@ class ReminderLedgerScreen extends ConsumerWidget {
                         ),
                       );
                     },
-              icon: const PhosphorIcon(
-                PhosphorIconsDuotone.arrowClockwise,
-              ),
+              icon: const PhosphorIcon(PhosphorIconsDuotone.arrowClockwise),
               label: const Text('Repair and verify reminders'),
             ),
           ],
@@ -136,15 +134,16 @@ class ReminderLedgerDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final revisions = ref.watch(alarmAuditDateProvider(date));
     return Scaffold(
-      appBar: AppBar(title: Text(date.toString())),
+      appBar: AppBar(title: Text(_formatAlarmDate(date))),
       body: revisions.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => const Center(
-          child: Text('This ledger entry could not be read.'),
-        ),
+        error: (error, stackTrace) =>
+            const Center(child: Text('This ledger entry could not be read.')),
         data: (values) {
           if (values.isEmpty) {
-            return const Center(child: Text('This ledger entry is unavailable.'));
+            return const Center(
+              child: Text('This ledger entry is unavailable.'),
+            );
           }
           final latest = values.first;
           return ListView(
@@ -201,18 +200,15 @@ class ReminderLedgerDetailScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _copyReceipt(
-    BuildContext context,
-    AlarmAuditEntry entry,
-  ) async {
+  Future<void> _copyReceipt(BuildContext context, AlarmAuditEntry entry) async {
     final receipt = <String>[
       'Akshi reminder proof',
-      'Alarm date: ${entry.date}',
+      'Alarm date: ${_formatAlarmDate(entry.date)}',
       'Requested time: ${entry.requestedTime} (${entry.timeZoneId})',
-      'Scheduled UTC: ${entry.scheduledUtc.toIso8601String()}',
+      'Scheduled: ${formatUtcDateTime(entry.scheduledUtc)}',
       'Notification ID: ${entry.notificationId}',
       'Revision: ${entry.revision}',
-      'Computed: ${entry.computedAt.toUtc().toIso8601String()}',
+      'Computed: ${formatUtcDateTime(entry.computedAt)}',
       'Platform accepted: ${_timestamp(entry.submittedAt)}',
       'Pending verified: ${_timestamp(entry.verifiedAt)}',
       'State: ${_stageLabel(entry.stage)}',
@@ -224,9 +220,8 @@ class ReminderLedgerDetailScreen extends ConsumerWidget {
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: receipt));
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Proof receipt copied.')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Proof receipt copied.')));
   }
 }
 
@@ -243,7 +238,11 @@ class _HealthHero extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Color.lerp(scheme.surfaceContainerLowest, visual.color(scheme), .08),
+        color: Color.lerp(
+          scheme.surfaceContainerLowest,
+          visual.color(scheme),
+          .08,
+        ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: visual.color(scheme).withAlpha(70)),
       ),
@@ -256,7 +255,10 @@ class _HealthHero extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(visual.title, style: Theme.of(context).textTheme.titleLarge),
+                Text(
+                  visual.title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
                 const SizedBox(height: 5),
                 Text(
                   visual.message,
@@ -265,7 +267,8 @@ class _HealthHero extends StatelessWidget {
                 if (enabled && health.nextAlarmDate != null) ...<Widget>[
                   const SizedBox(height: 9),
                   Text(
-                    'Next daily alarm · ${health.nextAlarmDate}',
+                    'Next daily alarm · '
+                    '${_formatAlarmDate(health.nextAlarmDate!)}',
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                 ],
@@ -296,19 +299,16 @@ class _ProofNotice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          PhosphorIcon(
-            PhosphorIconsDuotone.shieldCheck,
-            color: scheme.primary,
-          ),
+          PhosphorIcon(PhosphorIconsDuotone.shieldCheck, color: scheme.primary),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               android
                   ? 'Verified means the Android scheduling call returned and '
-                      'the notification plugin’s private pending inventory '
-                      'matched Akshi’s plan.'
+                        'the notification plugin’s private pending inventory '
+                        'matched Akshi’s plan.'
                   : 'Verified means the platform scheduling call returned and '
-                      'the pending notification inventory matched Akshi’s plan.',
+                        'the pending notification inventory matched Akshi’s plan.',
               style: TextStyle(color: scheme.onSurfaceVariant),
             ),
           ),
@@ -350,7 +350,7 @@ class _AlarmDayCard extends StatelessWidget {
                       children: <Widget>[
                         Expanded(
                           child: Text(
-                            entry.date.toString(),
+                            _formatAlarmDate(entry.date),
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
@@ -419,7 +419,11 @@ class _DetailHero extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Color.lerp(scheme.surfaceContainerLowest, visual.color(scheme), .08),
+        color: Color.lerp(
+          scheme.surfaceContainerLowest,
+          visual.color(scheme),
+          .08,
+        ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: visual.color(scheme).withAlpha(70)),
       ),
@@ -536,37 +540,21 @@ class _SnapshotGrid extends StatelessWidget {
       (
         PhosphorIconsDuotone.clock,
         'Requested',
-        '${entry.date} · ${entry.requestedTime}',
+        '${_formatAlarmDate(entry.date)} · ${entry.requestedTime}',
       ),
-      (
-        PhosphorIconsDuotone.globeHemisphereWest,
-        'Time zone',
-        entry.timeZoneId,
-      ),
-      (
-        PhosphorIconsDuotone.deviceMobile,
-        'Platform',
-        entry.platform,
-      ),
-      (
-        PhosphorIconsDuotone.deviceMobile,
-        'OS version',
-        entry.osVersion,
-      ),
+      (PhosphorIconsDuotone.globeHemisphereWest, 'Time zone', entry.timeZoneId),
+      (PhosphorIconsDuotone.deviceMobile, 'Platform', entry.platform),
+      (PhosphorIconsDuotone.deviceMobile, 'OS version', entry.osVersion),
       (
         PhosphorIconsDuotone.listBullets,
         'Notification ID',
         '${entry.notificationId}',
       ),
-      (
-        PhosphorIconsDuotone.fingerprint,
-        'Revision',
-        entry.shortRevision,
-      ),
+      (PhosphorIconsDuotone.fingerprint, 'Revision', entry.shortRevision),
       (
         PhosphorIconsDuotone.clock,
-        'Scheduled UTC',
-        entry.scheduledUtc.toUtc().toIso8601String(),
+        'Scheduled',
+        formatUtcDateTime(entry.scheduledUtc),
       ),
     ];
     return LayoutBuilder(
@@ -625,9 +613,8 @@ class _SnapshotValue extends StatelessWidget {
               children: <Widget>[
                 Text(
                   label,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+                  style: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 3),
                 Text(value, style: Theme.of(context).textTheme.titleSmall),
@@ -747,7 +734,11 @@ class _DeliveryBoundary extends StatelessWidget {
           Expanded(
             child: Text(
               'Akshi verified the request was pending. Delivery after this '
-              'point is controlled by ${platform == 'ios' ? 'iOS' : platform == 'android' ? 'Android' : 'the operating system'}, '
+              'point is controlled by ${platform == 'ios'
+                  ? 'iOS'
+                  : platform == 'android'
+                  ? 'Android'
+                  : 'the operating system'}, '
               'including battery, focus, and notification settings.',
               style: TextStyle(color: scheme.onSecondaryContainer),
             ),
@@ -933,7 +924,8 @@ _Visual _healthVisual(ReminderHealth health) => switch (health.kind) {
     icon: PhosphorIconsDuotone.shieldCheck,
     label: 'Ready',
     title: 'Reminder plan verified',
-    message: '${health.pendingCount} daily alarms match the current expiry plan.',
+    message:
+        '${health.pendingCount} daily alarms match the current expiry plan.',
     color: (scheme) => scheme.primary,
   ),
   ReminderHealthKind.needsAttention => _Visual(
@@ -950,8 +942,7 @@ String _stageLabel(AlarmAuditStage stage) => _stageVisual(stage).label;
 String _stageDescription(AlarmAuditStage stage) => switch (stage) {
   AlarmAuditStage.computed =>
     'Akshi computed this alarm but has not recorded a platform handoff.',
-  AlarmAuditStage.submitted =>
-    'The platform scheduling call returned; pending verification is incomplete.',
+  AlarmAuditStage.submitted => 'The platform scheduling call returned; pending verification is incomplete.',
   AlarmAuditStage.verified =>
     'The platform accepted this alarm and its pending inventory matched.',
   AlarmAuditStage.cancelled =>
@@ -961,4 +952,7 @@ String _stageDescription(AlarmAuditStage stage) => switch (stage) {
 };
 
 String _timestamp(DateTime? value) =>
-    value?.toUtc().toIso8601String() ?? 'Not recorded';
+    value == null ? 'Not recorded' : formatUtcDateTime(value);
+
+String _formatAlarmDate(AlarmDate value) =>
+    formatCalendarDate(year: value.year, month: value.month, day: value.day);

@@ -9,7 +9,7 @@ import 'package:material_ui/material_ui.dart';
 
 class _TestSettingsController extends SettingsController {
   @override
-  Future<AppSettings> build() async => const AppSettings();
+  Future<AppSettings> build() async => AppSettings();
 
   @override
   Future<void> saveSettings(AppSettings value) async {
@@ -38,9 +38,7 @@ void main() {
             settingsControllerProvider.overrideWith(
               _TestSettingsController.new,
             ),
-            reminderControllerProvider.overrideWith(
-              _OffReminderController.new,
-            ),
+            reminderControllerProvider.overrideWith(_OffReminderController.new),
           ],
           child: const MaterialApp(home: SettingsScreen()),
         ),
@@ -52,7 +50,10 @@ void main() {
       await tester.pump();
 
       expect(find.text('9 days before expiry'), findsOneWidget);
-      expect(find.textContaining('confirmation opens in 3 seconds'), findsOneWidget);
+      expect(
+        find.textContaining('confirmation opens in 3 seconds'),
+        findsOneWidget,
+      );
 
       await tester.pump(const Duration(seconds: 2));
       expect(find.text('Update expiry reminders?'), findsNothing);
@@ -60,7 +61,10 @@ void main() {
       await tester.tap(find.byType(IconButton).first);
       await tester.pump();
       expect(find.text('8 days before expiry'), findsOneWidget);
-      expect(find.textContaining('confirmation opens in 3 seconds'), findsOneWidget);
+      expect(
+        find.textContaining('confirmation opens in 3 seconds'),
+        findsOneWidget,
+      );
 
       await tester.pump(const Duration(seconds: 2));
       expect(find.text('Update expiry reminders?'), findsNothing);

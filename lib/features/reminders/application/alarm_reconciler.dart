@@ -1,3 +1,4 @@
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/reminders/domain/alarm_audit.dart';
 import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 
@@ -29,7 +30,6 @@ enum AlarmReconcileError {
   inventoryUnavailable,
   platformWriteFailed,
   verificationFailed,
-  auditUnavailable,
 }
 
 class AlarmReconcileResult {
@@ -61,14 +61,11 @@ class AlarmReconcileResult {
 /// Makes the platform adapter's observed inventory equal the pure desired plan.
 ///
 /// Normal operation is incremental. A full owned-alarm rebuild happens only
-/// once when inventory is malformed/duplicated or verification fails. Every
-/// platform handoff is written to the non-authoritative audit trail.
+/// once when inventory is malformed/duplicated or verification fails. Audit
+/// writes are best-effort diagnostics and never control platform convergence.
 class AlarmReconciler {
-  AlarmReconciler(
-    this._platform,
-    this._audit, {
-    DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now;
+  AlarmReconciler(this._platform, this._audit, {DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
 
   final AlarmPlatformGateway _platform;
   final AlarmAuditTrail _audit;
@@ -77,9 +74,7 @@ class AlarmReconciler {
   Future<AlarmReconcileResult> reconcile(
     Map<AlarmDate, ExpiryAlarmSpec> desired,
   ) async {
-    if (!await _recordComputed(desired)) {
-      return _failure(desired, AlarmReconcileError.auditUnavailable);
-    }
+    await _recordComputed(desired);
 
     late final _AlarmInventory initial;
     try {
@@ -89,7 +84,7 @@ class AlarmReconciler {
     }
 
     if (initial.isCorrupt) {
-      return _repair(desired, initial: initial, auditRecorded: true);
+      return _rebuild(desired, initial: initial);
     }
 
     final comparisons = compareAlarmPlans(
@@ -148,16 +143,7 @@ class AlarmReconciler {
 
     final verification = await _readInventory();
     if (verification != null && _matches(verification, desired)) {
-      if (!await _recordVerified(desired)) {
-        return _failure(
-          desired,
-          AlarmReconcileError.auditUnavailable,
-          pendingCount: verification.byDate.length,
-          created: created,
-          replaced: replaced,
-          deleted: deleted,
-        );
-      }
+      await _recordVerified(desired);
       return _success(
         desired,
         pendingCount: verification.byDate.length,
@@ -168,31 +154,21 @@ class AlarmReconciler {
     }
 
     // Incremental writes did not converge. One bounded repair is allowed.
-    return _repair(
-      desired,
-      initial: verification ?? initial,
-      auditRecorded: true,
-    );
+    return _rebuild(desired, initial: verification ?? initial);
   }
 
   /// User-invoked recovery using the same single bounded rebuild.
   Future<AlarmReconcileResult> repair(
     Map<AlarmDate, ExpiryAlarmSpec> desired,
-  ) async => _repair(desired);
+  ) async {
+    await _recordComputed(desired);
+    return _rebuild(desired);
+  }
 
-  Future<AlarmReconcileResult> _repair(
+  Future<AlarmReconcileResult> _rebuild(
     Map<AlarmDate, ExpiryAlarmSpec> desired, {
     _AlarmInventory? initial,
-    bool auditRecorded = false,
   }) async {
-    if (!auditRecorded && !await _recordComputed(desired)) {
-      return _failure(
-        desired,
-        AlarmReconcileError.auditUnavailable,
-        repaired: true,
-      );
-    }
-
     var inventory = initial;
     try {
       inventory ??= _AlarmInventory.read(await _platform.pendingAlarms());
@@ -200,11 +176,7 @@ class AlarmReconciler {
       for (final id in ownedIds) {
         final writeError = await _cancel(id);
         if (writeError != null) {
-          return _failure(
-            desired,
-            writeError,
-            repaired: true,
-          );
+          return _failure(desired, writeError, repaired: true);
         }
       }
     } on Object {
@@ -225,11 +197,7 @@ class AlarmReconciler {
     for (final date in dates) {
       final writeError = await _schedule(desired[date]!);
       if (writeError != null) {
-        return _failure(
-          desired,
-          writeError,
-          repaired: true,
-        );
+        return _failure(desired, writeError, repaired: true);
       }
     }
 
@@ -251,14 +219,7 @@ class AlarmReconciler {
         repaired: true,
       );
     }
-    if (!await _recordVerified(desired)) {
-      return _failure(
-        desired,
-        AlarmReconcileError.auditUnavailable,
-        pendingCount: verification.byDate.length,
-        repaired: true,
-      );
-    }
+    await _recordVerified(desired);
     return _success(
       desired,
       pendingCount: verification.byDate.length,
@@ -271,23 +232,11 @@ class AlarmReconciler {
     try {
       await _platform.scheduleAlarm(alarm);
     } on Object {
-      try {
-        await _audit.recordFailure(
-          alarm,
-          AlarmReconcileError.platformWriteFailed.name,
-          _clock(),
-        );
-      } on Object {
-        // The platform error remains the primary failure.
-      }
+      await _recordFailure(alarm, AlarmReconcileError.platformWriteFailed);
       return AlarmReconcileError.platformWriteFailed;
     }
-    try {
-      await _audit.recordSubmitted(alarm, _clock());
-      return null;
-    } on Object {
-      return AlarmReconcileError.auditUnavailable;
-    }
+    await _recordSubmitted(alarm);
+    return null;
   }
 
   Future<AlarmReconcileError?> _cancel(int id) async {
@@ -296,46 +245,54 @@ class AlarmReconciler {
     } on Object {
       return AlarmReconcileError.platformWriteFailed;
     }
-    try {
-      await _audit.recordCancelled(id, _clock());
-      return null;
-    } on Object {
-      return AlarmReconcileError.auditUnavailable;
-    }
+    await _recordCancelled(id);
+    return null;
   }
 
-  Future<bool> _recordComputed(
-    Map<AlarmDate, ExpiryAlarmSpec> desired,
-  ) async {
-    try {
-      await _audit.recordComputed(desired.values, _clock());
-      return true;
-    } on Object {
-      return false;
-    }
-  }
+  Future<void> _recordComputed(Map<AlarmDate, ExpiryAlarmSpec> desired) =>
+      _writeAudit(
+        'reminders.audit.computed.write_failed',
+        () => _audit.recordComputed(desired.values, _clock()),
+      );
 
-  Future<bool> _recordVerified(
-    Map<AlarmDate, ExpiryAlarmSpec> desired,
-  ) async {
-    try {
-      await _audit.recordVerified(desired.values, _clock());
-      return true;
-    } on Object {
-      return false;
-    }
-  }
+  Future<void> _recordSubmitted(ExpiryAlarmSpec alarm) => _writeAudit(
+    'reminders.audit.submitted.write_failed',
+    () => _audit.recordSubmitted(alarm, _clock()),
+  );
+
+  Future<void> _recordVerified(Map<AlarmDate, ExpiryAlarmSpec> desired) =>
+      _writeAudit(
+        'reminders.audit.verified.write_failed',
+        () => _audit.recordVerified(desired.values, _clock()),
+      );
+
+  Future<void> _recordCancelled(int id) => _writeAudit(
+    'reminders.audit.cancelled.write_failed',
+    () => _audit.recordCancelled(id, _clock()),
+  );
 
   Future<void> _recordFailures(
     Map<AlarmDate, ExpiryAlarmSpec> desired,
     AlarmReconcileError error,
   ) async {
     for (final alarm in desired.values) {
-      try {
-        await _audit.recordFailure(alarm, error.name, _clock());
-      } on Object {
-        return;
-      }
+      await _recordFailure(alarm, error);
+    }
+  }
+
+  Future<void> _recordFailure(
+    ExpiryAlarmSpec alarm,
+    AlarmReconcileError error,
+  ) => _writeAudit(
+    'reminders.audit.failure.write_failed',
+    () => _audit.recordFailure(alarm, error.name, _clock()),
+  );
+
+  Future<void> _writeAudit(String event, Future<void> Function() write) async {
+    try {
+      await write();
+    } on Object catch (error, stackTrace) {
+      appLogger.error(event, error, stackTrace);
     }
   }
 

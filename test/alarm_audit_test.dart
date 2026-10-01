@@ -16,9 +16,7 @@ void main() {
   }) => <String, Object?>{
     'audit_key': '$date|$revision',
     'alarm_date': date,
-    'notification_id': ExpiryAlarmSpec.notificationIdFor(
-      AlarmDate.parse(date),
-    ),
+    'notification_id': ExpiryAlarmSpec.notificationIdFor(AlarmDate.parse(date)),
     'revision': revision,
     'scheduled_utc': '${date}T09:00:00.000Z',
     'time_zone_id': 'UTC',

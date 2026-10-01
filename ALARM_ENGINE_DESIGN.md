@@ -1,7 +1,5 @@
 # Alarm Engine Design
 
-Status: implemented engine contract and test matrix.
-
 This document defines Akshi's local expiry-alarm engine and the invariants its
 tests enforce.
 
@@ -16,13 +14,16 @@ Ordinary refresh changes, DNS changes, Email posture changes, certificate
 replacement, connectivity failures, and application lifecycle events must never
 produce an immediate notification.
 
-The user configures two warning offsets. Akshi also includes the fixed one-day
-warning. The default delivery time is 09:00 in the device's current time zone.
+The user configures two distinct warning offsets. Both must be at least two
+days, and the first must be greater than the second. Akshi separately includes
+the fixed one-day warning. The default delivery time is 09:00 in the device's
+current time zone.
 
 An app-level `remindersEnabled` preference controls participation in the
-engine. It defaults to false on a fresh installation, so alarms are never
-created before an explicit user action. This preference is separate from the
-operating system's notification permission.
+engine. It defaults to true on a fresh installation. Alarm scheduling still
+requires operating-system notification permission; without that permission,
+Akshi records the unavailable state and schedules nothing. The app preference
+and operating-system permission remain separate controls.
 
 The configured time is a requested local delivery time, not a promise of exact
 delivery. Android and iOS ultimately control delivery. Akshi must never silently
@@ -49,9 +50,7 @@ normalized or verified.
 
 ## Desired and pending state
 
-The original proposal begins by asking Android or iOS for every existing alarm
-and building a date-to-domains map. The comparison idea is correct, but the
-cross-platform inventory is incomplete:
+Cross-platform pending-alarm inventory has an important constraint:
 
 - iOS exposes pending notification requests and their triggers.
 - Android's AlarmManager has no API that enumerates every alarm owned by an app.
@@ -349,17 +348,22 @@ The sequence is:
    report the engine as needing repair. Never fall back to UTC.
 3. Read the newest persisted monitors and reminder settings.
 4. Build and validate the entire desired plan before changing platform state.
-5. Insert each new date/revision into the local proof ledger as **Computed**.
+5. Attempt to record each desired date/revision as **Computed** in the local
+   proof ledger.
 6. Read pending notification requests and normalize ownership.
 7. Apply replacements first. They reuse stable IDs and do not increase the
-   pending count. Record **Platform accepted** only after the scheduling call
-   returns.
-8. Cancel deletions and mark their latest ledger revision cancelled/replaced.
-9. Schedule creations in chronological order, recording each accepted handoff.
-10. On the first platform failure, stop, record the failed revision, and retry
-    from persisted desired state on the next reconciliation.
-11. Re-read pending inventory. Mark revisions **Pending verified** and report
-    healthy only when the complete inventory matches desired state.
+   pending count. After each successful scheduling call, attempt to record
+   **Platform accepted**.
+8. Cancel deletions and attempt to mark their latest ledger entries cancelled.
+9. Schedule creations in chronological order and attempt to record each
+   accepted handoff.
+10. On the first platform failure, stop, attempt to record the failure, and
+    retry from persisted desired state on the next reconciliation.
+11. Re-read pending inventory. Report healthy only when the complete inventory
+    matches desired state, then attempt to record **Pending verified**.
+
+Every audit attempt is isolated and locally logged. Audit storage cannot stop
+platform convergence and cannot change reminder health.
 
 Deleting before creating prevents temporarily exceeding iOS's pending limit.
 A crash can leave a partial plan, but it cannot make the local desired state
@@ -412,10 +416,11 @@ both settings and alarms uncertain.
 The reconciler is idempotent and uses stable IDs. Desired work never needs a
 separate dirty record because it is recomputed from persisted user data.
 
-The alarm ledger is evidence, not desired state. It cannot recreate alarms and
-is never read by the planner or set comparison. Ledger rows are retained for up
-to 365 days and capped at 1,000 revisions; cleanup runs transactionally when new
-computed revisions are inserted.
+The alarm ledger is best-effort evidence, not desired state. It cannot recreate
+alarms and is never read by the planner, set comparison, repair decision, or
+health calculation. A failed ledger write is logged and platform reconciliation
+continues. Ledger rows are retained for up to 365 days and capped at 1,000 alarm
+revisions; cleanup runs transactionally when computed entries are inserted.
 
 ## Reminder health and permission UX
 
@@ -586,13 +591,15 @@ Each immutable date/revision snapshot contains:
 - `computedAt`, `submittedAt`, `verifiedAt`, `cancelledAt`, or `failedAt`;
 - a sanitized error category when work fails.
 
-The detail timeline is:
+The detail timeline describes the audit entries that were successfully stored:
 
-1. **Computed** — desired-plan calculation completed and its snapshot was
-   persisted before any platform write.
+1. **Computed** — desired-plan calculation produced this snapshot.
 2. **Platform accepted** — the scheduling API returned without throwing.
 3. **Pending verified** — the post-write inventory exactly matched the desired
    request.
+
+A missing ledger entry means that diagnostic proof was not stored. It does not
+override the OS pending inventory and does not mean the notification failed.
 
 On iOS, pending notification requests come from
 `UNUserNotificationCenter`. On Android, `flutter_local_notifications` schedules
@@ -622,7 +629,7 @@ operation. The ledger itself is never a repair input.
 - Desired/current controller pattern:
   https://kubernetes.io/docs/concepts/architecture/controller/
 
-## Implemented test matrix
+## Test matrix
 
 All alarm-engine fixtures use February through August 2026. The suite covers:
 
@@ -638,4 +645,5 @@ All alarm-engine fixtures use February through August 2026. The suite covers:
 - empty desired state cancelling and verifying all owned alarms;
 - notification routing with affected monitor IDs and alarm date;
 - ledger snapshot decoding, one-card-per-date grouping, revision ordering,
-  lifecycle ordering, failure recording, and audit-unavailable safety.
+  lifecycle ordering, failure recording, and isolation of every audit-write
+  failure from scheduling, repair, verification, and reminder health.

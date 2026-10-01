@@ -68,10 +68,7 @@ void main() {
         unchangedDate: AlarmChange.unchanged,
       },
     );
-    expect(
-      comparison.where((value) => value.isDirty),
-      hasLength(3),
-    );
+    expect(comparison.where((value) => value.isDirty), hasLength(3));
   });
 
   test('single date remains one comparison when domain list changes', () {

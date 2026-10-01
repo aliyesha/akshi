@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:akshi/app/app_lifecycle_coordinator.dart';
 import 'package:akshi/app/app_router.dart';
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/services/system_settings_service.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
@@ -21,18 +23,57 @@ class AkshiApp extends ConsumerStatefulWidget {
 
 class _AkshiAppState extends ConsumerState<AkshiApp>
     with WidgetsBindingObserver {
+  late final AppLifecycleCoordinator _lifecycle;
   StreamSubscription<String>? _notificationNavigation;
 
   @override
   void initState() {
     super.initState();
+    final notifications = ref.read(notificationServiceProvider);
+    _lifecycle = AppLifecycleCoordinator(
+      initializeNotifications: notifications.initialize,
+      attachNotificationNavigation: () {
+        if (!mounted) return;
+        _notificationNavigation ??= notifications.navigationRoutes.listen(
+          _navigateFromNotification,
+          onError: _notificationNavigationFailed,
+        );
+        final pendingRoute = notifications.takePendingRoute();
+        if (pendingRoute != null) _navigateFromNotification(pendingRoute);
+      },
+      configureNotificationPermission: () async {
+        final settings = await ref.read(settingsControllerProvider.future);
+        if (!mounted) return;
+        final permission =
+            await SystemSettingsService.notificationPermissionStatus();
+        if (!mounted) return;
+        if (settings.remindersEnabled &&
+            permission == NotificationPermissionStatus.notDetermined) {
+          await notifications.requestPermission();
+        }
+      },
+      reconcileReminders: () async {
+        await ref.read(reminderControllerProvider.notifier).reconcile();
+      },
+      refreshMonitors: () =>
+          ref.read(monitorControllerProvider.notifier).refreshAll(force: false),
+      reportError: (event, error, stackTrace) {
+        appLogger.error(event, error, stackTrace);
+      },
+    );
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _start();
+    });
   }
 
   @override
   void dispose() {
-    _notificationNavigation?.cancel();
+    _lifecycle.dispose();
+    final navigation = _notificationNavigation;
+    if (navigation != null) {
+      unawaited(_cancelNotificationNavigation(navigation));
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -42,24 +83,58 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
     if (state == AppLifecycleState.resumed) _refresh();
   }
 
-  Future<void> _start() async {
-    appLogger.info('app.foreground.start.started');
-    final notifications = ref.read(notificationServiceProvider);
-    await notifications.initialize();
-    if (!mounted) return;
-    _notificationNavigation = notifications.navigationRoutes.listen(
-      (route) => appRouter.go(route),
-    );
-    final pendingRoute = notifications.takePendingRoute();
-    if (pendingRoute != null) appRouter.go(pendingRoute);
-    _refresh();
-    appLogger.info('app.foreground.start.completed');
+  void _start() {
+    unawaited(_runOwned('app.foreground.start', _lifecycle.start));
   }
 
   void _refresh() {
-    appLogger.info('app.foreground.refresh.started');
-    unawaited(ref.read(reminderControllerProvider.notifier).reconcile());
-    unawaited(ref.read(monitorControllerProvider.notifier).refreshAll());
+    unawaited(_runOwned('app.foreground.refresh', _lifecycle.refresh));
+  }
+
+  Future<void> _runOwned(String operation, Future<void> Function() task) async {
+    appLogger.info('$operation.started');
+    try {
+      await task();
+      appLogger.info('$operation.completed');
+    } on Object catch (error, stackTrace) {
+      // The coordinator contains task failures. This final owner protects the
+      // frame/lifecycle callback if orchestration itself ever regresses.
+      appLogger.error('$operation.failed', error, stackTrace);
+    }
+  }
+
+  void _navigateFromNotification(String route) {
+    try {
+      appRouter.go(route);
+    } on Object catch (error, stackTrace) {
+      appLogger.error(
+        'app.foreground.notifications.navigation.failed',
+        error,
+        stackTrace,
+      );
+    }
+  }
+
+  void _notificationNavigationFailed(Object error, StackTrace stackTrace) {
+    appLogger.error(
+      'app.foreground.notifications.stream.failed',
+      error,
+      stackTrace,
+    );
+  }
+
+  Future<void> _cancelNotificationNavigation(
+    StreamSubscription<String> navigation,
+  ) async {
+    try {
+      await navigation.cancel();
+    } on Object catch (error, stackTrace) {
+      appLogger.error(
+        'app.foreground.notifications.cancel.failed',
+        error,
+        stackTrace,
+      );
+    }
   }
 
   @override

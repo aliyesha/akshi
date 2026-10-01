@@ -50,40 +50,33 @@ class AlarmAuditRepository implements AlarmAuditTrail {
     await database.transaction((transaction) async {
       for (final alarm in values) {
         final reasons = alarm.items.expand((item) => item.reasons).toList();
-        await transaction.insert(
-          'alarm_audit',
-          <String, Object?>{
-            'audit_key': _key(alarm),
-            'alarm_date': alarm.date.toIso8601String(),
-            'notification_id': alarm.notificationId,
-            'revision': alarm.revision,
-            'scheduled_utc': alarm.scheduledAt.toUtc().toIso8601String(),
-            'time_zone_id': alarm.timeZoneId,
-            'requested_time':
-                '${alarm.scheduledAt.hour.toString().padLeft(2, '0')}:'
-                '${alarm.scheduledAt.minute.toString().padLeft(2, '0')}',
-            'items_json': jsonEncode(
-              alarm.items.map((item) => item.toJson()).toList(growable: false),
-            ),
-            'monitor_count': alarm.items.length,
-            'reason_count': reasons.length,
-            'domain_reason_count': reasons
-                .where(
-                  (reason) =>
-                      reason.kind == ExpiryAlarmKind.domainRegistration,
-                )
-                .length,
-            'tls_reason_count': reasons
-                .where(
-                  (reason) => reason.kind == ExpiryAlarmKind.tlsCertificate,
-                )
-                .length,
-            'computed_at': at.toUtc().toIso8601String(),
-            'platform': Platform.operatingSystem,
-            'os_version': Platform.operatingSystemVersion,
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
+        await transaction.insert('alarm_audit', <String, Object?>{
+          'audit_key': _key(alarm),
+          'alarm_date': alarm.date.toIso8601String(),
+          'notification_id': alarm.notificationId,
+          'revision': alarm.revision,
+          'scheduled_utc': alarm.scheduledAt.toUtc().toIso8601String(),
+          'time_zone_id': alarm.timeZoneId,
+          'requested_time':
+              '${alarm.scheduledAt.hour.toString().padLeft(2, '0')}:'
+              '${alarm.scheduledAt.minute.toString().padLeft(2, '0')}',
+          'items_json': jsonEncode(
+            alarm.items.map((item) => item.toJson()).toList(growable: false),
+          ),
+          'monitor_count': alarm.items.length,
+          'reason_count': reasons.length,
+          'domain_reason_count': reasons
+              .where(
+                (reason) => reason.kind == ExpiryAlarmKind.domainRegistration,
+              )
+              .length,
+          'tls_reason_count': reasons
+              .where((reason) => reason.kind == ExpiryAlarmKind.tlsCertificate)
+              .length,
+          'computed_at': at.toUtc().toIso8601String(),
+          'platform': Platform.operatingSystem,
+          'os_version': Platform.operatingSystemVersion,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
       }
       await _prune(transaction, at);
     });
@@ -187,9 +180,7 @@ class AlarmAuditRepository implements AlarmAuditTrail {
     await database.delete(
       'alarm_audit',
       where: 'computed_at < ?',
-      whereArgs: <Object?>[
-        now.toUtc().subtract(retention).toIso8601String(),
-      ],
+      whereArgs: <Object?>[now.toUtc().subtract(retention).toIso8601String()],
     );
     await database.rawDelete('''
       DELETE FROM alarm_audit

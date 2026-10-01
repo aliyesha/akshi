@@ -80,7 +80,7 @@ class AboutScreen extends StatelessWidget {
               context: context,
               applicationName: 'Akshi',
               applicationLegalese:
-                  'Copyright © 2026 aliyesha.com (Aliyesha)\n'
+                  'Copyright © ${DateTime.now().year} aliyesha.com (Aliyesha)\n'
                   'Licensed under GPL-3.0-or-later',
             ),
             icon: const PhosphorIcon(PhosphorIconsRegular.scales),

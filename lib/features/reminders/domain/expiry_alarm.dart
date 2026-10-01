@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:akshi/core/services/notification_destination.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:crypto/crypto.dart';
@@ -41,15 +42,16 @@ class AlarmDate implements Comparable<AlarmDate> {
   factory AlarmDate.parse(String value) {
     final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
     if (match == null) throw const FormatException('Invalid alarm date');
-    final result = AlarmDate(
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      int.parse(match.group(3)!),
-    );
-    if (result.toIso8601String() != value) {
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final normalized = DateTime.utc(year, month, day);
+    if (normalized.year != year ||
+        normalized.month != month ||
+        normalized.day != day) {
       throw const FormatException('Invalid alarm date');
     }
-    return result;
+    return AlarmDate(year, month, day);
   }
 
   AlarmDate subtractDays(int days) {
@@ -159,11 +161,7 @@ class ExpiryAlarmItem {
           ),
         )
         .toList(growable: false);
-    return ExpiryAlarmItem(
-      monitorId: id,
-      hostname: hostname,
-      reasons: reasons,
-    );
+    return ExpiryAlarmItem(monitorId: id, hostname: hostname, reasons: reasons);
   }
 }
 
@@ -213,10 +211,16 @@ class ExpiryAlarmSpec {
   /// the SHA-256 revision is an integrity check, not the source of truth.
   String get payload {
     final content = _canonicalContent;
-    return jsonEncode(<String, Object>{
+    final value = jsonEncode(<String, Object>{
       ...content,
       'revision': revision,
     });
+    if (!notificationPayloadFits(value)) {
+      throw StateError(
+        'Expiry notification payload exceeds $maximumNotificationPayloadBytes bytes',
+      );
+    }
+    return value;
   }
 
   Map<String, Object> get _canonicalContent => <String, Object>{
@@ -264,7 +268,9 @@ class ObservedExpiryAlarm {
     required String? body,
     required String? payload,
   }) {
-    if (!ExpiryAlarmSpec.ownsNotificationId(id) || payload == null) {
+    if (!ExpiryAlarmSpec.ownsNotificationId(id) ||
+        payload == null ||
+        !notificationPayloadFits(payload)) {
       return null;
     }
     try {
@@ -307,8 +313,9 @@ class ObservedExpiryAlarm {
         'timeZone': timeZone,
         'items': items.map((item) => item.toJson()).toList(growable: false),
       };
-      final expected =
-          sha256.convert(utf8.encode(jsonEncode(content))).toString();
+      final expected = sha256
+          .convert(utf8.encode(jsonEncode(content)))
+          .toString();
       if (revision != expected) return null;
       return ObservedExpiryAlarm(
         id: id,
@@ -436,23 +443,25 @@ List<AlarmComparison> compareAlarmPlans({
   required Map<AlarmDate, ExpiryAlarmSpec> desired,
 }) {
   final dates = <AlarmDate>{...current.keys, ...desired.keys}.toList()..sort();
-  return dates.map((date) {
-    final existing = current[date];
-    final target = desired[date];
-    final change = existing == null
-        ? AlarmChange.create
-        : target == null
-        ? AlarmChange.delete
-        : existing.matches(target)
-        ? AlarmChange.unchanged
-        : AlarmChange.replace;
-    return AlarmComparison(
-      date: date,
-      current: existing,
-      desired: target,
-      change: change,
-    );
-  }).toList(growable: false);
+  return dates
+      .map((date) {
+        final existing = current[date];
+        final target = desired[date];
+        final change = existing == null
+            ? AlarmChange.create
+            : target == null
+            ? AlarmChange.delete
+            : existing.matches(target)
+            ? AlarmChange.unchanged
+            : AlarmChange.replace;
+        return AlarmComparison(
+          date: date,
+          current: existing,
+          desired: target,
+          change: change,
+        );
+      })
+      .toList(growable: false);
 }
 
 class _MutableAlarmItem {
@@ -460,8 +469,7 @@ class _MutableAlarmItem {
 
   final String monitorId;
   final String hostname;
-  final Map<String, ExpiryAlarmReason> reasons =
-      <String, ExpiryAlarmReason>{};
+  final Map<String, ExpiryAlarmReason> reasons = <String, ExpiryAlarmReason>{};
 
   ExpiryAlarmItem freeze() {
     final sorted = reasons.values.toList()
@@ -484,9 +492,9 @@ class _MutableAlarmItem {
 String _formatItem(ExpiryAlarmItem item) {
   final byDays = <int, List<ExpiryAlarmKind>>{};
   for (final reason in item.reasons) {
-    byDays.putIfAbsent(reason.warningDays, () => <ExpiryAlarmKind>[]).add(
-      reason.kind,
-    );
+    byDays
+        .putIfAbsent(reason.warningDays, () => <ExpiryAlarmKind>[])
+        .add(reason.kind);
   }
   final days = byDays.keys.toList()
     ..sort((left, right) => right.compareTo(left));

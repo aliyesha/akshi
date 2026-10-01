@@ -5,6 +5,7 @@ import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/system_settings_service.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
@@ -60,14 +61,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       appBar: AppBar(title: const Text('Settings')),
       body: settingsValue.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(child: Text(error.toString())),
+        error: (error, stack) {
+          appLogger.error('ui.settings.load.failed', error, stack);
+          return AsyncErrorView(
+            onRetry: () => ref.invalidate(settingsControllerProvider),
+          );
+        },
         data: (settings) {
-          final reminder = _reminderDraft?.copyWith(
-                themeMode: settings.themeMode,
-              ) ??
+          final reminder =
+              _reminderDraft?.copyWith(themeMode: settings.themeMode) ??
               settings;
-          final reminderChanged =
-              !settings.hasSameReminderSchedule(reminder);
+          final reminderChanged = !settings.hasSameReminderSchedule(reminder);
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
             children: <Widget>[
@@ -77,7 +81,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                'Choose two early warnings. A final one-day reminder is always included.',
+                'Choose two different early warnings, each at least two days '
+                'before expiry. A final one-day reminder is always included.',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -89,7 +94,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     title: 'First warning',
                     value: reminder.firstWarningDays,
                     minimum: reminder.secondWarningDays + 1,
-                    maximum: 90,
+                    maximum: AppSettings.maximumWarningDays,
                     onChanged: (value) => _stageReminderChange(
                       reminder.copyWith(firstWarningDays: value),
                     ),
@@ -98,7 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   _DayControl(
                     title: 'Second warning',
                     value: reminder.secondWarningDays,
-                    minimum: 2,
+                    minimum: AppSettings.minimumWarningDays,
                     maximum: reminder.firstWarningDays - 1,
                     onChanged: (value) => _stageReminderChange(
                       reminder.copyWith(secondWarningDays: value),
@@ -190,8 +195,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       PhosphorIconsDuotone.caretRight,
                       size: 17,
                     ),
-                    onTap: () =>
-                        context.push('/settings/reminder-ledger'),
+                    onTap: () => context.push('/settings/reminder-ledger'),
                   ),
                   const Divider(),
                   ListTile(
@@ -239,7 +243,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     _save(settings.copyWith(themeMode: selection.single)),
               ),
               const SizedBox(height: 30),
-              Text('Privacy', style: Theme.of(context).textTheme.headlineMedium),
+              Text(
+                'Privacy',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
               const SizedBox(height: 14),
               _SettingsCard(
                 children: <Widget>[
@@ -278,7 +285,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     subtitle: const Text(
                       'Name, philosophy, and intended audience',
                     ),
-                    trailing: const PhosphorIcon(PhosphorIconsDuotone.caretRight),
+                    trailing: const PhosphorIcon(
+                      PhosphorIconsDuotone.caretRight,
+                    ),
                     onTap: () => context.push('/settings/about'),
                   ),
                 ],
@@ -298,10 +307,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 
-  Future<void> _pickTime(
-    BuildContext context,
-    AppSettings reminder,
-  ) async {
+  Future<void> _pickTime(BuildContext context, AppSettings reminder) async {
     final selected = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(
@@ -309,9 +315,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         minute: reminder.notificationMinute,
       ),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(alwaysUse24HourFormat: true),
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
         child: child!,
       ),
     );
@@ -386,10 +390,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => AlertDialog(
-          icon: const PhosphorIcon(
-            PhosphorIconsDuotone.bellRinging,
-            size: 34,
-          ),
+          icon: const PhosphorIcon(PhosphorIconsDuotone.bellRinging, size: 34),
           title: const Text('Update expiry reminders?'),
           content: Text(
             'Akshi will reconcile expiry alarms using '
@@ -442,9 +443,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ..hideCurrentSnackBar()
           ..showSnackBar(
             const SnackBar(
-              content: Text(
-                'Reminder settings could not be saved.',
-              ),
+              content: Text('Reminder settings could not be saved.'),
             ),
           );
       } finally {
@@ -493,7 +492,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-
   Future<void> _handleReminderAction(
     BuildContext context,
     AppSettings settings,
@@ -526,7 +524,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
       if (settings.remindersEnabled) {
         if (health.kind == ReminderHealthKind.permissionNeeded) {
-          await _openNotificationSettings(context);
+          if (health.permission == NotificationPermissionStatus.notDetermined) {
+            final granted = await ref
+                .read(notificationServiceProvider)
+                .requestPermission();
+            final result = await ref
+                .read(reminderControllerProvider.notifier)
+                .reconcile();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    granted && result.kind == ReminderHealthKind.ready
+                        ? 'Expiry reminders are ready.'
+                        : 'Notification permission was not allowed.',
+                  ),
+                ),
+              );
+          } else {
+            await _openNotificationSettings(context);
+          }
           return;
         }
         await _turnOffReminders(context, settings);
@@ -538,8 +557,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           health.permission == NotificationPermissionStatus.allowed ||
           await ref.read(notificationServiceProvider).requestPermission();
       if (granted) {
-        final result =
-            await ref.read(reminderControllerProvider.notifier).reconcile();
+        final result = await ref
+            .read(reminderControllerProvider.notifier)
+            .reconcile();
         if (!context.mounted) return;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -583,16 +603,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         await _save(settings.copyWith(remindersEnabled: false));
       }
     } catch (error, stackTrace) {
-      appLogger.error(
-        'ui.settings.reminders.action.failed',
-        error,
-        stackTrace,
-      );
+      appLogger.error('ui.settings.reminders.action.failed', error, stackTrace);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('The reminder action could not finish.')),
+          const SnackBar(
+            content: Text('The reminder action could not finish.'),
+          ),
         );
     } finally {
       _notificationRequestOpen = false;
@@ -611,9 +629,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     if (!context.mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text('Akshi reminders are off.')),
-      );
+      ..showSnackBar(const SnackBar(content: Text('Akshi reminders are off.')));
   }
 
   Future<void> _openNotificationSettings(BuildContext context) async {
@@ -656,7 +672,10 @@ class _NotificationAccessCard extends StatelessWidget {
     final action = switch (health.kind) {
       ReminderHealthKind.checking => 'Checking reminders…',
       ReminderHealthKind.off => 'Enable reminders',
-      ReminderHealthKind.permissionNeeded => 'Open system settings',
+      ReminderHealthKind.permissionNeeded =>
+        health.permission == NotificationPermissionStatus.notDetermined
+            ? 'Allow notifications'
+            : 'Open system settings',
       ReminderHealthKind.ready => 'Turn off reminders',
       ReminderHealthKind.needsAttention => 'Repair reminders',
     };
@@ -741,9 +760,7 @@ class _ReminderDraftActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final countdown = secondsUntilPrompt.clamp(1, 3);
-    final colors = AkshiTheme.progressSurface(
-      Theme.of(context).colorScheme,
-    );
+    final colors = AkshiTheme.progressSurface(Theme.of(context).colorScheme);
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       decoration: BoxDecoration(
@@ -839,14 +856,12 @@ class _DayControl extends StatelessWidget {
           ),
         ),
         IconButton.filledTonal(
-          onPressed:
-              value > minimum ? () => onChanged(value - 1) : null,
+          onPressed: value > minimum ? () => onChanged(value - 1) : null,
           icon: const PhosphorIcon(PhosphorIconsRegular.minus, size: 17),
         ),
         const SizedBox(width: 7),
         IconButton.filledTonal(
-          onPressed:
-              value < maximum ? () => onChanged(value + 1) : null,
+          onPressed: value < maximum ? () => onChanged(value + 1) : null,
           icon: const PhosphorIcon(PhosphorIconsRegular.plus, size: 17),
         ),
       ],

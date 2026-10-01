@@ -45,42 +45,45 @@ class _RecordingReminderController extends ReminderController {
 }
 
 void main() {
-  test('reminder choices persist before unhealthy platform status is reported', () async {
-    const previous = AppSettings();
-    const candidate = AppSettings(
-      remindersEnabled: true,
-      firstWarningDays: 14,
-      secondWarningDays: 7,
-      notificationHour: 18,
-    );
-    final repository = _MemorySettingsRepository(previous);
-    final reminders = _RecordingReminderController();
-    final container = ProviderContainer(
-      overrides: [
-        settingsRepositoryProvider.overrideWithValue(repository),
-        reminderControllerProvider.overrideWith(() => reminders),
-      ],
-    );
-    addTearDown(container.dispose);
+  test(
+    'reminder choices persist before unhealthy platform status is reported',
+    () async {
+      final previous = AppSettings();
+      final candidate = AppSettings(
+        remindersEnabled: true,
+        firstWarningDays: 14,
+        secondWarningDays: 7,
+        notificationHour: 18,
+      );
+      final repository = _MemorySettingsRepository(previous);
+      final reminders = _RecordingReminderController();
+      final container = ProviderContainer(
+        overrides: [
+          settingsRepositoryProvider.overrideWithValue(repository),
+          reminderControllerProvider.overrideWith(() => reminders),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    expect(await container.read(settingsControllerProvider.future), previous);
-    await container
-        .read(settingsControllerProvider.notifier)
-        .saveSettings(candidate);
+      expect(await container.read(settingsControllerProvider.future), previous);
+      await container
+          .read(settingsControllerProvider.notifier)
+          .saveSettings(candidate);
 
-    expect(repository.current, candidate);
-    expect(repository.saved, <AppSettings>[candidate]);
-    expect(container.read(settingsControllerProvider).value, candidate);
-    expect(reminders.reconciliations, 1);
-    expect(
-      container.read(reminderControllerProvider).kind,
-      ReminderHealthKind.needsAttention,
-    );
-  });
+      expect(repository.current, candidate);
+      expect(repository.saved, <AppSettings>[candidate]);
+      expect(container.read(settingsControllerProvider).value, candidate);
+      expect(reminders.reconciliations, 1);
+      expect(
+        container.read(reminderControllerProvider).kind,
+        ReminderHealthKind.needsAttention,
+      );
+    },
+  );
 
   test('appearance-only changes do not reconcile alarms', () async {
-    const previous = AppSettings();
-    const candidate = AppSettings(themeMode: AkshiThemeMode.dark);
+    final previous = AppSettings();
+    final candidate = AppSettings(themeMode: AkshiThemeMode.dark);
     final repository = _MemorySettingsRepository(previous);
     final reminders = _RecordingReminderController();
     final container = ProviderContainer(

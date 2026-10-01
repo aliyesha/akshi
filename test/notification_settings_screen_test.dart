@@ -41,7 +41,7 @@ void main() {
       ProviderScope(
         overrides: [
           settingsControllerProvider.overrideWith(
-            () => _TestSettingsController(const AppSettings()),
+            () => _TestSettingsController(AppSettings(remindersEnabled: false)),
           ),
           reminderControllerProvider.overrideWith(
             () => _TestReminderController(
@@ -67,9 +67,7 @@ void main() {
       ProviderScope(
         overrides: [
           settingsControllerProvider.overrideWith(
-            () => _TestSettingsController(
-              const AppSettings(remindersEnabled: true),
-            ),
+            () => _TestSettingsController(AppSettings(remindersEnabled: true)),
           ),
           reminderControllerProvider.overrideWith(
             () => _TestReminderController(
@@ -90,5 +88,32 @@ void main() {
     expect(find.text('Ready'), findsOneWidget);
     expect(find.textContaining('OS permission: Allowed'), findsOneWidget);
     expect(find.text('Turn off reminders'), findsOneWidget);
+  });
+
+  testWidgets('first-run permission can be allowed or turned off in Akshi', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(AppSettings(remindersEnabled: true)),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.permissionNeeded,
+                permission: NotificationPermissionStatus.notDetermined,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Allow notifications'), findsOneWidget);
+    expect(find.text('Turn off Akshi reminders'), findsOneWidget);
   });
 }

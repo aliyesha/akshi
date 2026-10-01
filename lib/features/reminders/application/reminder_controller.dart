@@ -10,7 +10,13 @@ final reminderControllerProvider =
       ReminderController.new,
     );
 
-enum ReminderHealthKind { checking, off, permissionNeeded, ready, needsAttention }
+enum ReminderHealthKind {
+  checking,
+  off,
+  permissionNeeded,
+  ready,
+  needsAttention,
+}
 
 /// Small, sanitized status surface shared by Settings and Diagnostics.
 class ReminderHealth {
@@ -96,9 +102,7 @@ class ReminderController extends Notifier<ReminderHealth> {
           permission != NotificationPermissionStatus.allowed) {
         final result = forceRepair
             ? await reconciler.repair(const <AlarmDate, ExpiryAlarmSpec>{})
-            : await reconciler.reconcile(
-                const <AlarmDate, ExpiryAlarmSpec>{},
-              );
+            : await reconciler.reconcile(const <AlarmDate, ExpiryAlarmSpec>{});
         final kind = !result.healthy
             ? ReminderHealthKind.needsAttention
             : !settings.remindersEnabled
@@ -152,7 +156,7 @@ class ReminderController extends Notifier<ReminderHealth> {
           desiredCount: state.desiredCount,
           pendingCount: state.pendingCount,
           nextAlarmDate: state.nextAlarmDate,
-          lastVerifiedAt: DateTime.now(),
+          lastVerifiedAt: state.lastVerifiedAt,
           timeZoneId: state.timeZoneId,
           lastError: AlarmReconcileError.inventoryUnavailable,
         ),

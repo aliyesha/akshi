@@ -79,8 +79,9 @@ class AlarmAuditEntry {
       requestedTime: row['requested_time']! as String,
       items: rawItems
           .map(
-            (value) =>
-                ExpiryAlarmItem.fromJson(Map<String, dynamic>.from(value as Map)),
+            (value) => ExpiryAlarmItem.fromJson(
+              Map<String, dynamic>.from(value as Map),
+            ),
           )
           .toList(growable: false),
       monitorCount: row['monitor_count']! as int,
@@ -130,19 +131,13 @@ class AlarmAuditDay {
   }
 }
 
-/// Non-authoritative proof trail written around platform operations.
+/// Best-effort diagnostic trail written around platform operations.
 abstract interface class AlarmAuditTrail {
-  Future<void> recordComputed(
-    Iterable<ExpiryAlarmSpec> alarms,
-    DateTime at,
-  );
+  Future<void> recordComputed(Iterable<ExpiryAlarmSpec> alarms, DateTime at);
 
   Future<void> recordSubmitted(ExpiryAlarmSpec alarm, DateTime at);
 
-  Future<void> recordVerified(
-    Iterable<ExpiryAlarmSpec> alarms,
-    DateTime at,
-  );
+  Future<void> recordVerified(Iterable<ExpiryAlarmSpec> alarms, DateTime at);
 
   Future<void> recordCancelled(int notificationId, DateTime at);
 

@@ -38,7 +38,9 @@ void main() {
   }
 
   Map<AlarmDate, ExpiryAlarmSpec> plan(Iterable<ExpiryAlarmSpec> alarms) =>
-      <AlarmDate, ExpiryAlarmSpec>{for (final value in alarms) value.date: value};
+      <AlarmDate, ExpiryAlarmSpec>{
+        for (final value in alarms) value.date: value,
+      };
 
   PlatformAlarmRequest request(ExpiryAlarmSpec value) => PlatformAlarmRequest(
     id: value.notificationId,
@@ -56,22 +58,24 @@ void main() {
     clock: () => DateTime.utc(2026, 8, 1, 12),
   );
 
-  test('no pending alarms creates every desired date in chronological order', () async {
-    final platform = _FakeAlarmPlatform();
-    final first = alarm(2, 14);
-    final second = alarm(3, 14);
+  test(
+    'no pending alarms creates every desired date in chronological order',
+    () async {
+      final platform = _FakeAlarmPlatform();
+      final first = alarm(2, 14);
+      final second = alarm(3, 14);
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[second, first]),
-    );
+      final result = await reconciler(platform)
+          .reconcile(plan(<ExpiryAlarmSpec>[second, first]));
 
-    expect(result.healthy, isTrue);
-    expect(result.created, 2);
-    expect(platform.operations, <String>[
-      'schedule:${first.notificationId}',
-      'schedule:${second.notificationId}',
-    ]);
-  });
+      expect(result.healthy, isTrue);
+      expect(result.created, 2);
+      expect(platform.operations, <String>[
+        'schedule:${first.notificationId}',
+        'schedule:${second.notificationId}',
+      ]);
+    },
+  );
 
   test('an identical second reconciliation performs zero writes', () async {
     final existing = alarm(4, 10);
@@ -88,21 +92,28 @@ void main() {
     expect(platform.operations, isEmpty);
   });
 
-  test('adding an earlier date never renumbers or rewrites later alarms', () async {
-    final later = alarm(6, 20);
-    final earlier = alarm(5, 20);
-    final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[
-      request(later),
-    ]);
+  test(
+    'adding an earlier date never renumbers or rewrites later alarms',
+    () async {
+      final later = alarm(6, 20);
+      final earlier = alarm(5, 20);
+      final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[
+        request(later),
+      ]);
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[earlier, later]),
-    );
+      final result = await reconciler(platform)
+          .reconcile(plan(<ExpiryAlarmSpec>[earlier, later]));
 
-    expect(result.healthy, isTrue);
-    expect(platform.operations, <String>['schedule:${earlier.notificationId}']);
-    expect(later.notificationId, ExpiryAlarmSpec.notificationIdFor(later.date));
-  });
+      expect(result.healthy, isTrue);
+      expect(platform.operations, <String>[
+        'schedule:${earlier.notificationId}',
+      ]);
+      expect(
+        later.notificationId,
+        ExpiryAlarmSpec.notificationIdFor(later.date),
+      );
+    },
+  );
 
   test('deleting one date cancels only that stable ID', () async {
     final removed = alarm(5, 10);
@@ -112,9 +123,8 @@ void main() {
       request(retained),
     ]);
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[retained]),
-    );
+    final result = await reconciler(platform)
+        .reconcile(plan(<ExpiryAlarmSpec>[retained]));
 
     expect(result.healthy, isTrue);
     expect(platform.operations, <String>['cancel:${removed.notificationId}']);
@@ -126,9 +136,8 @@ void main() {
     final updated = alarm(6, 14, hour: 18);
     final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[request(old)]);
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[updated]),
-    );
+    final result = await reconciler(platform)
+        .reconcile(plan(<ExpiryAlarmSpec>[updated]));
 
     expect(result.healthy, isTrue);
     expect(result.replaced, 1);
@@ -151,13 +160,14 @@ void main() {
     );
     final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[request(first)]);
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[combined]),
-    );
+    final result = await reconciler(platform)
+        .reconcile(plan(<ExpiryAlarmSpec>[combined]));
 
     expect(result.healthy, isTrue);
     expect(result.replaced, 1);
-    expect(platform.operations, <String>['schedule:${combined.notificationId}']);
+    expect(platform.operations, <String>[
+      'schedule:${combined.notificationId}',
+    ]);
     expect(platform.requests, hasLength(1));
   });
 
@@ -172,9 +182,8 @@ void main() {
       foreign,
     ]);
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+    final result = await reconciler(platform)
+        .reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
     expect(result.healthy, isTrue);
     expect(result.repaired, isTrue);
@@ -185,46 +194,52 @@ void main() {
     expect(platform.requests.any((value) => value.id == foreign.id), isTrue);
   });
 
-  test('post-write mismatch gets one automatic rebuild and converges', () async {
-    final desired = alarm(8, 14);
-    final platform = _FakeAlarmPlatform()..droppedSchedules = 1;
+  test(
+    'post-write mismatch gets one automatic rebuild and converges',
+    () async {
+      final desired = alarm(8, 14);
+      final platform = _FakeAlarmPlatform()..droppedSchedules = 1;
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+      final result = await reconciler(platform)
+          .reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
-    expect(result.healthy, isTrue);
-    expect(result.repaired, isTrue);
-    expect(
-      platform.operations.where((value) => value.startsWith('schedule:')),
-      hasLength(2),
-    );
-  });
+      expect(result.healthy, isTrue);
+      expect(result.repaired, isTrue);
+      expect(
+        platform.operations.where((value) => value.startsWith('schedule:')),
+        hasLength(2),
+      );
+    },
+  );
 
-  test('platform write failure reports unhealthy without nuking valid alarms', () async {
-    final retained = alarm(8, 10);
-    final added = alarm(8, 20);
-    final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[
-      request(retained),
-    ])..failSchedule = true;
+  test(
+    'platform write failure reports unhealthy without nuking valid alarms',
+    () async {
+      final retained = alarm(8, 10);
+      final added = alarm(8, 20);
+      final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[
+        request(retained),
+      ])..failSchedule = true;
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[retained, added]),
-    );
+      final result = await reconciler(platform)
+          .reconcile(plan(<ExpiryAlarmSpec>[retained, added]));
 
-    expect(result.healthy, isFalse);
-    expect(result.error, AlarmReconcileError.platformWriteFailed);
-    expect(platform.cancelAllCalls, 0);
-    expect(platform.requests.any((value) => value.id == retained.notificationId), isTrue);
-  });
+      expect(result.healthy, isFalse);
+      expect(result.error, AlarmReconcileError.platformWriteFailed);
+      expect(platform.cancelAllCalls, 0);
+      expect(
+        platform.requests.any((value) => value.id == retained.notificationId),
+        isTrue,
+      );
+    },
+  );
 
   test('repair verifies failure once and never loops', () async {
     final desired = alarm(8, 21);
     final platform = _FakeAlarmPlatform()..dropEverySchedule = true;
 
-    final result = await reconciler(platform).repair(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+    final result = await reconciler(platform)
+        .repair(plan(<ExpiryAlarmSpec>[desired]));
 
     expect(result.healthy, isFalse);
     expect(result.repaired, isTrue);
@@ -243,53 +258,62 @@ void main() {
       request(second),
     ]);
 
-    final result = await reconciler(platform).reconcile(
-      const <AlarmDate, ExpiryAlarmSpec>{},
-    );
+    final result = await reconciler(platform)
+        .reconcile(const <AlarmDate, ExpiryAlarmSpec>{});
 
     expect(result.healthy, isTrue);
     expect(result.pendingCount, 0);
     expect(platform.requests, isEmpty);
   });
-  test('successful handoff records computed, submitted, then verified', () async {
-    final desired = alarm(8, 16);
-    final platform = _FakeAlarmPlatform();
-    final audit = _FakeAlarmAudit();
+  test(
+    'successful handoff records computed, submitted, then verified',
+    () async {
+      final desired = alarm(8, 16);
+      final platform = _FakeAlarmPlatform();
+      final audit = _FakeAlarmAudit();
 
-    final result = await reconciler(platform, audit: audit).reconcile(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+      final result = await reconciler(
+        platform,
+        audit: audit,
+      ).reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
-    expect(result.healthy, isTrue);
-    expect(audit.events, <String>[
-      'computed:2026-08-16',
-      'submitted:2026-08-16',
-      'verified:2026-08-16',
-    ]);
-  });
+      expect(result.healthy, isTrue);
+      expect(audit.events, <String>[
+        'computed:2026-08-16',
+        'submitted:2026-08-16',
+        'verified:2026-08-16',
+      ]);
+    },
+  );
 
-  test('audit failure prevents an unrecorded platform handoff', () async {
+  test('computed audit failure does not block platform handoff', () async {
     final desired = alarm(8, 17);
     final platform = _FakeAlarmPlatform();
     final audit = _FakeAlarmAudit()..failComputed = true;
 
-    final result = await reconciler(platform, audit: audit).reconcile(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+    final result = await reconciler(
+      platform,
+      audit: audit,
+    ).reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
-    expect(result.healthy, isFalse);
-    expect(result.error, AlarmReconcileError.auditUnavailable);
-    expect(platform.operations, isEmpty);
+    expect(result.healthy, isTrue);
+    expect(result.error, isNull);
+    expect(platform.operations, <String>['schedule:${desired.notificationId}']);
+    expect(audit.events, <String>[
+      'submitted:2026-08-17',
+      'verified:2026-08-17',
+    ]);
   });
 
-  test('platform rejection is recorded as a failed ledger revision', () async {
+  test('platform rejection is recorded as a failed ledger entry', () async {
     final desired = alarm(8, 18);
     final platform = _FakeAlarmPlatform()..failSchedule = true;
     final audit = _FakeAlarmAudit();
 
-    final result = await reconciler(platform, audit: audit).reconcile(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+    final result = await reconciler(
+      platform,
+      audit: audit,
+    ).reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
     expect(result.error, AlarmReconcileError.platformWriteFailed);
     expect(audit.events, <String>[
@@ -298,38 +322,120 @@ void main() {
     ]);
   });
 
+  test(
+    'platform failure remains authoritative when failure audit fails',
+    () async {
+      final desired = alarm(8, 19);
+      final platform = _FakeAlarmPlatform()..failSchedule = true;
+      final audit = _FakeAlarmAudit()..failFailure = true;
+
+      final result = await reconciler(
+        platform,
+        audit: audit,
+      ).reconcile(plan(<ExpiryAlarmSpec>[desired]));
+
+      expect(result.healthy, isFalse);
+      expect(result.error, AlarmReconcileError.platformWriteFailed);
+    },
+  );
+
   test('inventory failure never mutates platform state', () async {
-    final desired = alarm(8, 19);
+    final desired = alarm(8, 20);
     final platform = _FakeAlarmPlatform()..failPending = true;
 
-    final result = await reconciler(platform).reconcile(
-      plan(<ExpiryAlarmSpec>[desired]),
-    );
+    final result = await reconciler(platform)
+        .reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
     expect(result.healthy, isFalse);
     expect(result.error, AlarmReconcileError.inventoryUnavailable);
     expect(platform.operations, isEmpty);
   });
 
-  test('ledger handoff failure recovers without duplicate scheduling', () async {
-    final desired = alarm(8, 20);
+  test('submitted audit failure does not change verified health', () async {
+    final desired = alarm(8, 21);
     final platform = _FakeAlarmPlatform();
     final audit = _FakeAlarmAudit()..failSubmitted = true;
-    final engine = reconciler(platform, audit: audit);
 
-    final failed = await engine.reconcile(plan(<ExpiryAlarmSpec>[desired]));
-    audit.failSubmitted = false;
-    final recovered = await engine.reconcile(plan(<ExpiryAlarmSpec>[desired]));
+    final result = await reconciler(
+      platform,
+      audit: audit,
+    ).reconcile(plan(<ExpiryAlarmSpec>[desired]));
 
-    expect(failed.error, AlarmReconcileError.auditUnavailable);
-    expect(recovered.healthy, isTrue);
+    expect(result.healthy, isTrue);
+    expect(result.error, isNull);
     expect(
       platform.operations.where((value) => value.startsWith('schedule:')),
       hasLength(1),
     );
-    expect(audit.events.last, 'verified:2026-08-20');
+    expect(audit.events, <String>[
+      'computed:2026-08-21',
+      'verified:2026-08-21',
+    ]);
   });
 
+  test('cancel audit failure does not stop remaining cancellations', () async {
+    final first = alarm(8, 22);
+    final second = alarm(8, 23);
+    final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[
+      request(first),
+      request(second),
+    ]);
+    final audit = _FakeAlarmAudit()..failCancelled = true;
+
+    final result = await reconciler(
+      platform,
+      audit: audit,
+    ).reconcile(const <AlarmDate, ExpiryAlarmSpec>{});
+
+    expect(result.healthy, isTrue);
+    expect(result.deleted, 2);
+    expect(platform.operations, <String>[
+      'cancel:${first.notificationId}',
+      'cancel:${second.notificationId}',
+    ]);
+    expect(platform.requests, isEmpty);
+  });
+
+  test('verified audit failure does not change platform health', () async {
+    final desired = alarm(8, 24);
+    final platform = _FakeAlarmPlatform();
+    final audit = _FakeAlarmAudit()..failVerified = true;
+
+    final result = await reconciler(
+      platform,
+      audit: audit,
+    ).reconcile(plan(<ExpiryAlarmSpec>[desired]));
+
+    expect(result.healthy, isTrue);
+    expect(result.error, isNull);
+    expect(result.pendingCount, 1);
+  });
+
+  test(
+    'repair completes the platform plan when every audit write fails',
+    () async {
+      final first = alarm(8, 25);
+      final second = alarm(8, 26);
+      final platform = _FakeAlarmPlatform();
+      final audit = _FakeAlarmAudit()
+        ..failComputed = true
+        ..failSubmitted = true
+        ..failVerified = true;
+
+      final result = await reconciler(
+        platform,
+        audit: audit,
+      ).repair(plan(<ExpiryAlarmSpec>[first, second]));
+
+      expect(result.healthy, isTrue);
+      expect(result.repaired, isTrue);
+      expect(platform.requests, hasLength(2));
+      expect(
+        platform.operations.where((value) => value.startsWith('schedule:')),
+        hasLength(2),
+      );
+    },
+  );
 }
 
 class _FakeAlarmPlatform implements AlarmPlatformGateway {
@@ -384,6 +490,9 @@ class _FakeAlarmAudit implements AlarmAuditTrail {
   final List<String> events = <String>[];
   bool failComputed = false;
   bool failSubmitted = false;
+  bool failVerified = false;
+  bool failCancelled = false;
+  bool failFailure = false;
 
   @override
   Future<void> recordComputed(
@@ -407,6 +516,7 @@ class _FakeAlarmAudit implements AlarmAuditTrail {
     Iterable<ExpiryAlarmSpec> alarms,
     DateTime at,
   ) async {
+    if (failVerified) throw StateError('ledger unavailable');
     for (final alarm in alarms) {
       events.add('verified:${alarm.date}');
     }
@@ -414,6 +524,7 @@ class _FakeAlarmAudit implements AlarmAuditTrail {
 
   @override
   Future<void> recordCancelled(int notificationId, DateTime at) async {
+    if (failCancelled) throw StateError('ledger unavailable');
     events.add('cancelled:$notificationId');
   }
 
@@ -423,6 +534,7 @@ class _FakeAlarmAudit implements AlarmAuditTrail {
     String category,
     DateTime at,
   ) async {
+    if (failFailure) throw StateError('ledger unavailable');
     events.add('failed:${alarm?.date}:$category');
   }
 }

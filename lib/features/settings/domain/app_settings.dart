@@ -1,14 +1,48 @@
 enum AkshiThemeMode { system, light, dark }
 
 class AppSettings {
-  const AppSettings({
-    this.remindersEnabled = false,
-    this.firstWarningDays = 10,
-    this.secondWarningDays = 5,
-    this.notificationHour = 9,
-    this.notificationMinute = 0,
-    this.themeMode = AkshiThemeMode.system,
+  factory AppSettings({
+    bool remindersEnabled = true,
+    int firstWarningDays = 10,
+    int secondWarningDays = 5,
+    int notificationHour = 9,
+    int notificationMinute = 0,
+    AkshiThemeMode themeMode = AkshiThemeMode.system,
+  }) {
+    _validateReminderOffsets(firstWarningDays, secondWarningDays);
+    RangeError.checkValueInInterval(
+      notificationHour,
+      0,
+      23,
+      'notificationHour',
+    );
+    RangeError.checkValueInInterval(
+      notificationMinute,
+      0,
+      59,
+      'notificationMinute',
+    );
+    return AppSettings._(
+      remindersEnabled: remindersEnabled,
+      firstWarningDays: firstWarningDays,
+      secondWarningDays: secondWarningDays,
+      notificationHour: notificationHour,
+      notificationMinute: notificationMinute,
+      themeMode: themeMode,
+    );
+  }
+
+  const AppSettings._({
+    required this.remindersEnabled,
+    required this.firstWarningDays,
+    required this.secondWarningDays,
+    required this.notificationHour,
+    required this.notificationMinute,
+    required this.themeMode,
   });
+
+  static const minimumWarningDays = 2;
+  static const maximumWarningDays = 90;
 
   final bool remindersEnabled;
   final int firstWarningDays;
@@ -16,6 +50,30 @@ class AppSettings {
   final int notificationHour;
   final int notificationMinute;
   final AkshiThemeMode themeMode;
+
+  static bool areReminderOffsetsValid(int first, int second) =>
+      second >= minimumWarningDays &&
+      first > second &&
+      first <= maximumWarningDays;
+
+  static void _validateReminderOffsets(int first, int second) {
+    if (second < minimumWarningDays || second >= maximumWarningDays) {
+      throw RangeError.range(
+        second,
+        minimumWarningDays,
+        maximumWarningDays - 1,
+        'secondWarningDays',
+      );
+    }
+    if (first <= second || first > maximumWarningDays) {
+      throw ArgumentError.value(
+        first,
+        'firstWarningDays',
+        'must be greater than secondWarningDays and at most '
+            '$maximumWarningDays',
+      );
+    }
+  }
 
   AppSettings copyWith({
     bool? remindersEnabled,

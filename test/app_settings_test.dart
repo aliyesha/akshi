@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('defaults match the product reminder policy', () {
-    const settings = AppSettings();
+    final settings = AppSettings();
 
-    expect(settings.remindersEnabled, isFalse);
+    expect(settings.remindersEnabled, isTrue);
     expect(settings.firstWarningDays, 10);
     expect(settings.secondWarningDays, 5);
     expect(settings.notificationHour, 9);
@@ -13,16 +13,38 @@ void main() {
     expect(settings.themeMode, AkshiThemeMode.system);
   });
 
+  test('warning offsets reserve day one and remain strictly ordered', () {
+    final closestAllowed = AppSettings(
+      firstWarningDays: 3,
+      secondWarningDays: 2,
+    );
+
+    expect(closestAllowed.firstWarningDays, 3);
+    expect(closestAllowed.secondWarningDays, 2);
+    expect(
+      () => AppSettings(firstWarningDays: 10, secondWarningDays: 1),
+      throwsRangeError,
+    );
+    expect(
+      () => AppSettings(firstWarningDays: 3, secondWarningDays: 3),
+      throwsArgumentError,
+    );
+    expect(
+      () => AppSettings(firstWarningDays: 2, secondWarningDays: 3),
+      throwsArgumentError,
+    );
+  });
+
   test('copyWith updates only selected settings', () {
-    const original = AppSettings();
+    final original = AppSettings();
     final updated = original.copyWith(
       secondWarningDays: 7,
       notificationHour: 18,
       themeMode: AkshiThemeMode.dark,
-      remindersEnabled: true,
+      remindersEnabled: false,
     );
 
-    expect(updated.remindersEnabled, isTrue);
+    expect(updated.remindersEnabled, isFalse);
     expect(updated.firstWarningDays, 10);
     expect(updated.secondWarningDays, 7);
     expect(updated.notificationHour, 18);
@@ -31,7 +53,7 @@ void main() {
   });
 
   test('schedule equality ignores appearance but detects alarm inputs', () {
-    const original = AppSettings();
+    final original = AppSettings();
 
     expect(
       original.hasSameReminderSchedule(
@@ -40,9 +62,7 @@ void main() {
       isTrue,
     );
     expect(
-      original.hasSameReminderSchedule(
-        original.copyWith(firstWarningDays: 30),
-      ),
+      original.hasSameReminderSchedule(original.copyWith(firstWarningDays: 30)),
       isFalse,
     );
     expect(
@@ -53,7 +73,7 @@ void main() {
     );
     expect(
       original.hasSameReminderSchedule(
-        original.copyWith(remindersEnabled: true),
+        original.copyWith(remindersEnabled: false),
       ),
       isFalse,
     );

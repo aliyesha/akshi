@@ -14,11 +14,18 @@ class SettingsRepository {
   Future<AppSettings> load() async {
     final preferences = _store;
     final themeName = await preferences.getString('theme_mode');
+    final storedFirst = await preferences.getInt('first_warning_days') ?? 10;
+    final storedSecond = await preferences.getInt('second_warning_days') ?? 5;
+    final (
+      firstWarningDays,
+      secondWarningDays,
+    ) = AppSettings.areReminderOffsetsValid(storedFirst, storedSecond)
+        ? (storedFirst, storedSecond)
+        : (10, 5);
     return AppSettings(
-      remindersEnabled:
-          await preferences.getBool('reminders_enabled') ?? false,
-      firstWarningDays: await preferences.getInt('first_warning_days') ?? 10,
-      secondWarningDays: await preferences.getInt('second_warning_days') ?? 5,
+      remindersEnabled: await preferences.getBool('reminders_enabled') ?? true,
+      firstWarningDays: firstWarningDays,
+      secondWarningDays: secondWarningDays,
       notificationHour: await preferences.getInt('notification_hour') ?? 9,
       notificationMinute: await preferences.getInt('notification_minute') ?? 0,
       themeMode: AkshiThemeMode.values.firstWhere(
