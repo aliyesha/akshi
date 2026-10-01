@@ -88,6 +88,27 @@ scope, selects the light/dark theme, and owns the app lifecycle observer. On a
 foreground transition it asks the monitor controller to refresh enabled
 monitors and asks the reminder controller to reconcile the local schedule.
 
+`AppLifecycleCoordinator` owns every future launched by the post-frame startup
+callback and lifecycle observer. Reminder reconciliation and monitor refresh
+share one coalesced foreground data session and run behind independent error
+boundaries. Notification maintenance starts alongside that session but owns a
+separate coalesced operation.
+
+Notification maintenance initializes the plugin, attaches navigation once, and
+checks whether the first-run permission prompt is needed. A failed initialization
+remains retryable after its operation settles. A slow or never-completing plugin
+cannot keep the data operation active, so later foreground transitions can still
+refresh monitors and reminders.
+
+Disposal prevents a later phase from beginning; an already running platform call
+is allowed to settle and its result is contained.
+`NotificationService` joins concurrent initialization calls, clears a failed
+attempt for retry, rejects use after disposal, and closes its owned navigation
+stream when the Riverpod provider is disposed. Startup failures do not replace
+saved monitor state with an error screen: monitor state remains readable,
+reminder health reports its own degraded state, and sanitized details stay in
+local logs.
+
 `appRouter` is a `GoRouter` tree. The home route lists monitors. A monitor route
 opens a compact overview, with child routes for `domain`, `tls`, `email`, and
 `dns`. The form and settings routes are siblings. A route is a URL-like state,
@@ -112,24 +133,106 @@ Akshi uses Riverpod's `Provider` and `AsyncNotifierProvider` primitives.
 objects, and repositories. Providers make dependencies explicit and make
 services replaceable in tests.
 
+## Database lifecycle
+
+`databaseProvider` owns one `AppDatabase` for the lifetime of its Riverpod
+scope and registers its synchronous `dispose` callback with `ref.onDispose`.
+Repositories borrow that database; they never open or close independent
+connections.
+
+The lazy `instance` getter caches both the in-flight open and the resulting
+SQLite connection. Concurrent repository calls therefore join one future
+instead of racing separate opens. An opening failure clears the attempt and may
+be retried while the owner remains alive. `close()` is terminal, idempotent,
+and awaitable: it rejects later access and, if opening is still in flight, waits
+for the raw connection and closes it before completing. The synchronous
+provider disposer owns and logs close failures; explicit lifecycle tests or
+other callers that require completion await `close()` directly.
+
 `monitorControllerProvider` exposes an `AsyncNotifier<List<MonitorEntry>>`.
 The notifier loads the repository in `build`, performs add/edit/delete/check
 commands, then assigns fresh `AsyncData` after persistence. Screens watch the
 provider and render loading, error, or data states. A screen should not mutate
 the database directly.
 
-The controller uses a single `_refreshOperation` for portfolio refreshes and
-coalesces checks for the same monitor. A shared FIFO `AsyncConcurrencyGate`
-admits only submitted work and caps active external I/O at ten operations.
-Selected work therefore grows naturally from one operation up to the ceiling;
-the gate never creates a fixed batch of ten.
+The controller uses a single `_refreshOperation` for portfolio refreshes.
+`monitorRefreshProvider` is the canonical cross-screen refresh session: it
+records the start time, total and completed monitor counts, the latest successful
+completion, and an unresolved failed attempt. Screens must use that state
+instead of maintaining private portfolio-refresh flags.
+
+A manual check is also one complete coalesced operation per monitor: source I/O,
+observation persistence, list reload, and reminder reconciliation all share one
+future. `monitorCheckActivityProvider` publishes the active monitor IDs so every
+screen renders the same busy state across navigation.
+
+A shared FIFO `AsyncConcurrencyGate` admits only submitted leaf I/O and caps
+active external operations at ten. It is a small semaphore built only from the
+standard `dart:collection` `Queue` and `dart:async` `Completer` APIs. RDAP
+requests, TLS handshakes, icon fetches, MTA-STS fetches, and individual DNS
+queries acquire that gate. Never acquire the same gate around a whole monitor
+check: the monitor would then wait for child work that cannot acquire a slot,
+which can deadlock when all ten parent slots are occupied. The gate is a
+resource ceiling, not a batch size.
+
+## Refresh consistency contract
+
+Akshi treats a portfolio refresh as one foreground snapshot transaction. It is
+asynchronous, but it is not background monitoring and it does not pretend that
+partly refreshed data is a new coherent state.
+
+1. The controller freezes enabled monitor definitions from SQLite at the start
+   of the session. Checks only read those immutable values.
+2. Each monitor is prepared in memory. Independent sources run concurrently;
+   the shared cap-ten gate limits only external leaf I/O.
+3. Progress is published through `monitorRefreshProvider`. It distinguishes
+   source preparation, per-monitor progress, and final database publication.
+   Existing screens remain readable and navigable, with an explicit "showing
+   saved results" notice, while the list itself remains the last committed
+   snapshot. A failed session keeps its sanitized failure notice visible until a
+   later successful refresh; it never presents the failed attempt as current
+   data.
+4. Add, edit, delete, tag-mutation, and manual-check commands fail fast
+   with the typed
+   `MonitorRefreshInProgressException` while a portfolio refresh is active.
+   Disabled UI controls are a convenience; the controller check is the command
+   boundary.
+5. After all checks finish, the repository writes observation columns for all
+   still-present rows in one short SQLite transaction. Refresh never writes
+   definition columns (`hostname`, TLS endpoint, enabled checks, mail mode,
+   selectors, label, tags, creation time, or definition update time). Each row
+   also matches the frozen definition's `updated_at` revision; a stale result
+   rolls back instead of attaching old observations to a new definition.
+6. Riverpod publishes the committed list once, and reminders reconcile once.
+   No intermediate monitor result is exposed to readers.
+7. Startup and resume refreshes may use a freshness window to avoid repeating
+   a just-completed session. An explicit user refresh always runs.
+
+The observation-only database boundary is required even though mutation
+controls are disabled. Lifecycle callbacks and already-running form saves can
+overlap by a few instructions; a refresh that cannot write definitions remains
+safe under those races. Initial provisioning and a one-monitor manual check use
+the same observation-only write shape but are not portfolio transactions. While
+a manual check is active, its shared activity state disables repeat checks and
+definition mutations for that monitor in overview and detail UI. Calls that do
+repeat still join the original complete command at the controller boundary.
 
 ## Monitor creation and editing
 
 The form normalizes the entered hostname using `normalizeHostname`. Domain
 registration is always enabled. TLS and Email are independent optional checks;
-the TLS hostname may differ from the registration hostname and Email can be
-configured for sending, receiving, or both.
+the TLS hostname may differ from the registration hostname. Sending
+automatically selects published SPF and DMARC checks. Receiving automatically
+selects MX, MTA-STS, and TLS-RPT checks. DKIM is the only optional custom input
+because its selector cannot be enumerated reliably from the domain; the form
+shows how to copy the selector prefix from a name such as
+`selector1._domainkey.example.com`. These checks report published
+configuration facts. They do not test mail delivery, reputation, or live mail
+flow.
+
+Create and edit are explicit form modes. Edit waits for monitor state to load.
+A missing id renders a not-found state, and an edit save can call only
+`updateMonitor`; it never falls through to `add`.
 
 `MonitorController.add` commits the immutable monitor definition and tag links
 in one SQLite transaction, reloads Riverpod, and returns immediately. The form
@@ -149,7 +252,8 @@ a retry message on the summary.
 
 `updateMonitor` uses the same preparation-before-persistence boundary. A changed
 check definition clears obsolete results before preparing fresh observations;
-a name/tag-only edit retains existing result data.
+a label, tag, or enabled-state-only edit persists immediately without external
+network checks and retains existing result data.
 
 `MonitorRepository.delete` removes monitor-tag links and the monitor row in one
 transaction. SQLite foreign keys are enabled as an additional cascade safety
@@ -158,25 +262,72 @@ deleted monitor cannot remain in an in-memory list or scheduled digest.
 
 ## One foreground check
 
-`MonitorController._performCheck` is the atomic persistence boundary.
-`_prepareCheck` starts independent selected work concurrently through the
-shared dynamic I/O gate and records independent outcomes:
+`MonitorController._prepareCheck` is a pure orchestration boundary: it starts
+independent selected work concurrently through the shared dynamic I/O gate and
+returns one immutable result without writing SQLite. Its callers select the
+persistence boundary: an initial or manual check writes one observation set;
+portfolio refresh collects every result before one batch transaction.
 
-1. If enabled, `TlsCheckService` opens a direct TLS socket and parses the
-   presented X.509 certificate.
+1. If enabled, `TlsCheckService` opens one direct TLS socket to the exact
+   hostname and port. It retains the presented leaf certificate long enough to
+   report platform trust failure and parses validity, subject, issuer, SANs,
+   hostname match, serial number, signature algorithm, public-key information,
+   and SHA-256 fingerprint. Trust or hostname mismatch is critical independently
+   of expiry. The service does not infer a protocol from the port or substitute
+   a web API's certificate view.
 2. `RdapService` discovers the authoritative RDAP endpoint from IANA's public
    bootstrap document, requests registration data, and extracts dates,
-   registrar, registrant, and nameservers where available.
+   registrar, registrant, and nameservers where available. Every successful
+   bootstrap or registry response passes through `RdapResponseReader`, which
+   accepts only `application/rdap+json` or `application/json`, rejects a declared
+   or streamed body above 2 MiB, applies one 12-second limit to the complete body
+   read, requires valid UTF-8 and JSON, and requires a top-level JSON object.
+   Request creation and response headers use the same timeout; non-success
+   response bodies are cancelled without being read. The shared bounded-body
+   reader owns one stream subscription and completes only after that
+   subscription has been cancelled on timeout, overflow, error, or completion.
 3. `SiteIconService` discovers and caches a declared HTTPS site icon when the
-   cache is absent or stale.
+   cache is absent or stale. Page responses are limited to 512 KiB and icon
+   responses to 1 MiB by both declared and streamed length. Each request has a
+   six-second limit, and one 15-second operation deadline is shared by the page
+   and all candidate icons. Redirect, unsuccessful, oversized, and timed-out
+   response bodies are cancelled rather than buffered. Discovery does not
+   return while an active response body remains subscribed, and it starts no
+   further candidate after the operation deadline.
+
+   Raster input is rejected before full pixel decoding when either dimension
+   exceeds 2048 pixels or the image exceeds 1,048,576 total pixels. Its encoded
+   input and normalized PNG output must each fit within 1 MiB. Normalization
+   decodes only the first frame, keeps the original width and height, and never
+   resamples the image.
+
+   SVG input is limited to 256 KiB, strict UTF-8 and XML, 512 elements, 2,048
+   attributes, 32 levels of nesting, and 64 KiB of cumulative path and point
+   data. DTDs, scripts, animation, filters, embedded images or foreign content,
+   style blocks, event handlers, imports, and external references are rejected.
+   An accepted SVG is stored byte-for-byte unchanged: it is never rewritten,
+   simplified, cropped, or resized. A rejected candidate is skipped in favor of
+   the next candidate or the neutral placeholder.
 4. `DnsSnapshotService` asks the device resolver for explicit record types and
    stores every query as answered, absent, or failed. Each native query, rather
    than the outer snapshot, acquires one shared I/O slot.
 5. `EmailPostureService` analyzes the already captured DNS snapshot. It does
-   not issue another DNS request. Its MTA-STS check may fetch the published
-   HTTPS policy only when the corresponding DNS record exists.
-6. The controller stamps `lastCheckedAt`, persists the complete immutable
-   result, reloads Riverpod state, and rebuilds scheduled expiry reminders.
+   not issue another DNS request. Its MTA-STS check fetches the published HTTPS
+   policy only when the corresponding DNS record exists. The response is
+   limited to 128 KiB by declared and streamed length, uses one ten-second
+   deadline for the complete body, requires strict UTF-8, and cancels
+   non-successful, oversized, or timed-out bodies.
+6. After every run finishes, the controller advances `lastAttemptedAt`.
+   It advances `lastVerifiedAt` only when Domain and every enabled TLS or Email
+   activity completed in that same run, every requested DNS query was answered
+   or confirmed absent, and no Email finding is unavailable. A successfully
+   observed unhealthy result—such as an expired certificate or invalid mail
+   policy—is verified evidence and therefore advances both timestamps. A source,
+   resolver, or MTA-STS policy-fetch failure advances only the attempt and keeps
+   the previous verification time. Site-icon discovery is presentation metadata
+   and never blocks verification.
+7. The caller persists observation fields only, reloads Riverpod state at its
+   transaction boundary, and rebuilds scheduled expiry reminders once.
 
 Each external operation is isolated with `try/catch`. TLS ports are validated
 only as the protocol-neutral range 1 through 65535. The TLS service performs one
@@ -196,7 +347,14 @@ normal. `DnsRecord` stores owner, type, TTL, value, and optional MX priority.
 `DnsSnapshot` stores the timestamp and ordered query results.
 
 Akshi asks for A, AAAA, CNAME, MX, NS, TXT, and CAA individually at the
-monitored name. It adds only the role-appropriate Email names:
+monitored name. A/AAAA carry IP addresses, CNAME carries an alias, MX carries
+mail routing, NS carries authoritative nameservers, TXT carries opaque text,
+and CAA carries certificate-authority authorization. Decoding preserves the
+record owner, type, TTL, value, and MX priority where present. No TXT value,
+including ACME or Let’s Encrypt validation data, receives provider-specific
+handling.
+
+The snapshot adds only the role-appropriate Email names:
 
 - `_dmarc.<domain>` and user-entered DKIM selectors when sending is enabled;
 - `_mta-sts.<domain>` and `_smtp._tls.<domain>` when receiving is enabled.
@@ -209,10 +367,18 @@ metadata through the `com.aliyesha.akshi/dns` method channel. Dart decodes the
 wire values into the shared domain model.
 
 `EmailPostureService` consumes the snapshot by querying records in memory. It
-produces concrete findings—MX, SPF, DMARC, MTA-STS, TLS-RPT, and explicit DKIM—
-not a remote score. A failed query becomes an unavailable finding; an answered
-query with no records becomes an absent/informational or actionable finding
-according to that policy's rules.
+produces only findings selected by the configured mail roles: MX, SPF, DMARC,
+MTA-STS, TLS-RPT, and explicit DKIM selectors. It does not produce a remote
+score. A failed query becomes an unavailable finding; an answered query with no
+records becomes an absent/informational or actionable finding according to that
+policy's rules. Presence of one syntactically recognizable SPF, DMARC, TLS-RPT,
+or DKIM record is reported as published information rather than proof that the
+policy is operationally correct. MTA-STS is the exception because Akshi also
+fetches the advertised HTTPS policy and compares its MX patterns. MX presence
+is healthy as an observed routing fact. A covered MTA-STS `enforce` policy is
+healthy; covered `testing` and `none` policies are informational. Uncovered
+`testing` or `enforce` policies are warnings. Duplicate, malformed, or
+explicitly requested but absent configuration remains actionable.
 
 TTL is shown as context but is excluded from semantic change detection. Answer
 ordering is canonicalized. Repeated values are retained and compared as a
@@ -233,12 +399,9 @@ boolean values are SQLite integers, lists and rich results are JSON, and icon
 bytes are a BLOB. `MonitorEntry.fromMap` performs the inverse conversion.
 Repositories never expose raw SQLite rows to presentation code.
 
-Schema version 1 is the baseline for the first public release. During
-pre-release development, incompatible schema changes require uninstalling the
-development build or clearing its app data before testing. Once version 1.0.0
-is published, every schema change that can affect an installed release must use
-an explicit, tested SQLite migration. New model readers should represent the
-current schema rather than accumulating undocumented compatibility branches.
+Schema version 1 is the current pre-release schema. Incompatible development
+changes update that schema and its models directly; test installations clear
+their application data before running against the new shape.
 
 ## Expiry notification behavior
 
@@ -255,13 +418,15 @@ pending requests and incrementally creates, replaces, or deletes only changed
 dates. Stable IDs are derived from the date. A full owned-alarm rebuild is
 bounded to one repair attempt after corrupt inventory or failed verification.
 
-The SQLite `alarm_audit` ledger records one immutable row per date/revision.
-The reconciler records Computed before platform mutation, Platform accepted
-after the scheduling call returns, and Pending verified only after exact
-post-write comparison. The ledger is non-authoritative and never feeds the
-planner. It retains at most 365 days and 1,000 revisions. Settings → Reminder
-ledger groups rows by daily alarm and exposes the full Domain/TLS snapshot and
-revision history. It explicitly does not claim delivery.
+The SQLite `alarm_audit` ledger is a best-effort diagnostic record. The
+reconciler attempts to record Computed before platform mutation, Platform
+accepted after the scheduling call returns, and Pending verified after exact
+post-write comparison. Audit writes are isolated and locally logged: they never
+stop scheduling, cancellation, repair, or verification, and they never change
+reminder health. Desired plans and observed OS pending inventory are
+authoritative. The ledger retains at most 365 days and 1,000 alarm revisions.
+Settings → Reminder ledger groups rows by daily alarm and exposes the available
+Domain/TLS snapshot history. It explicitly does not claim delivery.
 
 On Android, the plugin schedules with `AlarmManager` and its pending API reads
 the plugin's private persisted scheduled-notification cache. On iOS, pending
@@ -270,8 +435,11 @@ not request exact-alarm access. The operating system controls final delivery.
 
 Settings persistence is desired truth: save first, then reconcile. Failure
 keeps the user's choice and exposes Needs attention for a later retry; there is
-no compensating rollback. Notification payloads route to the explanatory
-expiry-reminder screen with the alarm date and affected monitor IDs.
+no compensating rollback. Versioned notification payloads route to the
+explanatory expiry-reminder screen with the alarm date and affected monitor
+IDs. Generated and observed payloads share a 32 KiB UTF-8 ceiling. Generation
+fails before an oversized payload reaches a platform bridge; incoming or
+pending oversized values are rejected before JSON decoding.
 
 Akshi does not run a background network checker or keep persistent domain
 connections.
@@ -314,15 +482,23 @@ snapshots:
 | `hostname_test.dart` | URL/hostname normalization and validation |
 | `monitor_status_test.dart` | expiry boundaries and severity precedence |
 | `monitor_finding_test.dart` | independent Domain/TLS/Email findings |
-| `monitor_entry_test.dart` | model defaults, copy semantics, JSON/row mapping |
+| `monitor_entry_test.dart` | model defaults, copy semantics, row mapping, and definition/observation separation |
+| `async_concurrency_gate_test.dart` | cap enforcement, FIFO queue order, error release, and invalid limits |
+| `monitor_refresh_*_test.dart` | session freshness/progress and controller-level mutation rejection |
+| `monitor_check_activity_test.dart` | immutable cross-screen manual-check activity by monitor ID |
+| `app_lifecycle_coordinator_test.dart` | startup failure isolation, notification retry, foreground coalescing, and disposal boundaries |
+| `notification_service_test.dart` | initialization joining/retry and provider-owned stream disposal |
+| `app_database_lifecycle_test.dart` | one in-flight open, retry, terminal close, and disposal ownership |
 | `dns_snapshot_test.dart` | repeated values, JSON round-trip, TTL/order-insensitive change detection, failed refreshes |
-| `system_dns_service_test.dart` | native-channel decoding for TXT and MX wire data |
-| `email_posture_service_test.dart` | concrete mail facts, duplicate SPF, and per-query failure isolation |
-| `rdap_service_test.dart` | bootstrap, registry parsing, missing fields, and response errors |
+| `system_dns_service_test.dart` | native decoding for TXT/MX wire data and safe failure mapping |
+| `email_posture_service_test.dart` | role-specific mail facts, query isolation, and bounded MTA-STS policy reads |
+| `rdap_service_test.dart` | media types, byte/time bounds, JSON shape, registry parsing, and missing fields |
+| `site_icon_service_test.dart` | byte-exact image handling, safety/decode bounds, and operation-deadline cancellation |
 | `certificate_*_test.dart` | human-readable subject and algorithm formatting |
 | `tls_endpoint_test.dart` | protocol-neutral port bounds and DNS/reachability/handshake failures |
 | `reminder_*_test.dart` | daily grouping, offsets, duplicate checks, and limits |
-| `notification_destination_test.dart` | notification payload routing and encoding |
+| `notification_destination_test.dart` | payload routing, encoding, integrity, byte boundary, and strict calendar dates |
+| `async_error_view_test.dart` | safe retryable load failure presentation |
 | `settings_alarm_transaction_test.dart` | serialized alarm commit, rollback, and non-schedule settings |
 | `settings_reminder_debounce_test.dart` | three-second restartable confirmation and cancel restore |
 | `notification_settings_screen_test.dart` | visible permission progress and complete alarm refresh |
@@ -380,7 +556,7 @@ and a multiline body explaining the design decision and test coverage.
 Before opening a pull request, check:
 
 - no generated build output or local database is tracked;
-- no old application identifier remains after a bundle-id change;
+- only the current application identifier remains after a bundle-id change;
 - no deprecated Flutter/Dart API is introduced;
 - offline, timeout, absent-record, and partial-success states are visible;
 - notification taps reach the exact intended route;

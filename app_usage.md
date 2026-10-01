@@ -87,10 +87,13 @@ that same asset, independently enable either or both of:
 TLS and Email checks are disabled by default. Leave both disabled to monitor
 registration alone. The
 service icon remains visible, while the circle at the end of each row shows
-whether that optional check is selected. For Email checks, tell Akshi whether
-the domain sends mail, receives mail, or both. DKIM selectors
-are optional and must be entered explicitly because there is no reliable
-universal selector-discovery mechanism.
+whether that optional check is selected. For Email checks, select **Sends email
+from this domain** to inspect published SPF, DMARC, and user-supplied DKIM
+selectors. Select **Receives email at this domain** to inspect published MX,
+MTA-STS, and TLS-RPT configuration. Akshi evaluates published configuration;
+it does not send messages or test delivery, reputation, or live mail flow.
+DKIM selectors are optional and must be entered explicitly because there is no
+reliable universal selector-discovery mechanism.
 
 ## Add a monitor
 
@@ -104,7 +107,7 @@ universal selector-discovery mechanism.
    port number. If that endpoint is closed or speaks something other than TLS,
    the summary reports the reachability or handshake failure explicitly. For Email, choose sending
    and receiving roles and optionally add known DKIM selectors.
-5. Optionally add a recognizable **Name**, such as “Production mail”, and
+5. Optionally add a recognizable **Name**, such as “Production Website”, and
    tags. The name appears prominently while the domain remains visible. Tags
    organize monitors and never change which checks run.
 6. Save the asset. Akshi commits the complete monitor definition and tags in
@@ -122,13 +125,29 @@ Each domain can show separate results:
   change dates, nameservers, and public registrant when those fields are
   published.
 - **Certificate expiry** comes directly from the X.509 certificate presented by
-  the configured TLS hostname and port when TLS checking is enabled.
+  the configured TLS hostname and port when TLS checking is enabled. The TLS
+  details also show platform trust, hostname matching, validity dates, subject,
+  issuer, subject alternative names, serial number, signature and public-key
+  information, and the SHA-256 fingerprint. A trust or hostname failure is
+  visible even when the certificate has not expired.
 - **Email configuration** shows published records and concrete issues when Email
-  checking is enabled. Email configuration has no expiry date.
+  checking is enabled. Recognizable policy text is reported as published
+  information, not as proof of deliverability or complete operational validity.
+  Email configuration has no expiry date.
 - **DNS records** shows the latest A, AAAA, CNAME, MX, NS, TXT, and CAA
   snapshot returned by the device's resolver. Multiple values with the same
   name and type remain separate—Akshi does not collapse them into a single
   value. Each visible record includes its TTL and can be copied.
+
+In that DNS inventory, A and AAAA are IPv4 and IPv6 addresses, CNAME is an alias,
+MX identifies inbound mail exchangers, NS identifies authoritative name
+servers, TXT carries arbitrary text such as verification and mail-policy values,
+and CAA states which certificate authorities may issue certificates. Akshi
+shows these as DNS facts. It does not infer the purpose of arbitrary TXT values
+or give ACME, Let’s Encrypt, or any other provider's records special treatment.
+
+DNS is neutral inventory, not a health score. A type that is not published is
+normal. This does not change monitor health or create an attention item.
 
 A missing optional Email record is informational; an invalid or
 expected-but-missing record needs review. Records are read through the device's
@@ -136,6 +155,16 @@ configured DNS resolver. An offline device, timeout, or resolver failure is
 reported as a lookup failure—not as proof that records are missing. The dashboard
 uses the most urgent enabled result as the asset's overall status, while the
 Attention screen always names the exact component or components involved.
+
+For Email findings, an observed MX route is healthy as a publication fact.
+A recognizable single SPF, DMARC, TLS-RPT, or DKIM record is informational
+because deeper validity depends on senders, receivers, referenced records, or
+provider behavior that Akshi does not simulate. MTA-STS is checked further:
+when its DNS marker exists, Akshi fetches the standard HTTPS policy and compares
+its MX patterns with the current MX records. Only a covered `enforce` policy is
+healthy; covered `testing` or `none` policies are informational. Duplicate,
+malformed, explicitly requested but missing, or uncovered values are shown for
+review rather than silently accepted.
 
 Public registration records vary. “Public registrant” can be missing, redacted,
 or name a privacy service, so Akshi does not present it as verified legal
@@ -161,8 +190,17 @@ Status indicators distinguish healthy, approaching, critical, expired,
 unavailable, and failed checks. Certificate trust problems are treated as
 critical even when the certificate expiry date is still distant.
 
-The “last checked” time matters: because Akshi does not scan in the background,
-results reflect the most recent time the app was active.
+Each monitor shows two freshness times. **Last attempted** is the most recent
+completed run, including one in which a source or DNS query failed. **Last
+verified** advances only when Domain, every enabled TLS or Email check, and all
+requested DNS queries complete without unavailable evidence. A failed attempt
+keeps the previous verified time so a new failure cannot make older observations
+look fresh.
+
+Verified does not mean healthy. An expired or untrusted certificate, an invalid
+mail policy, or another observed configuration problem is verified evidence.
+Because Akshi does not scan continuously, check both freshness times when
+deciding whether the saved result is current enough.
 
 ## Understand reminders
 
@@ -225,11 +263,13 @@ the persisted values.
 The reminder card separately shows Akshi's On/Off choice and current OS
 notification permission. Enabling requests permission only when needed;
 turning reminders off cancels Akshi-owned expiry alarms but does not pretend to
-revoke OS permission. The Reminder Ledger groups work as one card per daily
-alarm. Its detail proves Computed, Platform accepted, and Pending verified
-steps, while stating that Android or iOS controls final delivery. Repair
-performs one bounded rebuild and verification when normal reconciliation needs
-help.
+revoke OS permission. The Reminder Ledger groups available diagnostic entries
+as one card per daily alarm. Its detail can show Computed, Platform accepted,
+and Pending verified steps, while stating that Android or iOS controls final
+delivery. A missing ledger step means local diagnostic proof was not stored; it
+does not mean the OS notification failed. Reminder readiness comes from the
+observed OS pending inventory. Repair performs one bounded rebuild and
+verification when normal reconciliation needs help.
 
 ## Privacy and connectivity
 
