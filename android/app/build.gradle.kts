@@ -35,6 +35,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("androidx.core:core-splashscreen:1.2.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 

@@ -1,18 +1,30 @@
 package com.aliyesha.akshi
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.DnsResolver
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.os.CancellationSignal
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // One AndroidX-controlled system splash is used on every supported API.
+        // Rich branding is the first Flutter frame; do not add a native overlay.
+        installSplashScreen()
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
@@ -63,13 +75,14 @@ class MainActivity : FlutterActivity() {
             "com.aliyesha.akshi/system_settings",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "notificationPermissionStatus" -> result.success(
-                    if (NotificationManagerCompat.from(this).areNotificationsEnabled()) {
-                        "allowed"
-                    } else {
-                        "notAllowed"
-                    },
-                )
+                "notificationPermissionStatus" -> result.success(notificationPermissionStatus())
+                "markNotificationPermissionRequested" -> {
+                    getSharedPreferences(NOTIFICATION_PREFERENCES, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true)
+                        .apply()
+                    result.success(true)
+                }
                 "openNotificationSettings" -> {
                     try {
                         startActivity(
@@ -88,6 +101,21 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun notificationPermissionStatus(): String {
+        val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return if (notificationsEnabled) "allowed" else "notAllowed"
+        }
+
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted && notificationsEnabled) return "allowed"
+
+        val requested = getSharedPreferences(NOTIFICATION_PREFERENCES, MODE_PRIVATE)
+            .getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)
+        return if (requested) "notAllowed" else "notDetermined"
     }
 
     private fun queryDns(name: String, type: Int, result: MethodChannel.Result) {
@@ -242,5 +270,10 @@ class MainActivity : FlutterActivity() {
             ((bytes[offset + 1].toLong() and 0xff) shl 16) or
             ((bytes[offset + 2].toLong() and 0xff) shl 8) or
             (bytes[offset + 3].toLong() and 0xff)
+    }
+
+    private companion object {
+        const val NOTIFICATION_PREFERENCES = "akshi_notification_permissions"
+        const val NOTIFICATION_PERMISSION_REQUESTED = "requested"
     }
 }
