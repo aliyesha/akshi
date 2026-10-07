@@ -32,7 +32,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Watch What Matters',
+            'Private, local-first infrastructure awareness',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(color: Theme.of(context).colorScheme.primary),
@@ -40,12 +40,12 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 28),
           const _AboutCard(
             icon: PhosphorIconsDuotone.scan,
-            title: 'An attentive eye',
+            title: 'What Akshi watches',
             body:
-                'Akshi comes from the Sanskrit akṣi (अक्षि), meaning eye. '
-                'It keeps a quiet eye on domain registration, certificates, '
-                'and published Email configuration, then directs attention '
-                'where action is useful.',
+                'Akshi—Sanskrit akṣi (अक्षि), meaning eye—checks domain '
+                'registration, DNS, TLS certificates, and published email '
+                'configuration. It keeps verified facts together and highlights '
+                'changes or expiry dates that may need action.',
           ),
           const SizedBox(height: 12),
           const _AboutCard(
@@ -54,25 +54,36 @@ class AboutScreen extends StatelessWidget {
             body:
                 'There is no Akshi account or central monitoring server. '
                 'Checks run intentionally while the app is active, results '
-                'remain on this device, and reminders are scheduled locally.',
+                'remain on this device, and reminders are scheduled locally. '
+                'Akshi does not provide continuous uptime monitoring.',
           ),
           const SizedBox(height: 12),
           const _AboutCard(
             icon: PhosphorIconsDuotone.code,
-            title: 'For hands-on builders',
+            title: 'Clear scope, honest results',
             body:
-                'Akshi is made for indie developers, consultants, small teams, '
-                'and operators who want renewal awareness without another '
-                'service to deploy, secure, pay for, and maintain.',
+                'Findings describe what public sources and the selected endpoint '
+                'reported during a check. They are operational guidance—not proof '
+                'of domain ownership, email delivery, or uninterrupted service.',
           ),
           const SizedBox(height: 12),
           const _AboutCard(
             icon: PhosphorIconsDuotone.shieldCheck,
-            title: 'Privacy and support',
+            title: 'Network and privacy',
             body:
-                'Akshi does not send monitor data or diagnostics to Aliyesha. '
-                'For privacy or support questions, contact '
-                'ops@aliyeshamail.com.',
+                'Checks contact the device DNS resolver, public registration '
+                'services, and the endpoints being inspected. Akshi does not send '
+                'monitor data or diagnostics to Aliyesha. For privacy or support '
+                'questions, contact ops@aliyeshamail.com.',
+          ),
+          const SizedBox(height: 12),
+          const _AboutCard(
+            icon: PhosphorIconsDuotone.code,
+            title: 'Free and open source',
+            body:
+                'Akshi is independent software licensed under GPL-3.0-or-later. '
+                'Its source, privacy terms, and third-party notices are published '
+                'for inspection and contribution.',
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
