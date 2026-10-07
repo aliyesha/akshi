@@ -66,6 +66,20 @@ flutter run
 The project contains native shells for both supported mobile platforms. Choose
 the connected simulator or device through the usual Flutter tooling.
 
+### Offline physical-device work
+
+Prepare one platform while the laptop is online, then connect the real phone by
+USB and use Flutter normally with Pub disabled:
+
+```sh
+./tool/offline prepare android  # or: ./tool/offline prepare ios
+flutter run --release --no-pub -d <device-id>
+```
+
+The complete prerequisites, cache boundaries, cleanup procedure, offline proof,
+signing requirements, space checks, and recovery steps are in
+[OFFLINE.md](OFFLINE.md).
+
 ## Quality checks
 
 Run the complete local verification set before submitting changes:

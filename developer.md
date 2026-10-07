@@ -553,6 +553,16 @@ test`, and the relevant platform builds pass in the Flutter environment. Use
 small commits only after verification, with a subject describing the behavior
 and a multiline body explaining the design decision and test coverage.
 
+### Offline physical-device work
+
+The complete operator runbook is [OFFLINE.md](OFFLINE.md). It is the single
+source for online preparation, USB-device release runs, cache locations,
+cleanup, platform signing, offline verification, disk-space checks, and
+troubleshooting.
+
+Keep operational instructions in that runbook. Do not duplicate shell-script
+internals or an alternative workflow in this developer guide.
+
 Before opening a pull request, check:
 
 - no generated build output or local database is tracked;

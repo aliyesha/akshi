@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly project_dir="$(cd -- "$script_dir/.." && pwd)"
+readonly offline_dir="$project_dir/.offline"
+
+usage() {
+  cat <<'USAGE'
+Usage: ./tool/offline <command>
+
+Online preparation:
+  prepare <android|ios>      Download everything needed for one release platform.
+
+Cleanup:
+  clean                      Remove Akshi's local caches and generated output.
+
+After preparation, disconnect the laptop from the internet, connect the phone
+to the laptop by USB, and use the normal release command:
+
+  flutter run --release --no-pub -d <device-id>
+
+The iOS device must already have a valid local certificate and provisioning
+profile. Android release deployment requires local release signing.
+USAGE
+}
+
+fail() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+}
+
+clean_workspace() {
+  [[ -f "$project_dir/pubspec.yaml" ]] ||
+    fail "Refusing to clean: the Akshi project root was not found."
+
+  printf '%s\n' \
+    "Removing only generated data inside: $project_dir" \
+    "  .offline/" \
+    "  android/.gradle/" \
+    "  ios/Pods/" \
+    "  Flutter-generated build output"
+
+  rm -rf -- \
+    "$offline_dir" \
+    "$project_dir/android/.gradle" \
+    "$project_dir/ios/Pods"
+
+  if command -v flutter >/dev/null 2>&1; then
+    (cd "$project_dir" && flutter clean)
+  else
+    printf '%s\n' \
+      'Flutter was not found, so only the listed cache directories were removed.' \
+      'Run flutter clean later to remove generated build output.'
+  fi
+}
+
+prepare_android() {
+  [[ -x "$project_dir/android/gradlew" ]] ||
+    fail "android/gradlew is missing. Restore the generated Android project while online."
+  flutter pub get --enforce-lockfile
+  flutter build apk --release --no-pub
+}
+
+prepare_ios() {
+  [[ "$(uname -s)" == "Darwin" ]] || fail "iOS preparation requires macOS."
+  require_command xcodebuild
+  flutter pub get --enforce-lockfile
+  flutter build ios --release --no-codesign --no-pub
+}
+
+prepare_platform() {
+  [[ $# -eq 1 ]] || fail "prepare requires exactly one platform: android or ios."
+
+  case "${1:-}" in
+    android) prepare_android ;;
+    ios) prepare_ios ;;
+    *) fail "prepare requires exactly one platform: android or ios." ;;
+  esac
+}
+
+main() {
+  local command="${1:-}"
+  shift || true
+
+  case "$command" in
+    help|-h|--help|'')
+      usage
+      return
+      ;;
+    clean)
+      clean_workspace
+      return
+      ;;
+  esac
+
+  require_command flutter
+  cd "$project_dir"
+
+  case "$command" in
+    prepare) prepare_platform "$@" ;;
+    *)
+      usage >&2
+      fail "Unknown command: $command"
+      ;;
+  esac
+}
+
+main "$@"
