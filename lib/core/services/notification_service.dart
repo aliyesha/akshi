@@ -62,9 +62,9 @@ class NotificationService implements AlarmPlatformGateway {
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_notification'),
         iOS: DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
         ),
       ),
       onDidReceiveNotificationResponse: _handleResponse,
@@ -127,8 +127,10 @@ class NotificationService implements AlarmPlatformGateway {
             IOSFlutterLocalNotificationsPlugin
           >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
+      final permission = android ?? ios;
+      if (permission == null) return false;
       await SystemSettingsService.markNotificationPermissionRequested();
-      return android ?? ios ?? true;
+      return permission;
     } on Object catch (error, stackTrace) {
       appLogger.error(
         'service.notifications.permission.failed',

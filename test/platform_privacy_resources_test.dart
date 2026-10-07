@@ -26,6 +26,15 @@ void main() {
     expect(appDelegate, contains('isExcludedFromBackupKey'));
   });
 
+  test('iOS registers the notification center delegate', () {
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(
+      appDelegate,
+      contains('UNUserNotificationCenter.current().delegate = self'),
+    );
+  });
+
   test('Android release is never signed with the debug key', () {
     final buildFile = File('android/app/build.gradle.kts').readAsStringSync();
 

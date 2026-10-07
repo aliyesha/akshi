@@ -12,12 +12,25 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  test('preserves repeated and multi-segment TXT values', () async {
+  test('keeps only requested TXT records and preserves their values', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           channel,
           (call) async => <String, Object?>{
             'records': <Object?>[
+              _nativeRecord(
+                type: DnsRecordType.cname,
+                ttl: 300,
+                data: <int>[
+                  5,
+                  ...'alias'.codeUnits,
+                  7,
+                  ...'example'.codeUnits,
+                  3,
+                  ...'com'.codeUnits,
+                  0,
+                ],
+              ),
               _nativeRecord(
                 type: DnsRecordType.txt,
                 ttl: 300,

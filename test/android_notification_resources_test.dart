@@ -24,6 +24,7 @@ void main() {
         .readAsStringSync();
 
     expect(manifest, contains('android.permission.RECEIVE_BOOT_COMPLETED'));
+    expect(manifest, contains('android.permission.POST_NOTIFICATIONS'));
     expect(manifest, contains('ScheduledNotificationReceiver'));
     expect(manifest, contains('ScheduledNotificationBootReceiver'));
   });

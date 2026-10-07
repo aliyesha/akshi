@@ -42,7 +42,7 @@ class SystemDnsService {
       final map = Map<String, Object?>.from(value);
       final recordType = DnsRecordType.fromCode(map['type']! as int);
       final bytes = _bytes(map['data']);
-      if (recordType == null || bytes == null) continue;
+      if (recordType == null || recordType != type || bytes == null) continue;
       final decoded = _decode(recordType, bytes);
       if (decoded == null) continue;
       records.add(

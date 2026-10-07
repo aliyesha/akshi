@@ -12,6 +12,7 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     excludeLocalDataFromBackup()
+    UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -119,7 +120,7 @@ import UserNotifications
         }
       case "openNotificationSettings":
         let settingsUrlString: String
-        if #available(iOS 15.4, *) {
+        if #available(iOS 16.0, *) {
           settingsUrlString = UIApplication.openNotificationSettingsURLString
         } else {
           settingsUrlString = UIApplication.openSettingsURLString
@@ -176,9 +177,17 @@ private final class SystemDnsQuery {
 
   func start() {
     let context = Unmanaged.passUnretained(self).toOpaque()
+    // Request authoritative negative answers as callbacks. Without
+    // ReturnIntermediates, DNSServiceQueryRecord keeps an NXDOMAIN query open;
+    // the Timeout flag then reports a missing name as a resolver timeout.
+    // Returning the negative answer lets every record type use the same
+    // generic contract: records, an empty result, or an actual lookup error.
+    let queryFlags = DNSServiceFlags(
+      kDNSServiceFlagsTimeout | kDNSServiceFlagsReturnIntermediates
+    )
     let error = DNSServiceQueryRecord(
       &serviceRef,
-      DNSServiceFlags(kDNSServiceFlagsTimeout),
+      queryFlags,
       0,
       name,
       type,
@@ -213,6 +222,11 @@ private final class SystemDnsQuery {
       finish(error: "DNS lookup failed (\(errorCode)).")
       return
     }
+    // ReturnIntermediates may report an alias before the requested answer.
+    // Keep waiting for the requested type so the native bridge has the same
+    // one-query/one-type contract as Android.
+    guard recordType == type else { return }
+
     if let data, length > 0 {
       records.append([
         "owner": owner.isEmpty ? name : owner,

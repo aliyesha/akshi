@@ -41,6 +41,20 @@ void main() {
     expect(plugin.initializeCalls, 1);
   });
 
+  test('iOS initialization requests visible notification permission', () async {
+    final plugin = _FakeNotificationPlugin();
+    final service = NotificationService(plugin: plugin);
+    addTearDown(service.dispose);
+
+    await service.initialize();
+
+    final ios = plugin.initializationSettings?.iOS;
+    expect(ios, isNotNull);
+    expect(ios?.requestAlertPermission, isTrue);
+    expect(ios?.requestBadgePermission, isTrue);
+    expect(ios?.requestSoundPermission, isTrue);
+  });
+
   test('provider disposal closes navigation and rejects later use', () async {
     final container = ProviderContainer();
     final service = container.read(notificationServiceProvider);
@@ -59,6 +73,7 @@ final class _FakeNotificationPlugin implements FlutterLocalNotificationsPlugin {
   int failuresRemaining;
   final Completer<void>? gate;
   int initializeCalls = 0;
+  InitializationSettings? initializationSettings;
 
   @override
   Future<bool?> initialize({
@@ -70,6 +85,7 @@ final class _FakeNotificationPlugin implements FlutterLocalNotificationsPlugin {
     initializeCalls += 1;
     final currentGate = gate;
     if (currentGate != null) await currentGate.future;
+    initializationSettings = settings;
     if (failuresRemaining > 0) {
       failuresRemaining -= 1;
       throw StateError('notification initialization failed');

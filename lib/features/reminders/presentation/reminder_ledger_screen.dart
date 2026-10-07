@@ -1,5 +1,6 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
+import 'package:akshi/core/services/system_settings_service.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/reminders/domain/alarm_audit.dart';
 import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
@@ -18,6 +19,7 @@ class ReminderLedgerScreen extends ConsumerWidget {
     final health = ref.watch(reminderControllerProvider);
     final settings = ref.watch(settingsControllerProvider).value;
     final days = ref.watch(alarmAuditDaysProvider);
+    final remindersEnabled = settings?.remindersEnabled == true;
     return Scaffold(
       appBar: AppBar(title: const Text('Reminder ledger')),
       body: RefreshIndicator(
@@ -29,10 +31,7 @@ class ReminderLedgerScreen extends ConsumerWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
           children: <Widget>[
-            _HealthHero(
-              health: health,
-              enabled: settings?.remindersEnabled == true,
-            ),
+            _HealthHero(health: health, enabled: remindersEnabled),
             const SizedBox(height: 14),
             _ProofNotice(platform: _latestPlatform(days.value)),
             const SizedBox(height: 24),
@@ -96,29 +95,59 @@ class ReminderLedgerScreen extends ConsumerWidget {
             FilledButton.icon(
               onPressed: health.isBusy
                   ? null
-                  : () async {
-                      final result = await ref
-                          .read(reminderControllerProvider.notifier)
-                          .repair();
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            result.kind == ReminderHealthKind.ready ||
-                                    result.kind == ReminderHealthKind.off
-                                ? 'Reminder verification passed.'
-                                : 'Reminders still need attention.',
-                          ),
-                        ),
-                      );
-                    },
-              icon: const PhosphorIcon(PhosphorIconsDuotone.arrowClockwise),
-              label: const Text('Repair and verify reminders'),
+                  : () => _handlePrimaryAction(
+                      context,
+                      ref,
+                      health,
+                      remindersEnabled,
+                    ),
+              icon: PhosphorIcon(
+                _canRepair(health, remindersEnabled)
+                    ? PhosphorIconsDuotone.arrowClockwise
+                    : PhosphorIconsDuotone.bell,
+              ),
+              label: Text(_actionLabel(health, remindersEnabled)),
             ),
           ],
         ),
       ),
     );
+  }
+
+  String _actionLabel(ReminderHealth health, bool remindersEnabled) {
+    return _canRepair(health, remindersEnabled)
+        ? 'Repair and verify reminders'
+        : 'Open reminder settings';
+  }
+
+  bool _canRepair(ReminderHealth health, bool remindersEnabled) =>
+      remindersEnabled &&
+      health.permission == NotificationPermissionStatus.allowed;
+
+  Future<void> _handlePrimaryAction(
+    BuildContext context,
+    WidgetRef ref,
+    ReminderHealth health,
+    bool remindersEnabled,
+  ) async {
+    if (!_canRepair(health, remindersEnabled)) {
+      context.go('/settings');
+      return;
+    }
+
+    final result = await ref.read(reminderControllerProvider.notifier).repair();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            result.kind == ReminderHealthKind.ready
+                ? 'Reminder verification passed.'
+                : 'Reminders still need attention.',
+          ),
+        ),
+      );
   }
 
   String? _latestPlatform(List<AlarmAuditDay>? days) =>

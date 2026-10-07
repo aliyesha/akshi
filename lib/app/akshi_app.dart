@@ -44,12 +44,22 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
       configureNotificationPermission: () async {
         final settings = await ref.read(settingsControllerProvider.future);
         if (!mounted) return;
-        final permission =
+        var permission =
             await SystemSettingsService.notificationPermissionStatus();
         if (!mounted) return;
         if (settings.remindersEnabled &&
             permission == NotificationPermissionStatus.notDetermined) {
           await notifications.requestPermission();
+          if (!mounted) return;
+          permission =
+              await SystemSettingsService.notificationPermissionStatus();
+          if (!mounted) return;
+        }
+        final publishedPermission = ref
+            .read(reminderControllerProvider)
+            .permission;
+        if (settings.remindersEnabled && publishedPermission != permission) {
+          await ref.read(reminderControllerProvider.notifier).reconcile();
         }
       },
       reconcileReminders: () async {

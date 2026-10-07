@@ -90,28 +90,29 @@ class ReminderController extends Notifier<ReminderHealth> {
       timeZoneId: state.timeZoneId,
       lastError: state.lastError,
     );
+    var observedPermission = state.permission;
     try {
       final settings = await ref.read(settingsRepositoryProvider).load();
-      final permission =
+      observedPermission =
           await SystemSettingsService.notificationPermissionStatus();
       final reconciler = ref.read(alarmReconcilerProvider);
 
       // Off or denied always means an empty desired plan. This actively clears
       // previously scheduled alarms and verifies that none remain.
       if (!settings.remindersEnabled ||
-          permission != NotificationPermissionStatus.allowed) {
+          observedPermission != NotificationPermissionStatus.allowed) {
         final result = forceRepair
             ? await reconciler.repair(const <AlarmDate, ExpiryAlarmSpec>{})
             : await reconciler.reconcile(const <AlarmDate, ExpiryAlarmSpec>{});
-        final kind = !result.healthy
-            ? ReminderHealthKind.needsAttention
-            : !settings.remindersEnabled
+        final kind = settings.remindersEnabled
+            ? ReminderHealthKind.permissionNeeded
+            : result.healthy
             ? ReminderHealthKind.off
-            : ReminderHealthKind.permissionNeeded;
+            : ReminderHealthKind.needsAttention;
         return _publish(
           ReminderHealth(
             kind: kind,
-            permission: permission,
+            permission: observedPermission,
             pendingCount: result.pendingCount,
             lastVerifiedAt: result.verifiedAt,
             lastError: result.error,
@@ -137,7 +138,7 @@ class ReminderController extends Notifier<ReminderHealth> {
           kind: result.healthy
               ? ReminderHealthKind.ready
               : ReminderHealthKind.needsAttention,
-          permission: permission,
+          permission: observedPermission,
           desiredCount: result.desiredCount,
           pendingCount: result.pendingCount,
           nextAlarmDate: result.nextAlarmDate,
@@ -152,7 +153,7 @@ class ReminderController extends Notifier<ReminderHealth> {
       return _publish(
         ReminderHealth(
           kind: ReminderHealthKind.needsAttention,
-          permission: state.permission,
+          permission: observedPermission,
           desiredCount: state.desiredCount,
           pendingCount: state.pendingCount,
           nextAlarmDate: state.nextAlarmDate,

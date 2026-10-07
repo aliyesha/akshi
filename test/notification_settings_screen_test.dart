@@ -116,4 +116,82 @@ void main() {
     expect(find.text('Allow notifications'), findsOneWidget);
     expect(find.text('Turn off Akshi reminders'), findsOneWidget);
   });
+
+  testWidgets('failed cleanup cannot hide the enable reminders action', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(AppSettings(remindersEnabled: false)),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.needsAttention,
+                permission: NotificationPermissionStatus.notAllowed,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enable reminders'), findsOneWidget);
+    expect(find.text('Repair reminders'), findsNothing);
+  });
+
+  testWidgets('missing OS permission takes priority over alarm repair', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(AppSettings(remindersEnabled: true)),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.needsAttention,
+                permission: NotificationPermissionStatus.notDetermined,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Allow notifications'), findsOneWidget);
+    expect(find.text('Repair reminders'), findsNothing);
+  });
+
+  testWidgets('denied OS permission exposes system settings', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(AppSettings(remindersEnabled: true)),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.permissionNeeded,
+                permission: NotificationPermissionStatus.notAllowed,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open system settings'), findsOneWidget);
+  });
 }

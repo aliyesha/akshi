@@ -500,6 +500,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     if (_notificationRequestOpen) return;
     _notificationRequestOpen = true;
     try {
+      if (!settings.remindersEnabled) {
+        await _withBlockingProgress<void>(
+          title: 'Enabling reminders',
+          message: 'Saving your choice and checking notification access…',
+          operation: () => _save(settings.copyWith(remindersEnabled: true)),
+        );
+        if (!context.mounted) return;
+        final permission =
+            await SystemSettingsService.notificationPermissionStatus();
+        if (!context.mounted) return;
+        await _resolveNotificationPermission(context, permission);
+        return;
+      }
+
+      if (health.permission != NotificationPermissionStatus.allowed) {
+        await _resolveNotificationPermission(context, health.permission);
+        return;
+      }
+
       if (health.kind == ReminderHealthKind.needsAttention) {
         final repaired = await _withBlockingProgress<ReminderHealth>(
           title: 'Repairing reminders',
@@ -508,113 +527,100 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               ref.read(reminderControllerProvider.notifier).repair(),
         );
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                repaired.kind == ReminderHealthKind.ready
-                    ? 'Expiry reminders are ready.'
-                    : 'Reminders still need attention. See the Reminder Ledger.',
-              ),
-            ),
-          );
+        _showReminderResult(
+          context,
+          repaired.kind == ReminderHealthKind.ready
+              ? 'Expiry reminders are ready.'
+              : 'Reminders still need attention. See the Reminder Ledger.',
+        );
         return;
       }
 
-      if (settings.remindersEnabled) {
-        if (health.kind == ReminderHealthKind.permissionNeeded) {
-          if (health.permission == NotificationPermissionStatus.notDetermined) {
-            final granted = await ref
-                .read(notificationServiceProvider)
-                .requestPermission();
-            final result = await ref
-                .read(reminderControllerProvider.notifier)
-                .reconcile();
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(
-                SnackBar(
-                  content: Text(
-                    granted && result.kind == ReminderHealthKind.ready
-                        ? 'Expiry reminders are ready.'
-                        : 'Notification permission was not allowed.',
-                  ),
-                ),
-              );
-          } else {
-            await _openNotificationSettings(context);
-          }
-          return;
-        }
-        await _turnOffReminders(context, settings);
-        return;
-      }
-
-      await _save(settings.copyWith(remindersEnabled: true));
-      final granted =
-          health.permission == NotificationPermissionStatus.allowed ||
-          await ref.read(notificationServiceProvider).requestPermission();
-      if (granted) {
-        final result = await ref
-            .read(reminderControllerProvider.notifier)
-            .reconcile();
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                result.kind == ReminderHealthKind.ready
-                    ? 'Expiry reminders are enabled.'
-                    : 'Reminders were enabled but need attention.',
-              ),
-            ),
-          );
-        return;
-      }
-
-      if (!context.mounted) return;
-      final openSettings = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          icon: const PhosphorIcon(PhosphorIconsDuotone.bellSlash),
-          title: const Text('OS permission needed'),
-          content: const Text(
-            'Akshi reminders are enabled, but this device is blocking '
-            'notifications. Allow Akshi in system settings to schedule them.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Not now'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Open system settings'),
-            ),
-          ],
-        ),
-      );
-      if (openSettings == true) {
-        if (context.mounted) await _openNotificationSettings(context);
-      } else {
-        await _save(settings.copyWith(remindersEnabled: false));
-      }
+      await _turnOffReminders(context, settings);
     } catch (error, stackTrace) {
       appLogger.error('ui.settings.reminders.action.failed', error, stackTrace);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('The reminder action could not finish.'),
-          ),
-        );
+      _showReminderResult(context, 'The reminder action could not finish.');
     } finally {
       _notificationRequestOpen = false;
     }
+  }
+
+  Future<void> _resolveNotificationPermission(
+    BuildContext context,
+    NotificationPermissionStatus permission,
+  ) async {
+    if (permission == NotificationPermissionStatus.allowed) {
+      final health = ref.read(reminderControllerProvider);
+      _showReminderResult(
+        context,
+        health.kind == ReminderHealthKind.ready
+            ? 'Expiry reminders are enabled.'
+            : 'Reminders are enabled but still need attention.',
+      );
+      return;
+    }
+
+    if (permission == NotificationPermissionStatus.notDetermined) {
+      final granted = await ref
+          .read(notificationServiceProvider)
+          .requestPermission();
+      if (!context.mounted) return;
+      final result = await _withBlockingProgress<ReminderHealth>(
+        title: 'Verifying reminders',
+        message: 'Checking notification access and scheduled alarms…',
+        operation: () =>
+            ref.read(reminderControllerProvider.notifier).reconcile(),
+      );
+      if (!context.mounted) return;
+      if (granted && result.kind == ReminderHealthKind.ready) {
+        _showReminderResult(context, 'Expiry reminders are ready.');
+        return;
+      }
+      if (granted) {
+        _showReminderResult(
+          context,
+          'Notification access is allowed, but reminders still need attention.',
+        );
+        return;
+      }
+    }
+
+    if (context.mounted) await _offerNotificationSettings(context);
+  }
+
+  Future<void> _offerNotificationSettings(BuildContext context) async {
+    final openSettings = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const PhosphorIcon(PhosphorIconsDuotone.bellSlash),
+        title: const Text('Notification permission needed'),
+        content: const Text(
+          'Akshi reminders remain enabled, but this device is not allowing '
+          'notifications. Open system settings and allow notifications '
+          'for Akshi.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Open system settings'),
+          ),
+        ],
+      ),
+    );
+    if (openSettings == true && context.mounted) {
+      await _openNotificationSettings(context);
+    }
+  }
+
+  void _showReminderResult(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _turnOffReminders(
@@ -669,16 +675,17 @@ class _NotificationAccessCard extends StatelessWidget {
       ReminderHealthKind.ready => 'Ready',
       ReminderHealthKind.needsAttention => 'Needs attention',
     };
-    final action = switch (health.kind) {
-      ReminderHealthKind.checking => 'Checking reminders…',
-      ReminderHealthKind.off => 'Enable reminders',
-      ReminderHealthKind.permissionNeeded =>
-        health.permission == NotificationPermissionStatus.notDetermined
-            ? 'Allow notifications'
-            : 'Open system settings',
-      ReminderHealthKind.ready => 'Turn off reminders',
-      ReminderHealthKind.needsAttention => 'Repair reminders',
-    };
+    final action = health.isBusy
+        ? 'Checking reminders…'
+        : !remindersEnabled
+        ? 'Enable reminders'
+        : health.permission == NotificationPermissionStatus.notDetermined
+        ? 'Allow notifications'
+        : health.permission != NotificationPermissionStatus.allowed
+        ? 'Open system settings'
+        : health.kind == ReminderHealthKind.needsAttention
+        ? 'Repair reminders'
+        : 'Turn off reminders';
     return _SettingsCard(
       children: <Widget>[
         ListTile(
