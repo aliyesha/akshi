@@ -166,6 +166,11 @@ class MonitorSaveProgress {
       message = 'Preparing monitor…',
       fraction = 0;
 
+  const MonitorSaveProgress.checking()
+    : stage = MonitorSaveStage.preparing,
+      message = 'Starting monitor check…',
+      fraction = 0;
+
   final MonitorSaveStage stage;
   final String message;
   final double fraction;
@@ -221,23 +226,38 @@ class MonitorProvisioningController
 
 /// Cross-screen activity for complete manual monitor checks.
 final monitorCheckActivityProvider =
-    NotifierProvider<MonitorCheckActivityController, Set<String>>(
-      MonitorCheckActivityController.new,
-    );
+    NotifierProvider<
+      MonitorCheckActivityController,
+      Map<String, MonitorSaveProgress>
+    >(MonitorCheckActivityController.new);
 
-class MonitorCheckActivityController extends Notifier<Set<String>> {
+class MonitorCheckActivityController
+    extends Notifier<Map<String, MonitorSaveProgress>> {
   @override
-  Set<String> build() => const <String>{};
+  Map<String, MonitorSaveProgress> build() =>
+      const <String, MonitorSaveProgress>{};
 
   void start(String monitorId) {
-    if (state.contains(monitorId)) return;
-    state = Set<String>.unmodifiable(<String>{...state, monitorId});
+    if (state.containsKey(monitorId)) return;
+    state = Map<String, MonitorSaveProgress>.unmodifiable(
+      <String, MonitorSaveProgress>{
+        ...state,
+        monitorId: const MonitorSaveProgress.checking(),
+      },
+    );
+  }
+
+  void update(String monitorId, MonitorSaveProgress progress) {
+    if (!state.containsKey(monitorId)) return;
+    state = Map<String, MonitorSaveProgress>.unmodifiable(
+      <String, MonitorSaveProgress>{...state, monitorId: progress},
+    );
   }
 
   void finish(String monitorId) {
-    if (!state.contains(monitorId)) return;
-    final next = <String>{...state}..remove(monitorId);
-    state = Set<String>.unmodifiable(next);
+    if (!state.containsKey(monitorId)) return;
+    final next = <String, MonitorSaveProgress>{...state}..remove(monitorId);
+    state = Map<String, MonitorSaveProgress>.unmodifiable(next);
   }
 }
 
@@ -609,17 +629,26 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     final activity = ref.read(monitorCheckActivityProvider.notifier);
     activity.start(id);
     late final Future<MonitorEntry> operation;
-    operation = _runCommand(() => _check(id)).whenComplete(() {
-      if (identical(_manualCheckOperations[id], operation)) {
-        _manualCheckOperations.remove(id);
-        activity.finish(id);
-      }
-    });
+    operation =
+        _runCommand(
+          () => _check(
+            id,
+            onProgress: (progress) => activity.update(id, progress),
+          ),
+        ).whenComplete(() {
+          if (identical(_manualCheckOperations[id], operation)) {
+            _manualCheckOperations.remove(id);
+            activity.finish(id);
+          }
+        });
     _manualCheckOperations[id] = operation;
     return operation;
   }
 
-  Future<MonitorEntry> _check(String id) async {
+  Future<MonitorEntry> _check(
+    String id, {
+    MonitorProgressCallback? onProgress,
+  }) async {
     final monitor = await ref.read(monitorRepositoryProvider).byId(id);
     if (monitor == null) {
       throw StateError('Monitor no longer exists');
@@ -634,7 +663,11 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       },
     );
     try {
-      final updated = await _runCheck(monitor, flow: flow);
+      final updated = await _runCheck(
+        monitor,
+        flow: flow,
+        onProgress: onProgress,
+      );
       final persisted = await ref
           .read(monitorRepositoryProvider)
           .updateObservationsIfPresent(updated);
@@ -702,6 +735,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       ),
     );
 
+    // This single DNS Future is deliberately shared by the DNS observation
+    // patch and email analysis. Re-querying would waste gate capacity and could
+    // make the two views describe different resolver snapshots.
     final dnsFuture = ref
         .read(dnsSnapshotServiceProvider)
         .check(

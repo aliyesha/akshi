@@ -100,7 +100,7 @@ void main() {
       expect(identical(joined, first), isTrue);
       expect(
         container.read(monitorCheckActivityProvider),
-        contains(monitor.id),
+        containsPair(monitor.id, isA<MonitorSaveProgress>()),
       );
 
       rdap.complete();

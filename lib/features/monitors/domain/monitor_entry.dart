@@ -198,24 +198,25 @@ class MonitorEntry {
 
     var email = MonitorStatus.unknown;
     if (checksEmail) {
-      email =
-          (emailActivity.failure != null && !emailConnectionInterrupted) ||
-              (emailPosture?.hasUnavailable ?? false)
+      email = emailActivity.failure != null && !emailConnectionInterrupted
           ? MonitorStatus.unavailable
           : emailPosture == null
           ? MonitorStatus.unknown
           : emailPosture!.needsAttention
           ? MonitorStatus.warning
+          : emailPosture!.hasUnavailable
+          ? MonitorStatus.incomplete
           : MonitorStatus.healthy;
     }
     const severity = <MonitorStatus, int>{
       MonitorStatus.unknown: 0,
       MonitorStatus.healthy: 1,
-      MonitorStatus.unavailable: 2,
-      MonitorStatus.warning: 3,
-      MonitorStatus.failed: 4,
-      MonitorStatus.critical: 5,
-      MonitorStatus.expired: 6,
+      MonitorStatus.incomplete: 2,
+      MonitorStatus.unavailable: 3,
+      MonitorStatus.warning: 4,
+      MonitorStatus.failed: 5,
+      MonitorStatus.critical: 6,
+      MonitorStatus.expired: 7,
     };
     final states = <MonitorStatus>[domain, certificate, email];
     states.sort((left, right) => severity[right]!.compareTo(severity[left]!));

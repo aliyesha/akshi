@@ -245,7 +245,7 @@ void main() {
     );
   });
 
-  test('an unavailable Email lookup remains unavailable, not warning', () {
+  test('a partial Email lookup is incomplete, not a configuration warning', () {
     final entry = MonitorEntry(
       id: 'email-unavailable',
       hostname: 'example.com',
@@ -271,9 +271,10 @@ void main() {
     );
 
     final email = findingsForMonitor(entry, now: now).last;
-    expect(email.status, MonitorStatus.unavailable);
-    expect(email.summary, 'Some Email checks are currently unavailable');
-    expect(entry.overallStatus(now: now), MonitorStatus.unavailable);
+    expect(email.status, MonitorStatus.incomplete);
+    expect(email.needsAttention, isFalse);
+    expect(email.summary, 'Email configuration check incomplete');
+    expect(entry.overallStatus(now: now), MonitorStatus.incomplete);
   });
 
   test('check kinds parse stable attention route identifiers', () {

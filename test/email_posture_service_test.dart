@@ -163,6 +163,7 @@ void main() {
         posture.findings.singleWhere((finding) => finding.id == 'dmarc').state,
         MailFindingState.informational,
       );
+      expect(posture.needsAttention, isFalse);
       expect(posture.hasUnavailable, isTrue);
     },
   );

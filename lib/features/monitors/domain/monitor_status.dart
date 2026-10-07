@@ -1,6 +1,9 @@
 enum MonitorStatus {
   unknown,
   healthy,
+
+  /// A composite check produced useful results, but not every part completed.
+  incomplete,
   warning,
   critical,
   expired,
@@ -12,7 +15,8 @@ extension MonitorStatusLabel on MonitorStatus {
   String get label => switch (this) {
     MonitorStatus.unknown => 'Not checked',
     MonitorStatus.healthy => 'Healthy',
-    MonitorStatus.warning => 'Due soon',
+    MonitorStatus.incomplete => 'Incomplete',
+    MonitorStatus.warning => 'Needs attention',
     MonitorStatus.critical => 'Critical',
     MonitorStatus.expired => 'Expired',
     MonitorStatus.unavailable => 'Unavailable',

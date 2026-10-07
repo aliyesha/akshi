@@ -14,15 +14,27 @@ void main() {
     controller.start('monitor-a');
     controller.start('monitor-b');
 
-    expect(container.read(monitorCheckActivityProvider), <String>{
-      'monitor-a',
-      'monitor-b',
-    });
+    final started = container.read(monitorCheckActivityProvider);
+    expect(started.keys, unorderedEquals(<String>['monitor-a', 'monitor-b']));
+    expect(started['monitor-a']?.message, 'Starting monitor check…');
+
+    const progress = MonitorSaveProgress(
+      stage: MonitorSaveStage.dns,
+      message: 'DNS received · 1 of 2 checks',
+      fraction: .44,
+    );
+    controller.update('monitor-b', progress);
+    controller.update('unknown', progress);
+
+    expect(container.read(monitorCheckActivityProvider)['monitor-b'], progress);
 
     controller.finish('monitor-a');
     controller.finish('monitor-a');
 
-    expect(container.read(monitorCheckActivityProvider), <String>{'monitor-b'});
+    expect(
+      container.read(monitorCheckActivityProvider).keys,
+      unorderedEquals(<String>['monitor-b']),
+    );
 
     controller.finish('monitor-b');
     expect(container.read(monitorCheckActivityProvider), isEmpty);

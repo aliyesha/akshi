@@ -38,11 +38,10 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         ),
       );
     }
-    final checking = ref.watch(
-      monitorCheckActivityProvider.select(
-        (active) => active.contains(monitor.id),
-      ),
+    final checkProgress = ref.watch(
+      monitorCheckActivityProvider.select((active) => active[monitor.id]),
     );
+    final checking = checkProgress != null;
     final snapshot = monitor.dnsSnapshot;
     final visible =
         snapshot?.queries
@@ -80,6 +79,12 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         children: <Widget>[
           if (refresh.shouldShowStatus) ...<Widget>[
             const MonitorRefreshBanner(),
+            const SizedBox(height: 14),
+          ],
+          if (checkProgress != null) ...<Widget>[
+            Text(checkProgress.message),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: checkProgress.fraction),
             const SizedBox(height: 14),
           ],
           Text(monitor.hostname, style: Theme.of(context).textTheme.titleLarge),
@@ -139,6 +144,12 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
   Future<void> _refresh(MonitorEntry monitor) async {
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Check complete. Results updated.')),
+        );
     } catch (error, stackTrace) {
       appLogger.error(
         'ui.monitor_dns.check.failed',

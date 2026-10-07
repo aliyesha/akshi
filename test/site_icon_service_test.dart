@@ -244,11 +244,7 @@ final class _FakeHttpClientResponse extends Stream<List<int>>
 
 final class _FakeHttpHeaders implements HttpHeaders {
   @override
-  void set(
-    String name,
-    Object value, {
-    bool preserveHeaderCase = false,
-  }) {}
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

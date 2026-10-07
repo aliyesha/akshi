@@ -37,6 +37,9 @@ Future<Uint8List> readBoundedResponseBody(
   final completion = Completer<Uint8List>();
   var received = 0;
 
+  // The stream, size check, and deadline race to settle one result. Every
+  // callback checks isCompleted because a queued stream event can still run
+  // after another terminal path has won that race.
   final subscription = body.listen(
     (chunk) {
       if (completion.isCompleted) return;
@@ -63,6 +66,8 @@ Future<Uint8List> readBoundedResponseBody(
       }
     },
   );
+  // Future.timeout would stop only the caller's wait. Owning the Timer here
+  // lets finally cancel both the deadline and the response subscription.
   final deadline = Timer(timeout, () {
     if (!completion.isCompleted) {
       completion.completeError(

@@ -45,10 +45,12 @@ class MailFinding {
   final String summary;
   final List<MailFact> facts;
 
+  /// Whether observed data demonstrates a configuration problem.
+  ///
+  /// An unavailable observation is tracked separately because it proves neither
+  /// health nor harm.
   bool get needsAttention =>
-      state == MailFindingState.warning ||
-      state == MailFindingState.invalid ||
-      state == MailFindingState.unavailable;
+      state == MailFindingState.warning || state == MailFindingState.invalid;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,

@@ -42,6 +42,8 @@ class AsyncConcurrencyGate {
 
   void _release() {
     if (_waiters.isNotEmpty) {
+      // Hand the existing slot directly to the oldest waiter. _active stays
+      // unchanged because one admitted operation is replacing another.
       _waiters.removeFirst().complete();
       return;
     }

@@ -8,7 +8,7 @@ import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
-import 'package:akshi/features/monitors/domain/monitor_status.dart';
+import 'package:akshi/features/monitors/domain/monitor_finding.dart';
 import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
 import 'package:akshi/features/monitors/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
@@ -373,11 +373,12 @@ class _PortfolioCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final attention = items.where((item) {
-      final status = item.overallStatus(
+      final findings = findingsForMonitor(
+        item,
         warningDays: settings.firstWarningDays,
         criticalDays: settings.secondWarningDays,
       );
-      return status != MonitorStatus.healthy && status != MonitorStatus.unknown;
+      return findings.any((finding) => finding.needsAttention);
     }).length;
     final allGood = items.isNotEmpty && attention == 0;
     return Material(
@@ -615,8 +616,12 @@ class _MonitorCard extends StatelessWidget {
       criticalDays: settings.secondWarningDays,
     );
     final accent = monitorStatusColor(scheme, status);
-    final highlighted =
-        status != MonitorStatus.healthy && status != MonitorStatus.unknown;
+    final findings = findingsForMonitor(
+      monitor,
+      warningDays: settings.firstWarningDays,
+      criticalDays: settings.secondWarningDays,
+    );
+    final highlighted = findings.any((finding) => finding.needsAttention);
     final surfaceColor = highlighted
         ? Color.lerp(scheme.surfaceContainerLowest, accent, .055)!
         : scheme.surfaceContainerLowest;
@@ -746,14 +751,15 @@ class _EmailMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final posture = monitor.emailPosture;
-    final failed =
-        monitor.emailActivity.failure != null ||
-        (posture?.hasUnavailable ?? false);
+    final failed = monitor.emailActivity.failure != null;
     final attention = posture?.needsAttention ?? false;
+    final incomplete = posture?.hasUnavailable ?? false;
     final color = failed
         ? scheme.error
         : attention
         ? scheme.tertiary
+        : incomplete
+        ? scheme.outline
         : scheme.primary;
     final value = failed
         ? 'Unavailable'
@@ -761,6 +767,8 @@ class _EmailMetric extends StatelessWidget {
         ? 'Not checked'
         : attention
         ? 'Needs review'
+        : incomplete
+        ? 'Incomplete'
         : 'Published';
     return Expanded(
       child: Container(

@@ -44,11 +44,10 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         ),
       );
     }
-    final checking = ref.watch(
-      monitorCheckActivityProvider.select(
-        (active) => active.contains(monitor.id),
-      ),
+    final checkProgress = ref.watch(
+      monitorCheckActivityProvider.select((active) => active[monitor.id]),
     );
+    final checking = checkProgress != null;
     final settings =
         ref.watch(settingsControllerProvider).value ?? AppSettings();
     final provisioning = ref.watch(monitorProvisioningProvider)[monitor.id];
@@ -141,7 +140,28 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
             ],
             const SizedBox(height: 18),
             if (provisioning != null) ...<Widget>[
-              _ProvisioningCard(provisioning: provisioning),
+              _MonitorProgressCard(
+                progress: provisioning.progress,
+                failure: provisioning.failure,
+                failureTitle: 'Initial check needs another try',
+                description:
+                    'Initial checks continue in the background and are saved '
+                    'together as one consistent snapshot. They can take time '
+                    'and depend on your connection and each source, so please '
+                    'be patient.',
+                failureDescription:
+                    'The monitor definition is saved safely. Use Check now to '
+                    'retry the initial snapshot.',
+              ),
+              const SizedBox(height: 14),
+            ] else if (checkProgress != null) ...<Widget>[
+              _MonitorProgressCard(
+                progress: checkProgress,
+                description:
+                    'Akshi is checking the selected domain, DNS, certificate, '
+                    'site identity, and email sources. New results appear '
+                    'together when the complete snapshot is ready.',
+              ),
               const SizedBox(height: 14),
             ],
             Row(
@@ -228,6 +248,13 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
     ref.read(monitorProvisioningProvider.notifier).clear(monitor.id);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text('Check complete. Results updated.')),
+          );
+      }
     } catch (error, stackTrace) {
       appLogger.error(
         'ui.monitor_overview.check.failed',
@@ -288,15 +315,26 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
   }
 }
 
-class _ProvisioningCard extends StatelessWidget {
-  const _ProvisioningCard({required this.provisioning});
+class _MonitorProgressCard extends StatelessWidget {
+  const _MonitorProgressCard({
+    required this.progress,
+    required this.description,
+    this.failure,
+    this.failureTitle,
+    this.failureDescription,
+  }) : assert(failure == null || failureTitle != null),
+       assert(failure == null || failureDescription != null);
 
-  final MonitorProvisioning provisioning;
+  final MonitorSaveProgress progress;
+  final String description;
+  final String? failure;
+  final String? failureTitle;
+  final String? failureDescription;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final failed = provisioning.failure != null;
+    final failed = failure != null;
     final colors = AkshiTheme.progressSurface(scheme);
     final background = failed ? scheme.errorContainer : colors.background;
     final foreground = failed ? scheme.onErrorContainer : colors.foreground;
@@ -333,9 +371,7 @@ class _ProvisioningCard extends StatelessWidget {
                 const SizedBox(width: 11),
                 Expanded(
                   child: Text(
-                    failed
-                        ? 'Initial check needs another try'
-                        : provisioning.progress.message,
+                    failed ? failureTitle! : progress.message,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       color: foreground,
                       fontWeight: FontWeight.w700,
@@ -347,16 +383,14 @@ class _ProvisioningCard extends StatelessWidget {
             if (!failed) ...<Widget>[
               const SizedBox(height: 12),
               LinearProgressIndicator(
-                value: provisioning.progress.fraction,
+                value: progress.fraction,
                 color: accent,
                 backgroundColor: foreground.withValues(alpha: .16),
               ),
             ],
             const SizedBox(height: 10),
             Text(
-              failed
-                  ? 'The monitor definition is saved safely. Use Check now to retry the initial snapshot.'
-                  : 'Initial checks continue in the background and are saved together as one consistent snapshot. They can take time and depend on your connection and each source, so please be patient.',
+              failed ? failureDescription! : description,
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: foreground, height: 1.4),
             ),
@@ -395,7 +429,10 @@ class _SectionCard extends StatelessWidget {
       MonitorStatus.expired ||
       MonitorStatus.failed ||
       MonitorStatus.unavailable => true,
-      MonitorStatus.unknown || MonitorStatus.healthy || null => false,
+      MonitorStatus.unknown ||
+      MonitorStatus.healthy ||
+      MonitorStatus.incomplete ||
+      null => false,
     };
     return Material(
       color: attention

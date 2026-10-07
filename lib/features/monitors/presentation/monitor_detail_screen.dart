@@ -97,11 +97,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ),
       );
     }
-    final checking = ref.watch(
-      monitorCheckActivityProvider.select(
-        (active) => active.contains(monitor.id),
-      ),
+    final checkProgress = ref.watch(
+      monitorCheckActivityProvider.select((active) => active[monitor.id]),
     );
+    final checking = checkProgress != null;
     final status = monitor.overallStatus(
       warningDays: settings.firstWarningDays,
       criticalDays: settings.secondWarningDays,
@@ -241,6 +240,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   ),
                 ],
               ),
+              if (checkProgress != null) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(checkProgress.message),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(value: checkProgress.fraction),
+              ],
               if (widget.focusKind != null &&
                   _attentionFindings.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 14),
@@ -675,6 +680,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   Future<void> _refresh(MonitorEntry monitor) async {
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Check complete. Results updated.')),
+        );
     } catch (error, stackTrace) {
       appLogger.error(
         'ui.monitor_detail.check.failed',

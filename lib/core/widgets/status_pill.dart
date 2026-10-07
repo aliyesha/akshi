@@ -14,7 +14,7 @@ Color monitorStatusColor(ColorScheme scheme, MonitorStatus status) {
     MonitorStatus.warning || MonitorStatus.unavailable => warning,
     MonitorStatus.critical => critical,
     MonitorStatus.expired || MonitorStatus.failed => scheme.error,
-    MonitorStatus.unknown => scheme.outline,
+    MonitorStatus.unknown || MonitorStatus.incomplete => scheme.outline,
   };
 }
 
@@ -29,11 +29,12 @@ class StatusPill extends StatelessWidget {
     final color = monitorStatusColor(scheme, status);
     final icon = switch (status) {
       MonitorStatus.healthy => PhosphorIconsDuotone.checkCircle,
-      MonitorStatus.warning => PhosphorIconsDuotone.timer,
+      MonitorStatus.warning => PhosphorIconsDuotone.warning,
       MonitorStatus.critical => PhosphorIconsDuotone.warning,
       MonitorStatus.expired => PhosphorIconsDuotone.xCircle,
       MonitorStatus.failed => PhosphorIconsDuotone.warningCircle,
       MonitorStatus.unavailable => PhosphorIconsDuotone.minusCircle,
+      MonitorStatus.incomplete => PhosphorIconsDuotone.info,
       MonitorStatus.unknown => PhosphorIconsDuotone.question,
     };
     return Container(

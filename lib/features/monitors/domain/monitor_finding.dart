@@ -41,7 +41,9 @@ class MonitorFinding {
     MonitorStatus.expired ||
     MonitorStatus.failed ||
     MonitorStatus.unavailable => true,
-    MonitorStatus.unknown || MonitorStatus.healthy => false,
+    MonitorStatus.unknown ||
+    MonitorStatus.healthy ||
+    MonitorStatus.incomplete => false,
   };
 }
 
@@ -113,13 +115,14 @@ List<MonitorFinding> findingsForMonitor(
     if (monitor.checksEmail)
       MonitorFinding(
         kind: MonitorCheckKind.emailConfiguration,
-        status:
-            emailUnavailable || (monitor.emailPosture?.hasUnavailable ?? false)
+        status: emailUnavailable
             ? MonitorStatus.unavailable
             : monitor.emailPosture == null
             ? MonitorStatus.unknown
             : monitor.emailPosture!.needsAttention
             ? MonitorStatus.warning
+            : monitor.emailPosture!.hasUnavailable
+            ? MonitorStatus.incomplete
             : MonitorStatus.healthy,
         summary: emailUnavailable
             ? _unavailableSummary(
@@ -128,10 +131,10 @@ List<MonitorFinding> findingsForMonitor(
               )
             : monitor.emailPosture == null
             ? 'Email configuration not checked yet'
-            : monitor.emailPosture!.hasUnavailable
-            ? 'Some Email checks are currently unavailable'
             : monitor.emailPosture!.needsAttention
             ? 'Published Email configuration needs review'
+            : monitor.emailPosture!.hasUnavailable
+            ? 'Email configuration check incomplete'
             : 'Published Email configuration looks consistent',
       ),
   ];
@@ -157,6 +160,7 @@ String _summary(MonitorStatus status, DateTime? expiry, DateTime now) {
       days == 0
           ? 'Expires today'
           : 'Expires in $days ${days == 1 ? 'day' : 'days'}',
+    MonitorStatus.incomplete => 'Check incomplete',
     MonitorStatus.failed => 'Check failed',
     MonitorStatus.unavailable => 'Currently unavailable',
     MonitorStatus.unknown => 'Not checked yet',
