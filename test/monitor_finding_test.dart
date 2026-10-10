@@ -57,7 +57,7 @@ void main() {
   test('offline refresh does not create attention findings', () {
     final failure = CheckFailure(
       kind: CheckFailureKind.offline,
-      message: 'No network connection. Showing the last saved result.',
+      message: 'The latest check ran without a network connection.',
       occurredAt: now,
     );
     final activity = CheckActivity(

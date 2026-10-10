@@ -4,6 +4,7 @@ import 'package:akshi/core/crash/crash_log.dart';
 import 'package:akshi/core/crash/crash_log_store.dart';
 import 'package:akshi/core/services/async_concurrency_gate.dart';
 import 'package:akshi/core/database/app_database.dart';
+import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/check_failure_classifier.dart';
 import 'package:akshi/core/services/email_posture_service.dart';
 import 'package:akshi/core/services/system_dns_service.dart';
@@ -19,6 +20,42 @@ import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:akshi/features/settings/data/settings_repository.dart';
 import 'package:akshi/features/tags/data/tag_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Operating-system connectivity source shared by failure classification and UI.
+final connectivitySourceProvider = Provider<ConnectivitySource>(
+  (ref) => SystemConnectivitySource(),
+);
+
+/// Live offline state for transient UI such as the portfolio notice.
+///
+/// Check failures remain immutable history. This stream independently removes
+/// the global notice as soon as a transport returns, without starting a refresh.
+final deviceOfflineProvider = StreamProvider<bool>((ref) async* {
+  final connectivity = ref.watch(connectivitySourceProvider);
+  bool? last;
+
+  try {
+    last = connectivityIsOffline(await connectivity.checkConnectivity());
+    yield last;
+  } catch (error, stackTrace) {
+    appLogger.error(
+      'service.connectivity.initial_check.failed',
+      error,
+      stackTrace,
+    );
+  }
+
+  try {
+    await for (final states in connectivity.onConnectivityChanged) {
+      final offline = connectivityIsOffline(states);
+      if (offline == last) continue;
+      last = offline;
+      yield offline;
+    }
+  } catch (error, stackTrace) {
+    appLogger.error('service.connectivity.stream.failed', error, stackTrace);
+  }
+});
 
 /// Shared FIFO I/O window that prevents foreground checks from overwhelming
 /// the device, resolver, or remote sources.
@@ -56,7 +93,9 @@ final siteIconServiceProvider = Provider<SiteIconService>(
 );
 
 final checkFailureClassifierProvider = Provider<CheckFailureClassifier>(
-  (ref) => CheckFailureClassifier(),
+  (ref) => CheckFailureClassifier(
+    connectivity: ref.watch(connectivitySourceProvider),
+  ),
 );
 
 final dnsSnapshotServiceProvider = Provider<DnsSnapshotService>(

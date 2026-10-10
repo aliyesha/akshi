@@ -90,7 +90,9 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _refresh();
+    if (state != AppLifecycleState.resumed) return;
+    ref.invalidate(deviceOfflineProvider);
+    _refresh();
   }
 
   void _start() {

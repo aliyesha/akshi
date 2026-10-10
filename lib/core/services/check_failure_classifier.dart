@@ -6,15 +6,38 @@ import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/services.dart';
 
+/// Minimal connectivity contract shared by production code and deterministic tests.
+abstract interface class ConnectivitySource {
+  Future<List<ConnectivityResult>> checkConnectivity();
+
+  Stream<List<ConnectivityResult>> get onConnectivityChanged;
+}
+
+/// Adapter around the platform connectivity plugin.
+class SystemConnectivitySource implements ConnectivitySource {
+  SystemConnectivitySource({Connectivity? connectivity})
+    : _connectivity = connectivity ?? Connectivity();
+
+  final Connectivity _connectivity;
+
+  @override
+  Future<List<ConnectivityResult>> checkConnectivity() =>
+      _connectivity.checkConnectivity();
+
+  @override
+  Stream<List<ConnectivityResult>> get onConnectivityChanged =>
+      _connectivity.onConnectivityChanged;
+}
+
 /// Converts low-level network failures into stable, user-facing check states.
 ///
 /// Classification keeps the last successful observation meaningful when the
 /// device is offline or a public source is temporarily unavailable.
 class CheckFailureClassifier {
-  CheckFailureClassifier({Connectivity? connectivity, this._offlineCheck})
-    : _connectivity = connectivity ?? Connectivity();
+  CheckFailureClassifier({ConnectivitySource? connectivity, this._offlineCheck})
+    : _connectivity = connectivity ?? SystemConnectivitySource();
 
-  final Connectivity _connectivity;
+  final ConnectivitySource _connectivity;
   final Future<bool> Function()? _offlineCheck;
 
   /// Reports whether every connectivity result currently indicates no network.
@@ -23,8 +46,7 @@ class CheckFailureClassifier {
       final injected = _offlineCheck;
       if (injected != null) return await injected();
       final states = await _connectivity.checkConnectivity();
-      return states.isEmpty ||
-          states.every((state) => state == ConnectivityResult.none);
+      return connectivityIsOffline(states);
     } catch (error, stackTrace) {
       appLogger.error('service.connectivity.check.failed', error, stackTrace);
       return false;
@@ -44,7 +66,9 @@ class CheckFailureClassifier {
     if (await deviceIsOffline) {
       return CheckFailure(
         kind: CheckFailureKind.offline,
-        message: 'No network connection. Showing the last saved result.',
+        message:
+            'The latest check ran without a network connection. '
+            'Showing the last saved result.',
         occurredAt: occurredAt,
       );
     }
@@ -125,3 +149,7 @@ String _cleanMessage(Object error, {required String fallback}) {
       .trim();
   return value.isEmpty ? fallback : value;
 }
+
+/// Whether the operating system currently reports no usable network transport.
+bool connectivityIsOffline(List<ConnectivityResult> states) =>
+    states.isEmpty || states.every((state) => state == ConnectivityResult.none);

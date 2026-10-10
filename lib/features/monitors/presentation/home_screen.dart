@@ -1,3 +1,4 @@
+import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/akshi_mark.dart';
@@ -6,7 +7,6 @@ import 'package:akshi/core/widgets/expiry_metric.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
-import 'package:akshi/features/monitors/domain/check_activity.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
 import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
@@ -42,6 +42,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final monitors = ref.watch(monitorControllerProvider);
     final refresh = ref.watch(monitorRefreshProvider);
+    final offline = ref.watch(deviceOfflineProvider).value ?? false;
     final settings =
         ref.watch(settingsControllerProvider).value ?? AppSettings();
     return Scaffold(
@@ -64,7 +65,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           },
           data: (items) {
             final tags = _availableTags(items);
-            final offline = items.any(_hasOfflineFailure);
             if (_selectedTagId != null &&
                 !tags.any((tag) => tag.id == _selectedTagId)) {
               _selectedTagId = null;
@@ -351,8 +351,8 @@ class _OfflineNotice extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Live refresh could not connect. Saved expiry results are still '
-              'shown; Akshi keeps no persistent connection.',
+              'No network connection. Saved results remain available and '
+              'live checks can resume when a connection returns.',
               style: Theme.of(context).textTheme.labelLarge
                   ?.copyWith(color: colors.foreground),
             ),
@@ -833,15 +833,6 @@ class _EmptyState extends StatelessWidget {
       ],
     ),
   );
-}
-
-bool _hasOfflineFailure(MonitorEntry monitor) {
-  final failures = <CheckFailure?>[
-    monitor.domainActivity.failure,
-    if (monitor.checksCertificate) monitor.certificateActivity.failure,
-    if (monitor.checksEmail) monitor.emailActivity.failure,
-  ];
-  return failures.any((failure) => failure.isConnectivityInterruption);
 }
 
 String _attemptFreshness(DateTime? date) {
