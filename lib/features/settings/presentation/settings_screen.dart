@@ -58,7 +58,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final reminderHealth = ref.watch(reminderControllerProvider);
     final settingsValue = ref.watch(settingsControllerProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back to monitors',
+          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
+          icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
+        ),
+        title: const Text('Settings'),
+      ),
       body: settingsValue.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) {
