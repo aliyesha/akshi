@@ -287,6 +287,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       horizontal: 16,
                       vertical: 7,
                     ),
+                    leading: const PhosphorIcon(PhosphorIconsDuotone.network),
+                    title: const Text('Network destinations'),
+                    subtitle: const Text(
+                      'Review every service and endpoint Akshi can contact',
+                    ),
+                    trailing: const PhosphorIcon(
+                      PhosphorIconsDuotone.caretRight,
+                    ),
+                    onTap: () => context.push('/settings/network-destinations'),
+                  ),
+                  const Divider(),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 7,
+                    ),
                     leading: const PhosphorIcon(PhosphorIconsDuotone.info),
                     title: const Text('About Akshi'),
                     subtitle: const Text(

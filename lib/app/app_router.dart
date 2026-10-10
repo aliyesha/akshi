@@ -9,6 +9,7 @@ import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:akshi/features/reminders/presentation/reminder_ledger_screen.dart';
 import 'package:akshi/features/settings/presentation/crash_logs_screen.dart';
 import 'package:akshi/features/settings/presentation/about_screen.dart';
+import 'package:akshi/features/settings/presentation/network_destinations_screen.dart';
 import 'package:akshi/features/settings/presentation/settings_screen.dart';
 import 'package:akshi/features/tags/presentation/tags_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -101,6 +102,10 @@ final appRouter = GoRouter(
               ),
             ),
           ],
+        ),
+        GoRoute(
+          path: 'network-destinations',
+          builder: (context, state) => const NetworkDestinationsScreen(),
         ),
         GoRoute(
           path: 'about',
