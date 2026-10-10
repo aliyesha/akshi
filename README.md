@@ -93,7 +93,8 @@ flutter test
 Unit tests cover hostname normalization, expiry boundaries, status precedence,
 settings behavior, persistence mapping, DNS record decoding, mail-policy parsing,
 daily reminder aggregation, native resource contracts, backup exclusion, and
-release-signing safeguards.
+release-signing safeguards. Widget tests cover refresh feedback, notification
+permission states, modal ownership, and navigation history on Android and iOS.
 
 ## Domain assets and checks
 
@@ -112,13 +113,15 @@ explicitly entered by the user because selectors cannot be discovered reliably.
 The system DNS resolver supplies the records; lookup failures remain distinct
 from valid answers in which a record is absent.
 
-The DNS snapshot is list-based. Repeated owner/type pairs remain separate
-records, which is essential for legitimate multi-value TXT, MX, and validation
-records. Akshi asks for supported types individually and does not use DNS ANY.
-Every query is stored as answered, absent, or failed, so one unavailable policy
-lookup cannot hide successful records. TTL is displayed as resolver context but
-is excluded from change detection because routine TTL changes are not
-configuration incidents.
+The DNS snapshot is RRset-based. Each query asks for one name and record type;
+a successful answer can contain several records in that one RRset, which is
+normal for TXT, MX, and validation data. Akshi preserves or replaces the
+complete RRset and does not use DNS ANY. Every question is stored as answered,
+absent, or failed, with independent attempt and verification times, so one
+unavailable policy lookup cannot hide or erase successful records. TTL is shown
+as resolver context but excluded from change detection because routine TTL
+changes are not configuration incidents. ACME and provider values remain
+ordinary DNS evidence; any recognizable label is presentation only.
 
 Registration, TLS, and Email retain separate statuses. The asset's aggregate
 status is the most urgent enabled result; the Attention screen identifies the
@@ -133,8 +136,10 @@ lib/
   app/                       application setup, routing, providers
   core/                      database, services, theme, shared widgets
   features/monitors/         monitoring domain, data, controller, screens
-  features/settings/         reminder and appearance settings
-test/                        pure domain and persistence unit tests
+  features/reminders/        alarm planning, reconciliation, proof ledger
+  features/settings/         reminder, notification, and appearance settings
+  features/tags/             reusable monitor labels
+test/                        domain, persistence, widget, and platform contracts
 ```
 
 `MonitorController` coordinates foreground checks and persistence.
@@ -142,10 +147,14 @@ test/                        pure domain and persistence unit tests
 and DNS snapshot data. The monitor route is a compact overview; Domain, TLS,
 Email, and DNS use focused child routes rather than tabs or one growing page.
 `NotificationService` is the thin platform scheduling adapter. Reminder
-planning and date grouping live in `features/reminders/domain/expiry_alarm.dart`,
-while the incremental reconciler verifies pending requests. A local Reminder
-Ledger records computed, platform-accepted, and pending-verified proof without
-claiming operating-system delivery.
+planning and date grouping live in `features/reminders/domain/expiry_alarm.dart`.
+Settings, monitor detail, tags, diagnostics, and dated ledger pages form nested
+routes: drill-in actions preserve Back history, while validated notification
+destinations reconstruct a canonical route stack. Settings always provides a
+safe return to the portfolio, including when opened directly as a root route.
+The incremental reconciler verifies pending requests. A local Reminder Ledger
+records computed, platform-accepted, and pending-verified proof without claiming
+operating-system delivery.
 
 ## Reminder policy
 
@@ -199,8 +208,16 @@ expiry or other field may be unavailable even when another check succeeds.
 or identify a privacy service; Akshi does not treat it as proof of legal
 ownership and does not scrape legacy WHOIS data to fill gaps. A failed refresh
 records whether the device is offline, a lookup timed out, DNS failed, or the
-source returned unusable data. Akshi keeps the previous successful values and
-labels them as saved results instead of erasing them or presenting them as fresh.
+source returned unusable data.
+
+Akshi reconciles DNS by complete requested RRset and Email by individual
+finding dependency set. Conclusive answers and confirmed absence update
+normally; unavailable or malformed answers retain their previous complete
+verified evidence and carry the latest error.
+Successful parts of a partial run still update, while the monitor's full
+verification time does not advance. **Settings → Network destinations** shows
+the services and domain-specific endpoints Akshi can contact. Opening that page
+does not initiate any of the listed connections.
 
 ## Privacy, licensing, and support
 

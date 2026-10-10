@@ -63,6 +63,7 @@ lib/
       data/                         SQLite repository
       application/                  Riverpod controller and check orchestration
       presentation/                 screens and monitor widgets
+    reminders/                      alarm planning, reconciliation, proof ledger
     settings/                       settings model, repository, controller, UI
     tags/                           tag model, repository, controller, UI
 test/                               unit and widget-level tests
@@ -111,8 +112,9 @@ local logs.
 
 `appRouter` is a `GoRouter` tree. The home route lists monitors. A monitor route
 opens a compact overview, with child routes for `domain`, `tls`, `email`, and
-`dns`. The form and settings routes are siblings. A route is a URL-like state,
-which makes notification taps and deep links deterministic and testable.
+`dns`. Settings owns child routes for tags, crash reports, the Reminder Ledger,
+dated ledger detail, and About. A route is URL-like state, which makes
+notification taps and internal destinations deterministic and testable.
 
 The detail flow deliberately has three levels:
 
@@ -124,6 +126,86 @@ The overview is the decision page. Focused pages keep Domain, TLS, Email, and
 DNS details from becoming a single endlessly growing screen. The Attention
 screen maps a finding to the corresponding child route so a notification or
 attention tap lands at the exact subject.
+
+## Navigation design
+
+Navigation describes visible location and history; it does not own monitor,
+settings, tag, or reminder state. Route builders receive stable identity such
+as a monitor ID or ledger date, then watch repository-backed providers for
+current data. Passing a complete mutable model through route arguments would
+make long-lived pages vulnerable to stale data.
+
+The current route hierarchy is:
+
+```text
+/                                  monitor portfolio
+├── attention                       current findings
+├── monitor/new                     create form
+├── monitor/:id                     monitor overview
+│   ├── domain
+│   ├── tls
+│   ├── email
+│   ├── dns
+│   └── edit
+└── settings
+    ├── tags
+    ├── crash-logs
+    ├── reminder-ledger
+    │   └── :date
+    ├── network-destinations
+    └── about
+```
+
+Choose the router operation from user intent:
+
+| Intent | Operation | History contract |
+| --- | --- | --- |
+| Drill from the current page into Settings, Tags, a monitor, or a focused detail | `push` | Back returns to the exact caller |
+| Close a page, dialog, or bottom sheet whose parent already exists | `pop` | Reveal the existing parent without rebuilding history |
+| Open a validated notification or direct internal destination | `go` | Reconstruct the canonical matched page stack |
+| Finish creation or leave a deleted entity | `go` | Remove a transient or invalid location from usable history |
+
+Nested routes encode the information hierarchy. Opening
+`/settings/reminder-ledger/2026-06-14` from a cold start constructs Settings,
+the ledger, and dated detail as matched page levels. An ordinary child action
+that means “return to Settings” pops; it does not call `go('/settings')`, because
+`go` is a location replacement and may intentionally make Settings the root.
+
+Settings has an explicit **Back to monitors** action. It pops when a caller is
+present and otherwise goes to `/`. The fallback is part of the route contract:
+Settings may legitimately be opened without prior history by a validated
+notification or explicit internal location change. The page must never rely on
+an automatically inferred leading button as its only exit.
+
+The portfolio remains mounted beneath ordinary pushed routes. Back therefore
+restores its existing scroll position, search query, and tag filter; returning
+from a detail page must not force a jump to the top. Canonical `go` navigation
+is reserved for flows such as leaving a deleted entity whose route is no longer
+valid.
+
+Dialogs and modal bottom sheets are overlay routes. Their controls pop the
+overlay's builder context, not an arbitrary page context. Code awaiting an
+overlay or controller command checks `context.mounted` before showing feedback
+or navigating because the owning page may have been removed while the Future
+was incomplete.
+
+Android system Back, iOS edge-swipe, and visible leading actions all resolve
+through the same Flutter navigation policy. Platform animation differences do
+not justify different route semantics. Tests therefore assert destinations and
+stack behavior under both Android and iOS target-platform themes.
+
+Notification navigation is deliberately separate:
+
+1. The notification service emits a bounded versioned payload.
+2. The destination parser validates JSON shape, route, identifiers, dates, and
+   integrity revision.
+3. The lifecycle coordinator attaches one navigation listener.
+4. The router goes to the validated canonical destination.
+5. Missing monitors or ledger entries render a designed unavailable state.
+
+Navigation never starts a network check merely because a route built. User
+commands and lifecycle coordination own external work; shared Riverpod state
+keeps progress coherent while the user moves between pages.
 
 ## Riverpod and state
 
@@ -333,18 +415,28 @@ Each external operation is isolated with `try/catch`. TLS ports are validated
 only as the protocol-neutral range 1 through 65535. The TLS service performs one
 direct handshake on the exact endpoint; it records certificate trust failures
 without reconnecting and classifies DNS, closed-port, and wrong-protocol errors
-separately. A failed TLS check does not erase a successful registration result. A failed DNS query does not erase
-successful MX or DMARC facts. Failure classification turns platform exceptions,
-timeouts, offline conditions, and invalid responses into user-readable
-`CheckFailure` values.
+separately. A failed TLS check does not erase a successful registration result.
+Failure classification turns platform exceptions, timeouts, offline conditions,
+and invalid responses into user-readable `CheckFailure` values.
+
+Expected external failures are data, not orchestration exceptions. They are
+contained per source and per monitor, so another host can still prepare its
+result. An unexpected programming or invariant error remains exceptional and
+aborts the portfolio transaction; readers continue seeing the preceding
+committed portfolio instead of an unexplained partial internal result.
 
 ## DNS capture and decoding
 
-DNS is intentionally list-based. A DNS response can contain multiple records
-with the same owner and type; TXT validation and SPF-related records make this
-normal. `DnsRecord` stores owner, type, TTL, value, and optional MX priority.
-`DnsQueryResult` stores the requested name/type, state, records, and an error.
-`DnsSnapshot` stores the timestamp and ordered query results.
+DNS is intentionally RRset-based. One DNS query asks one question identified by
+owner name, record type, and the Internet (`IN`) class. The response can contain
+several resource records for that single question—for example, three MX routes
+or several TXT values. Together those records are one RRset and therefore one
+atomic observation. A DNS message can also contain CNAME, authority, or
+additional-section data; the native bridge extracts only the requested `IN`
+RRset for Dart. `DnsRecord` stores one member's owner, type, TTL, value, and
+optional MX priority. `DnsQueryResult` stores the whole requested RRset, its
+outcome, latest attempt, latest conclusive verification, and latest error.
+`DnsSnapshot` contains the independently observed RRsets for one monitor run.
 
 Akshi asks for A, AAAA, CNAME, MX, NS, TXT, and CAA individually at the
 monitored name. A/AAAA carry IP addresses, CNAME carries an alias, MX carries
@@ -352,12 +444,44 @@ mail routing, NS carries authoritative nameservers, TXT carries opaque text,
 and CAA carries certificate-authority authorization. Decoding preserves the
 record owner, type, TTL, value, and MX priority where present. No TXT value,
 including ACME or Let’s Encrypt validation data, receives provider-specific
-handling.
+querying, decoding, persistence, health, or alert handling. A presentation layer
+may attach a recognizable, explanatory provider label only after the generic
+record has been verified; such decoration is never evidence and cannot affect
+state or timestamps.
 
-The snapshot adds only the role-appropriate Email names:
+Persistence reconciles each DNS RRset independently. A complete answer or a
+conclusive negative answer (NXDOMAIN or NOERROR/NODATA) replaces the previous
+observation. An unchanged complete answer still advances that RRset's
+verification time. Timeout, offline state, SERVFAIL, cancellation, malformed
+metadata, or one undecodable member makes the whole RRset unavailable: its
+attempt time advances, while its previous conclusive state, complete record
+list, and verification time remain intact. A response containing three valid
+members and one malformed member is never saved as a three-member partial
+RRset. When no prior observation exists, the RRset remains failed.
+
+The planned questions are known before the run; Akshi does not need and cannot
+reliably enumerate an entire public zone. If a plan has eight questions and
+five complete while three fail, the five conclusive RRsets advance and the
+three failed RRsets retain their saved observations. The monitor run is marked
+partial and its monitor-wide verification time does not advance.
+`DnsSnapshot.hasFailures` detects both unresolved failures and latest-attempt
+errors retained beside saved evidence.
+
+Email analysis receives the raw attempt snapshot, not the reconciled saved
+snapshot, so stale DNS evidence cannot be mistaken for a current answer.
+`EmailPosture.reconcileWith` updates conclusive findings and retains only
+findings whose latest dependencies were unavailable. MTA-STS depends on both
+its TXT marker and the current MX query; either DNS failure makes that finding
+unavailable before any HTTPS-policy conclusion. Per-finding `observedAt` and
+`latestError` keep saved evidence and current availability explicit.
+The check plan derives standardized Email owner names automatically:
 
 - `_dmarc.<domain>` and user-entered DKIM selectors when sending is enabled;
 - `_mta-sts.<domain>` and `_smtp._tls.<domain>` when receiving is enabled.
+
+These are ordinary TXT questions to the DNS engine. The Email layer—not the
+resolver—interprets their standards-defined meaning. Each finding advances only
+when every RRset or HTTPS policy on which that finding depends is conclusive.
 
 The app does not use DNS `ANY`. An ANY response may be incomplete and is not a
 reliable inventory. The Android bridge uses `DnsResolver.rawQuery`, parses DNS
@@ -383,7 +507,23 @@ explicitly requested but absent configuration remains actionable.
 TTL is shown as context but is excluded from semantic change detection. Answer
 ordering is canonicalized. Repeated values are retained and compared as a
 multiset, so adding or removing one of two same-owner TXT values is a real
-change. A failed refresh is not treated as a configuration change.
+change. A failed refresh is not treated as a configuration change or
+notification event.
+
+Settings → Network destinations is a presentation-only disclosure derived from
+monitor definitions and saved source URLs. It lists the IANA bootstrap, dynamic
+registry source, system DNS names, direct TLS endpoint, website/icon sources,
+conditional MTA-STS URL, and the manually opened project link. It contains no
+editable network override and does not initiate a connection.
+
+The portfolio's global offline notice is live device state, not persisted
+monitor evidence. `deviceOfflineProvider` performs an initial platform query,
+then listens for transport changes; application resume invalidates it so a
+transition missed while suspended is queried again. A reconnect only removes
+the transient notice. It neither mutates saved `CheckActivity` failures nor
+starts an extra refresh. This keeps connectivity presentation responsive while
+preserving the distinction between "a transport exists" and "this source was
+successfully verified".
 
 ## Persistence
 
@@ -500,6 +640,7 @@ snapshots:
 | `notification_destination_test.dart` | payload routing, encoding, integrity, byte boundary, and strict calendar dates |
 | `async_error_view_test.dart` | safe retryable load failure presentation |
 | `settings_alarm_transaction_test.dart` | serialized alarm commit, rollback, and non-schedule settings |
+| `settings_navigation_test.dart` | Settings/Tags overlay history, root fallback, and Android/iOS route semantics |
 | `settings_reminder_debounce_test.dart` | three-second restartable confirmation and cancel restore |
 | `notification_settings_screen_test.dart` | visible permission progress and complete alarm refresh |
 | `app_settings_test.dart` / `monitor_tag_test.dart` | settings and tag persistence/domain rules |

@@ -135,24 +135,31 @@ Each domain can show separate results:
   information, not as proof of deliverability or complete operational validity.
   Email configuration has no expiry date.
 - **DNS records** shows the latest A, AAAA, CNAME, MX, NS, TXT, and CAA
-  snapshot returned by the device's resolver. Multiple values with the same
-  name and type remain separate—Akshi does not collapse them into a single
-  value. Each visible record includes its TTL and can be copied.
+  observations returned by the device's resolver. Each lookup asks for one name
+  and record type. A single answer can contain several values—such as several MX
+  routes or TXT strings—which together form one RRset. Akshi preserves every
+  value in that RRset; each visible record includes its TTL and can be copied.
 
 In that DNS inventory, A and AAAA are IPv4 and IPv6 addresses, CNAME is an alias,
 MX identifies inbound mail exchangers, NS identifies authoritative name
 servers, TXT carries arbitrary text such as verification and mail-policy values,
 and CAA states which certificate authorities may issue certificates. Akshi
-shows these as DNS facts. It does not infer the purpose of arbitrary TXT values
-or give ACME, Let’s Encrypt, or any other provider's records special treatment.
+shows these as DNS facts. ACME, Let’s Encrypt, and other provider values remain
+ordinary DNS records: they receive no different lookup, storage, health, or
+alert behaviour. A recognizable display label, when available, is explanatory
+presentation only and never changes the underlying result.
 
 DNS is neutral inventory, not a health score. A type that is not published is
 normal. This does not change monitor health or create an attention item.
 
 A missing optional Email record is informational; an invalid or
 expected-but-missing record needs review. Records are read through the device's
-configured DNS resolver. An offline device, timeout, or resolver failure is
-reported as a lookup failure—not as proof that records are missing. The dashboard
+configured DNS resolver. Each RRset has its own latest-attempt and
+latest-verified time. A complete changed answer replaces that RRset; a complete
+unchanged answer refreshes its verification time; and a confirmed absence
+replaces it with verified absence. An offline device, timeout, malformed answer,
+or resolver failure retains the complete saved RRset and is reported as a
+lookup failure—not as proof that records are missing. The dashboard
 uses the most urgent enabled result as the asset's overall status, while the
 Attention screen always names the exact component or components involved.
 
@@ -253,6 +260,10 @@ In **Settings**, you can:
 - read the name, philosophy, privacy model, and intended audience in About Akshi;
 - review Akshi's GPL license and included open-source software notices.
 
+Settings always offers **Back to monitors**. It returns to the calling screen
+when history exists and returns to the monitor portfolio when Settings was
+opened directly without prior route history.
+
 The first warning must remain earlier than the second. The one-day reminder is
 fixed as a final safety prompt. Warning-day and reminder-time edits are staged
 for three seconds; each further edit restarts that quiet period. Akshi then asks
@@ -278,6 +289,12 @@ tags, preferences, and local crash diagnostics remain in private application
 storage. Akshi has no account, sign-up, analytics, advertising, font download,
 remote scoring service, or Akshi-operated API. Nothing is sent to Aliyesha.
 
+The portfolio's no-network notice follows the device's current network
+transport and clears when a connection returns. Reconnection does not silently
+claim that saved observations are current or start another check: the previous
+attempt result remains visible until the normal foreground or manual refresh
+finishes with a conclusive answer.
+
 Checking still requires network access. While the app is active it can contact:
 
 - **https://data.iana.org/rdap/dns.json**, followed by the registry RDAP HTTPS
@@ -301,6 +318,11 @@ names. Akshi opts its private data out of ordinary Android and iOS device and
 cloud backups. Removing the app normally removes its local data, subject to
 operating-system behavior.
 
+Open **Settings → Network destinations** to review network activity. It shows
+the fixed IANA bootstrap, the system resolver, destinations derived from every
+saved monitor, the most recently used dynamic RDAP and icon sources when known,
+and the project website that opens only after an explicit tap.
+
 Read the complete [Akshi Privacy Policy](PRIVACY.md) for storage, retention,
 network-recipient, backup, and contact details.
 
@@ -308,10 +330,18 @@ network-recipient, backup, and contact details.
 
 Some domain registries do not publish a usable expiry date through RDAP, and
 temporary network, DNS, firewall, or TLS problems can prevent a check. Akshi
-preserves the last useful result where possible and displays the latest error.
-If the device is offline, Akshi says so directly and continues to show the last
-saved values. A timeout, DNS failure, unavailable source, invalid response, and
-TLS connection failure are kept distinct. Try again on a reliable connection
+preserves the last useful result and displays the latest error. If the device
+is offline, Akshi says so directly and continues to show the last saved values.
+A timeout, DNS failure, unavailable source, invalid response, and TLS connection
+failure are kept distinct.
+
+DNS is reconciled per requested name and type. A successful answer replaces
+that item, and an authoritative empty answer is saved as “not published.” A
+failed lookup is not an empty answer: it keeps that item's last verified records
+and their time. Email findings are reconciled independently in the same way, so
+one unavailable MX, SPF, DMARC, DKIM, MTA-STS, or TLS-reporting dependency
+cannot erase the others. A partial run advances the latest-attempt time but not
+the monitor's complete verification time. Try again on a reliable connection
 before treating an unavailable result as a registration, certificate, or mail
 problem.
 
