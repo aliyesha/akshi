@@ -110,7 +110,7 @@ class RdapService {
     return _responseReader.read(
       response,
       contentType: response.headers.value(HttpHeaders.contentTypeHeader),
-      contentLength: response.contentLength < 0 ? null : response.contentLength,
+      contentLength: expectedResponseBodyLength(response),
     );
   }
 }
@@ -191,21 +191,21 @@ class RdapException implements Exception {
   String toString() => message;
 }
 
-/// Maps an RDAP payload into the app's stable domain-registration facts.
+/// Maps one identified RDAP domain object into an atomic registration result.
+///
+/// The payload must identify both the RDAP domain class and the requested name.
+/// Any malformed consumed structure rejects the result so callers retain the
+/// preceding complete observation instead of persisting a partial object.
 DomainCheckResult parseRdapDomain(
   Map<String, dynamic> payload, {
   required String source,
   required String registeredDomain,
 }) {
-  final entities = _rdapMaps(payload['entities']);
+  _validateDomainIdentity(payload, registeredDomain);
+  final entities = _rdapMaps(payload['entities'], field: 'entities');
   final nameServers =
-      _rdapMaps(payload['nameservers'])
-          .map(
-            (value) =>
-                (value['unicodeName'] as String?) ??
-                (value['ldhName'] as String?) ??
-                '',
-          )
+      _rdapMaps(payload['nameservers'], field: 'nameservers')
+          .map(_nameServerIdentity)
           .map(
             (value) =>
                 value.trim().replaceFirst(RegExp(r'\.$'), '').toLowerCase(),
@@ -234,26 +234,69 @@ DomainCheckResult parseRdapDomain(
   );
 }
 
-DateTime? _eventDate(Map<String, dynamic> payload, List<String> priorities) {
-  final events = _rdapMaps(payload['events']);
-  for (final action in priorities) {
-    for (final event in events) {
-      if ((event['eventAction'] as String?)?.toLowerCase() != action) {
-        continue;
-      }
-      final date = DateTime.tryParse(event['eventDate'] as String? ?? '');
-      if (date != null) {
-        return date.toLocal();
-      }
+void _validateDomainIdentity(
+  Map<String, dynamic> payload,
+  String registeredDomain,
+) {
+  if (payload['objectClassName'] != 'domain') {
+    throw const FormatException('RDAP response is not a domain object.');
+  }
+  final identities = <String>[];
+  for (final key in const <String>['ldhName', 'unicodeName']) {
+    final value = payload[key];
+    if (value == null) continue;
+    if (value is! String || value.trim().isEmpty) {
+      throw FormatException('RDAP $key is invalid.');
     }
+    identities.add(_normalizeDomainIdentity(value));
+  }
+  if (!identities.contains(_normalizeDomainIdentity(registeredDomain))) {
+    throw const FormatException(
+      'RDAP response does not identify the requested domain.',
+    );
+  }
+}
+
+String _nameServerIdentity(Map<String, dynamic> value) {
+  final unicodeName = value['unicodeName'];
+  final ldhName = value['ldhName'];
+  if ((unicodeName != null && unicodeName is! String) ||
+      (ldhName != null && ldhName is! String)) {
+    throw const FormatException('RDAP nameserver identity is invalid.');
+  }
+  final identity = (unicodeName as String?) ?? (ldhName as String?);
+  if (identity == null || identity.trim().isEmpty) {
+    throw const FormatException('RDAP nameserver has no identity.');
+  }
+  return identity;
+}
+
+DateTime? _eventDate(Map<String, dynamic> payload, List<String> priorities) {
+  final events = _rdapMaps(payload['events'], field: 'events');
+  for (final event in events) {
+    final action = event['eventAction'];
+    final rawDate = event['eventDate'];
+    if (action is! String || rawDate is! String) {
+      throw const FormatException('RDAP event is invalid.');
+    }
+    final date = DateTime.tryParse(rawDate);
+    if (date == null) {
+      throw const FormatException('RDAP event date is invalid.');
+    }
+    if (priorities.contains(action.toLowerCase())) return date.toLocal();
   }
   return null;
 }
 
 String? _entityName(List<Map<String, dynamic>> roots, String role) {
   for (final entity in _walkEntities(roots)) {
-    final roles = (entity['roles'] as List<dynamic>? ?? const <dynamic>[])
-        .whereType<String>()
+    final rawRoles = entity['roles'];
+    if (rawRoles != null &&
+        (rawRoles is! List || rawRoles.any((value) => value is! String))) {
+      throw const FormatException('RDAP entity roles are invalid.');
+    }
+    final roles = (rawRoles as List<dynamic>? ?? const <dynamic>[])
+        .cast<String>()
         .map((value) => value.toLowerCase());
     if (!roles.contains(role)) {
       continue;
@@ -275,24 +318,24 @@ Iterable<Map<String, dynamic>> _walkEntities(
 ) sync* {
   for (final entity in entities) {
     yield entity;
-    yield* _walkEntities(_rdapMaps(entity['entities']));
+    yield* _walkEntities(
+      _rdapMaps(entity['entities'], field: 'nested entities'),
+    );
   }
 }
 
 Map<String, String> _vcardFields(Object? raw) {
+  if (raw == null) return const <String, String>{};
   if (raw is! List || raw.length < 2 || raw[1] is! List) {
-    return const <String, String>{};
+    throw const FormatException('RDAP vCard is invalid.');
   }
   final result = <String, String>{};
   for (final property in raw[1] as List<dynamic>) {
-    if (property is! List || property.length < 4) {
-      continue;
+    if (property is! List || property.length < 4 || property[0] is! String) {
+      throw const FormatException('RDAP vCard property is invalid.');
     }
-    final key = property[0];
+    final key = property[0] as String;
     final value = property[3];
-    if (key is! String) {
-      continue;
-    }
     final text = value is List
         ? value.whereType<Object>().map((part) => part.toString()).join(' ')
         : value?.toString();
@@ -323,12 +366,16 @@ String? _publicValue(String? value) {
   return normalized;
 }
 
-List<Map<String, dynamic>> _rdapMaps(Object? value) {
-  if (value is! List) {
-    return const <Map<String, dynamic>>[];
+List<Map<String, dynamic>> _rdapMaps(Object? value, {required String field}) {
+  if (value == null) return const <Map<String, dynamic>>[];
+  if (value is! List || value.any((item) => item is! Map)) {
+    throw FormatException('RDAP $field is invalid.');
   }
   return value
-      .whereType<Map>()
+      .cast<Map>()
       .map((item) => Map<String, dynamic>.from(item))
       .toList(growable: false);
 }
+
+String _normalizeDomainIdentity(String value) =>
+    value.trim().toLowerCase().replaceFirst(RegExp(r'\.$'), '');

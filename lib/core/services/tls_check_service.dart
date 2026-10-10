@@ -67,13 +67,19 @@ class TlsCheckService {
   }
 }
 
-/// Extracts SANs, serial, signature, and public-key facts from a PEM certificate.
+/// Extracts one coherent SAN, serial, signature, and public-key observation.
+///
+/// A parser failure rejects the TLS result; it must never combine a new
+/// fingerprint and validity period with details retained from an older leaf.
 _ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
   try {
     final data = X509Utils.x509CertificateFromPem(pem);
     final tbsCertificate = data.tbsCertificate;
+    if (tbsCertificate == null) {
+      throw const FormatException('Certificate has no signed body.');
+    }
     final sans =
-        tbsCertificate?.extensions?.subjectAlternativNames ?? const <String>[];
+        tbsCertificate.extensions?.subjectAlternativNames ?? const <String>[];
     final normalizedSans =
         sans
             .map(_cleanAlternativeName)
@@ -81,18 +87,16 @@ _ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
             .toSet()
             .toList(growable: false)
           ..sort();
-    final publicKey = tbsCertificate?.subjectPublicKeyInfo;
-    final algorithm = publicKey?.algorithmReadableName ?? publicKey?.algorithm;
-    final keyLength = publicKey?.length;
-    final parameter = publicKey?.parameterReadableName ?? publicKey?.parameter;
+    final publicKey = tbsCertificate.subjectPublicKeyInfo;
+    final algorithm = publicKey.algorithmReadableName ?? publicKey.algorithm;
+    final keyLength = publicKey.length;
+    final parameter = publicKey.parameterReadableName ?? publicKey.parameter;
     return _ParsedCertificateDetails(
       hostnameMatches: normalizedSans.isEmpty
           ? null
           : normalizedSans.any((name) => _matchesHostname(hostname, name)),
       subjectAlternativeNames: normalizedSans,
-      serialNumber: tbsCertificate?.serialNumber
-          .toRadixString(16)
-          .toUpperCase(),
+      serialNumber: tbsCertificate.serialNumber.toRadixString(16).toUpperCase(),
       signatureAlgorithm:
           data.signatureAlgorithmReadableName ?? data.signatureAlgorithm,
       publicKeyAlgorithm: algorithm,
@@ -108,9 +112,8 @@ _ParsedCertificateDetails _certificateDetails(String pem, String hostname) {
       stackTrace,
       data: <String, Object?>{'hostname': hostname},
     );
-    return const _ParsedCertificateDetails(
-      hostnameMatches: null,
-      subjectAlternativeNames: <String>[],
+    throw const TlsCheckException(
+      'The server certificate could not be parsed completely',
     );
   }
 }

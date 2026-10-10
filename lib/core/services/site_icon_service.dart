@@ -193,9 +193,7 @@ class SiteIconService {
         response,
         maximumBytes: maximumBytes,
         timeout: _remaining(elapsed),
-        contentLength: response.contentLength < 0
-            ? null
-            : response.contentLength,
+        contentLength: expectedResponseBodyLength(response),
       );
       return _FetchedBytes(
         uri: uri,

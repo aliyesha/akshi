@@ -82,6 +82,30 @@ void main() {
     ]);
   });
 
+  test('a new certificate snapshot can clear absent optional details', () {
+    final previous = entry().copyWith(
+      certificateHostnameMatches: true,
+      certificateSerialNumber: 'A1',
+      certificateSignatureAlgorithm: 'SHA-256',
+      certificatePublicKeyAlgorithm: 'RSA',
+      certificatePublicKeyDetails: '2048 bit',
+    );
+
+    final replaced = previous.copyWith(
+      certificateHostnameMatches: null,
+      certificateSerialNumber: null,
+      certificateSignatureAlgorithm: null,
+      certificatePublicKeyAlgorithm: null,
+      certificatePublicKeyDetails: null,
+    );
+
+    expect(replaced.certificateHostnameMatches, isNull);
+    expect(replaced.certificateSerialNumber, isNull);
+    expect(replaced.certificateSignatureAlgorithm, isNull);
+    expect(replaced.certificatePublicKeyAlgorithm, isNull);
+    expect(replaced.certificatePublicKeyDetails, isNull);
+  });
+
   test('falls back to the hostname when the label is blank', () {
     expect(entry(label: '  ').displayName, 'example.com');
     expect(entry(label: null).displayName, 'example.com');
@@ -144,7 +168,7 @@ void main() {
     final lastVerifiedAt = now.subtract(const Duration(days: 1));
     final failure = CheckFailure(
       kind: CheckFailureKind.offline,
-      message: 'No network connection. Showing the last saved result.',
+      message: 'The latest check ran without a network connection.',
       occurredAt: occurredAt,
     );
     final monitor = MonitorEntry(

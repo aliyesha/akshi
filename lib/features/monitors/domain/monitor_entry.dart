@@ -259,12 +259,12 @@ class MonitorEntry {
     CheckActivity? domainActivity,
     CheckActivity? certificateActivity,
     CheckActivity? emailActivity,
-    bool? certificateHostnameMatches,
+    Object? certificateHostnameMatches = _unset,
     List<String>? certificateSubjectAlternativeNames,
-    String? certificateSerialNumber,
-    String? certificateSignatureAlgorithm,
-    String? certificatePublicKeyAlgorithm,
-    String? certificatePublicKeyDetails,
+    Object? certificateSerialNumber = _unset,
+    Object? certificateSignatureAlgorithm = _unset,
+    Object? certificatePublicKeyAlgorithm = _unset,
+    Object? certificatePublicKeyDetails = _unset,
     Object? emailPosture = _unset,
     Object? dnsSnapshot = _unset,
     Object? siteIcon = _unset,
@@ -320,19 +320,26 @@ class MonitorEntry {
     domainActivity: domainActivity ?? this.domainActivity,
     certificateActivity: certificateActivity ?? this.certificateActivity,
     emailActivity: emailActivity ?? this.emailActivity,
-    certificateHostnameMatches:
-        certificateHostnameMatches ?? this.certificateHostnameMatches,
+    certificateHostnameMatches: identical(certificateHostnameMatches, _unset)
+        ? this.certificateHostnameMatches
+        : certificateHostnameMatches as bool?,
     certificateSubjectAlternativeNames:
         certificateSubjectAlternativeNames ??
         this.certificateSubjectAlternativeNames,
-    certificateSerialNumber:
-        certificateSerialNumber ?? this.certificateSerialNumber,
+    certificateSerialNumber: identical(certificateSerialNumber, _unset)
+        ? this.certificateSerialNumber
+        : certificateSerialNumber as String?,
     certificateSignatureAlgorithm:
-        certificateSignatureAlgorithm ?? this.certificateSignatureAlgorithm,
+        identical(certificateSignatureAlgorithm, _unset)
+        ? this.certificateSignatureAlgorithm
+        : certificateSignatureAlgorithm as String?,
     certificatePublicKeyAlgorithm:
-        certificatePublicKeyAlgorithm ?? this.certificatePublicKeyAlgorithm,
-    certificatePublicKeyDetails:
-        certificatePublicKeyDetails ?? this.certificatePublicKeyDetails,
+        identical(certificatePublicKeyAlgorithm, _unset)
+        ? this.certificatePublicKeyAlgorithm
+        : certificatePublicKeyAlgorithm as String?,
+    certificatePublicKeyDetails: identical(certificatePublicKeyDetails, _unset)
+        ? this.certificatePublicKeyDetails
+        : certificatePublicKeyDetails as String?,
     emailPosture: identical(emailPosture, _unset)
         ? this.emailPosture
         : emailPosture as EmailPosture?,

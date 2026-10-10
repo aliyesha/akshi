@@ -99,6 +99,19 @@ void main() {
       }
     });
 
+    test('rejects a body shorter than its declared length', () async {
+      final bytes = utf8.encode('{}');
+
+      await expectLater(
+        reader.read(
+          Stream<List<int>>.value(bytes),
+          contentType: 'application/json',
+          contentLength: bytes.length + 1,
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('applies one timeout to the complete response body', () async {
       var wasCancelled = false;
       final body = StreamController<List<int>>(
@@ -127,6 +140,8 @@ void main() {
   test('parses public registration facts without inventing ownership', () {
     final result = parseRdapDomain(
       <String, dynamic>{
+        'objectClassName': 'domain',
+        'ldhName': 'example.com',
         'events': <Object?>[
           <String, Object?>{
             'eventAction': 'registration',
@@ -187,6 +202,8 @@ void main() {
   test('keeps a valid RDAP result when expiry is not published', () {
     final result = parseRdapDomain(
       <String, dynamic>{
+        'objectClassName': 'domain',
+        'ldhName': 'example.net',
         'events': <Object?>[
           <String, Object?>{
             'eventAction': 'last changed',
@@ -237,5 +254,25 @@ void main() {
     expect(result.publicRegistrant, isNull);
     expect(result.registrar, 'Nested Registrar');
     expect(result.updatedAt?.toUtc(), DateTime.utc(2026, 7, 20, 12));
+  });
+
+  test('rejects an unidentified or mismatched RDAP domain object', () {
+    for (final payload in <Map<String, dynamic>>[
+      <String, dynamic>{},
+      <String, dynamic>{'objectClassName': 'entity', 'ldhName': 'example.com'},
+      <String, dynamic>{
+        'objectClassName': 'domain',
+        'ldhName': 'other.example',
+      },
+    ]) {
+      expect(
+        () => parseRdapDomain(
+          payload,
+          source: 'rdap.example',
+          registeredDomain: 'example.com',
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    }
   });
 }

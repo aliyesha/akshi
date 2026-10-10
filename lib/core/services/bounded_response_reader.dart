@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 /// Reads an HTTP response body within declared, streamed, and elapsed limits.
@@ -61,9 +62,17 @@ Future<Uint8List> readBoundedResponseBody(
       }
     },
     onDone: () {
-      if (!completion.isCompleted) {
-        completion.complete(bytes.takeBytes());
+      if (completion.isCompleted) return;
+      if (contentLength != null && received != contentLength) {
+        completion.completeError(
+          FormatException(
+            'Response body ended after $received of $contentLength bytes.',
+          ),
+          StackTrace.current,
+        );
+        return;
       }
+      completion.complete(bytes.takeBytes());
     },
   );
   // Future.timeout would stop only the caller's wait. Owning the Timer here
@@ -88,3 +97,14 @@ Future<Uint8List> readBoundedResponseBody(
 /// Cancels a response body that the caller intentionally does not consume.
 Future<void> cancelResponseBody(Stream<List<int>> body) =>
     body.listen(null).cancel();
+
+/// Returns the expected streamed length only when Dart is not decompressing.
+///
+/// A compressed response declares the compressed byte count while its stream
+/// contains decompressed bytes, so those two lengths must not be compared.
+int? expectedResponseBodyLength(HttpClientResponse response) =>
+    response.compressionState !=
+            HttpClientResponseCompressionState.decompressed &&
+        response.contentLength >= 0
+    ? response.contentLength
+    : null;
