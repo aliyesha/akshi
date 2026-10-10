@@ -72,16 +72,19 @@ class DnsRecord {
   );
 }
 
-/// The independent result of querying one owner/type pair.
+/// The independent result of querying one owner/type/class RRset.
 ///
-/// `absent` means the resolver answered successfully with no records. It is
-/// different from `failed`, which preserves the reason a lookup was unavailable.
+/// Every member in [records] belongs to the same requested `IN` RRset and is
+/// replaced as one unit. `absent` is a conclusive negative answer; `failed`
+/// preserves why the latest attempt could not verify or replace saved evidence.
 class DnsQueryResult {
   const DnsQueryResult({
     required this.name,
     required this.type,
     required this.state,
     this.records = const <DnsRecord>[],
+    this.lastAttemptedAt,
+    this.lastVerifiedAt,
     this.error,
   });
 
@@ -89,7 +92,34 @@ class DnsQueryResult {
   final DnsRecordType type;
   final DnsQueryState state;
   final List<DnsRecord> records;
+
+  /// When this owner/type pair was most recently requested.
+  final DateTime? lastAttemptedAt;
+
+  /// When [state] and [records] were most recently obtained conclusively.
+  ///
+  /// A later transport failure advances [lastAttemptedAt] and sets [error],
+  /// but deliberately retains this timestamp and the verified observation.
+  final DateTime? lastVerifiedAt;
+
+  /// Failure from the latest attempt, while verified evidence is retained.
   final String? error;
+
+  bool get hasCurrentFailure => state == DnsQueryState.failed || error != null;
+
+  DnsQueryResult _withActivity({
+    required DateTime attemptedAt,
+    required DateTime? verifiedAt,
+    required String? latestError,
+  }) => DnsQueryResult(
+    name: name,
+    type: type,
+    state: state,
+    records: records,
+    lastAttemptedAt: attemptedAt,
+    lastVerifiedAt: verifiedAt,
+    error: latestError,
+  );
 
   /// Serializes the query and every repeated answer for local persistence.
   Map<String, Object?> toJson() => <String, Object?>{
@@ -97,6 +127,8 @@ class DnsQueryResult {
     'type': type.name,
     'state': state.name,
     'records': records.map((record) => record.toJson()).toList(growable: false),
+    'last_attempted_at': lastAttemptedAt?.toUtc().toIso8601String(),
+    'last_verified_at': lastVerifiedAt?.toUtc().toIso8601String(),
     'error': error,
   };
 
@@ -109,6 +141,8 @@ class DnsQueryResult {
         .whereType<Map>()
         .map((value) => DnsRecord.fromJson(Map<String, Object?>.from(value)))
         .toList(growable: false),
+    lastAttemptedAt: _readDate(json['last_attempted_at']),
+    lastVerifiedAt: _readDate(json['last_verified_at']),
     error: json['error'] as String?,
   );
 }
@@ -134,10 +168,51 @@ class DnsSnapshot {
     return null;
   }
 
+  /// Combines a new resolver attempt with the preceding verified snapshot.
+  ///
+  /// A complete answer or conclusive absence replaces one whole RRset. A
+  /// failed question is not evidence about its records, so it advances only
+  /// the attempt and error while retaining that RRset's last complete answer
+  /// or absence and verification time. Other RRsets still advance. This is the
+  /// single observation policy used by Android and iOS.
+  DnsSnapshot reconcileWith(DnsSnapshot? previous) {
+    final previousByQuery = <String, DnsQueryResult>{
+      for (final query in previous?.queries ?? const <DnsQueryResult>[])
+        _queryKey(query.name, query.type): query,
+    };
+    final reconciled = queries
+        .map((latest) {
+          if (latest.state != DnsQueryState.failed) {
+            return latest._withActivity(
+              attemptedAt: checkedAt,
+              verifiedAt: checkedAt,
+              latestError: null,
+            );
+          }
+
+          final saved = previousByQuery[_queryKey(latest.name, latest.type)];
+          if (saved == null || saved.state == DnsQueryState.failed) {
+            return latest._withActivity(
+              attemptedAt: checkedAt,
+              verifiedAt: null,
+              latestError:
+                  latest.error ?? 'This DNS lookup could not be completed.',
+            );
+          }
+          return saved._withActivity(
+            attemptedAt: checkedAt,
+            verifiedAt: saved.lastVerifiedAt ?? previous!.checkedAt,
+            latestError:
+                latest.error ?? 'This DNS lookup could not be completed.',
+          );
+        })
+        .toList(growable: false);
+    return DnsSnapshot(checkedAt: checkedAt, queries: reconciled);
+  }
+
   /// Whether at least one query could not be completed. This is diagnostic
   /// context only and must never participate in monitor health.
-  bool get hasFailures =>
-      queries.any((query) => query.state == DnsQueryState.failed);
+  bool get hasFailures => queries.any((query) => query.hasCurrentFailure);
 
   /// Serializes the full snapshot, including absent and failed queries.
   Map<String, Object?> toJson() => <String, Object?>{
@@ -156,3 +231,11 @@ class DnsSnapshot {
         .toList(growable: false),
   );
 }
+
+DateTime? _readDate(Object? value) => switch (value) {
+  final String text => DateTime.tryParse(text)?.toLocal(),
+  _ => null,
+};
+
+String _queryKey(String name, DnsRecordType type) =>
+    '${name.toLowerCase()}|${type.name}';

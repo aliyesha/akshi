@@ -211,6 +211,7 @@ private final class SystemDnsQuery {
     length: UInt16,
     owner: String,
     recordType: UInt16,
+    recordClass: UInt16,
     ttl: UInt32,
     data: UnsafeRawPointer?
   ) {
@@ -225,18 +226,23 @@ private final class SystemDnsQuery {
     // ReturnIntermediates may report an alias before the requested answer.
     // Keep waiting for the requested type so the native bridge has the same
     // one-query/one-type contract as Android.
-    guard recordType == type else { return }
-
-    if let data, length > 0 {
-      records.append([
-        "owner": owner.isEmpty ? name : owner,
-        "type": Int(recordType),
-        "ttl": Int(ttl),
-        "data": FlutterStandardTypedData(
-          bytes: Data(bytes: data, count: Int(length))
-        ),
-      ])
+    guard recordType == type, recordClass == UInt16(kDNSServiceClass_IN) else {
+      finish(error: "The system DNS resolver returned an unexpected record.")
+      return
     }
+
+    guard let data, length > 0 else {
+      finish(error: "The system DNS resolver returned empty record data.")
+      return
+    }
+    records.append([
+      "owner": owner.isEmpty ? name : owner,
+      "type": Int(recordType),
+      "ttl": Int(ttl),
+      "data": FlutterStandardTypedData(
+        bytes: Data(bytes: data, count: Int(length))
+      ),
+    ])
     if flags & DNSServiceFlags(kDNSServiceFlagsMoreComing) == 0 {
       finish(error: nil)
     }
@@ -258,7 +264,7 @@ private final class SystemDnsQuery {
 }
 
 private let systemDnsCallback: DNSServiceQueryRecordReply = {
-  _, flags, _, errorCode, fullname, recordType, _, dataLength, recordData, ttl, context in
+  _, flags, _, errorCode, fullname, recordType, recordClass, dataLength, recordData, ttl, context in
   guard let context else { return }
   let query = Unmanaged<SystemDnsQuery>.fromOpaque(context).takeUnretainedValue()
   query.receive(
@@ -267,6 +273,7 @@ private let systemDnsCallback: DNSServiceQueryRecordReply = {
     length: dataLength,
     owner: fullname.map { String(cString: $0) } ?? "",
     recordType: recordType,
+    recordClass: recordClass,
     ttl: ttl,
     data: recordData
   )

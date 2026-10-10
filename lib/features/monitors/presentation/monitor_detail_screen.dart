@@ -286,7 +286,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                       ? PhosphorIconsDuotone.cloudSlash
                       : PhosphorIconsDuotone.warningCircle,
                   title: focusConnectionInterrupted
-                      ? 'Live refresh could not connect'
+                      ? 'Latest check could not connect'
                       : 'Some data could not be verified',
                   message: focusConnectionInterrupted
                       ? 'Saved results remain visible. Akshi connects only '
@@ -490,7 +490,9 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 if (monitor.emailPosture != null) ...<Widget>[
                   const SizedBox(height: 8),
                   Text(
-                    'Email configuration analyzed ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
+                    monitor.emailPosture!.hasUnavailable
+                        ? 'Latest analysis attempted ${_formatDateTime(monitor.emailPosture!.checkedAt)} · saved findings retained'
+                        : 'Email configuration verified ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -1187,6 +1189,26 @@ class _MailFindingCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(finding.summary),
+          if (finding.latestError != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                [
+                  'Latest check unavailable: ${finding.latestError}',
+                  if (finding.observedAt != null)
+                    'Showing the result verified ${_formatDateTime(finding.observedAt!)}.',
+                ].join(' '),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
           if (finding.facts.isNotEmpty) ...<Widget>[
             const SizedBox(height: 12),
             const Divider(),

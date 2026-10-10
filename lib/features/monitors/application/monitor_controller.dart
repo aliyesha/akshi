@@ -753,10 +753,11 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
         'Domain registration',
       ),
       track(
-        dnsFuture.then(
-          (snapshot) =>
-              (MonitorEntry current) => current.copyWith(dnsSnapshot: snapshot),
-        ),
+        dnsFuture.then((snapshot) {
+          final reconciled = snapshot.reconcileWith(monitor.dnsSnapshot);
+          return (MonitorEntry current) =>
+              current.copyWith(dnsSnapshot: reconciled);
+        }),
         MonitorSaveStage.dns,
         'DNS',
       ),
@@ -945,9 +946,12 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
                   dkimSelectors: monitor.dkimSelectors,
                 ),
           );
+      final reconciled = email.reconcileWith(monitor.emailPosture);
       return (MonitorEntry current) => current.copyWith(
-        emailPosture: email,
-        emailActivity: monitor.emailActivity.verified(attemptedAt),
+        emailPosture: reconciled,
+        emailActivity: reconciled.hasUnavailable
+            ? monitor.emailActivity.attempted(attemptedAt)
+            : monitor.emailActivity.verified(attemptedAt),
       );
     } catch (error, stackTrace) {
       flow?.error(

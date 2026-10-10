@@ -12,25 +12,12 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  test('keeps only requested TXT records and preserves their values', () async {
+  test('preserves every record in one valid TXT RRset', () async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           channel,
           (call) async => <String, Object?>{
             'records': <Object?>[
-              _nativeRecord(
-                type: DnsRecordType.cname,
-                ttl: 300,
-                data: <int>[
-                  5,
-                  ...'alias'.codeUnits,
-                  7,
-                  ...'example'.codeUnits,
-                  3,
-                  ...'com'.codeUnits,
-                  0,
-                ],
-              ),
               _nativeRecord(
                 type: DnsRecordType.txt,
                 ttl: 300,
@@ -55,6 +42,84 @@ void main() {
       'verify=abc',
     ]);
     expect(result.records.map((record) => record.ttlSeconds), <int>[300, 600]);
+  });
+
+  test(
+    'rejects a malformed record instead of saving a partial RRset',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (call) async => <String, Object?>{
+              'records': <Object?>[
+                _nativeRecord(
+                  type: DnsRecordType.txt,
+                  ttl: 300,
+                  data: <int>[6, ...'v=spf1'.codeUnits],
+                ),
+                _nativeRecord(
+                  type: DnsRecordType.txt,
+                  ttl: 300,
+                  data: <int>[8, ...'broken'.codeUnits],
+                ),
+              ],
+            },
+          );
+
+      await expectLater(
+        const SystemDnsService().query('example.com', DnsRecordType.txt),
+        throwsA(isA<FormatException>()),
+      );
+    },
+  );
+
+  test('rejects a native record outside the requested RRset', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (call) async => <String, Object?>{
+            'records': <Object?>[
+              _nativeRecord(
+                type: DnsRecordType.cname,
+                ttl: 300,
+                data: <int>[0],
+              ),
+            ],
+          },
+        );
+
+    await expectLater(
+      const SystemDnsService().query('example.com', DnsRecordType.txt),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('rejects records from more than one owner as multiple RRsets', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (call) async => <String, Object?>{
+            'records': <Object?>[
+              _nativeRecord(
+                owner: 'example.com.',
+                type: DnsRecordType.txt,
+                ttl: 300,
+                data: <int>[3, ...'one'.codeUnits],
+              ),
+              _nativeRecord(
+                owner: 'other.example.',
+                type: DnsRecordType.txt,
+                ttl: 300,
+                data: <int>[3, ...'two'.codeUnits],
+              ),
+            ],
+          },
+        );
+
+    await expectLater(
+      const SystemDnsService().query('example.com', DnsRecordType.txt),
+      throwsA(isA<FormatException>()),
+    );
   });
 
   test('decodes and sorts MX records by preference', () async {
@@ -163,11 +228,12 @@ void main() {
 }
 
 Map<String, Object?> _nativeRecord({
+  String owner = 'example.com.',
   required DnsRecordType type,
   required int ttl,
   required List<int> data,
 }) => <String, Object?>{
-  'owner': 'example.com.',
+  'owner': owner,
   'type': type.code,
   'ttl': ttl,
   'data': Uint8List.fromList(data),

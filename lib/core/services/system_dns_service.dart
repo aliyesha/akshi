@@ -10,7 +10,8 @@ import 'package:flutter/services.dart';
 ///
 /// The native bridge returns wire-format record bytes. This service decodes
 /// only explicit record types so duplicate records and missing records remain
-/// distinguishable to the rest of the app.
+/// distinguishable to the rest of the app. One native response is one RRset:
+/// it is accepted completely or rejected completely, never partially saved.
 class SystemDnsService {
   const SystemDnsService({MethodChannel? channel})
     : _channel = channel ?? const MethodChannel('com.aliyesha.akshi/dns');
@@ -38,18 +39,37 @@ class SystemDnsService {
     if (values is! List) throw const FormatException('Invalid DNS response');
 
     final records = <DnsRecord>[];
-    for (final value in values.whereType<Map>()) {
+    String? rrsetOwner;
+    for (final value in values) {
+      if (value is! Map) {
+        throw const FormatException('Invalid DNS record');
+      }
       final map = Map<String, Object?>.from(value);
-      final recordType = DnsRecordType.fromCode(map['type']! as int);
+      final owner = map['owner'];
+      final typeCode = map['type'];
+      final ttl = map['ttl'];
+      if (owner is! String || typeCode is! int || ttl is! int || ttl < 0) {
+        throw const FormatException('Invalid DNS record');
+      }
+      final recordType = DnsRecordType.fromCode(typeCode);
+      final normalizedOwner = _normalizeName(owner);
+      rrsetOwner ??= normalizedOwner;
+      if (normalizedOwner != rrsetOwner) {
+        throw const FormatException('DNS response contains multiple RRsets');
+      }
       final bytes = _bytes(map['data']);
-      if (recordType == null || recordType != type || bytes == null) continue;
+      if (recordType == null || recordType != type || bytes == null) {
+        throw const FormatException('Unexpected DNS record');
+      }
       final decoded = _decode(recordType, bytes);
-      if (decoded == null) continue;
+      if (decoded == null) {
+        throw const FormatException('Malformed DNS record data');
+      }
       records.add(
         DnsRecord(
-          owner: _normalizeName(map['owner']! as String),
+          owner: normalizedOwner,
           type: recordType,
-          ttlSeconds: map['ttl']! as int,
+          ttlSeconds: ttl,
           value: decoded.value,
           preference: decoded.preference,
         ),
@@ -82,8 +102,8 @@ class SystemDnsService {
 
 /// Collects one consistent DNS snapshot for domain and email checks.
 ///
-/// Every requested query is isolated behind its own failure boundary, so one
-/// unavailable record does not erase useful results from the other queries.
+/// Every requested RRset is isolated behind its own failure boundary, so one
+/// unavailable RRset does not erase verified results from other questions.
 class DnsSnapshotService {
   DnsSnapshotService({SystemDnsService? dns, AsyncConcurrencyGate? gate})
     : _dns = dns ?? const SystemDnsService(),
@@ -190,7 +210,7 @@ class DnsSnapshotService {
   }
 }
 
-/// Decodes one DNS wire-format payload into a display value and MX priority.
+/// Decodes one complete DNS RDATA payload into a display value and MX priority.
 ({String value, int? preference})? _decode(
   DnsRecordType type,
   Uint8List bytes,
@@ -203,11 +223,17 @@ class DnsSnapshotService {
     value: InternetAddress.fromRawAddress(bytes).address,
     preference: null,
   ),
-  DnsRecordType.ns || DnsRecordType.cname => switch (_decodeName(bytes, 0)) {
+  DnsRecordType.ns || DnsRecordType.cname => switch (_decodeCompleteName(
+    bytes,
+    0,
+  )) {
     final String value => (value: value, preference: null),
     null => null,
   },
-  DnsRecordType.mx when bytes.length >= 3 => switch (_decodeName(bytes, 2)) {
+  DnsRecordType.mx when bytes.length >= 3 => switch (_decodeCompleteName(
+    bytes,
+    2,
+  )) {
     final String value => (
       value: value,
       preference: (bytes[0] << 8) | bytes[1],
@@ -239,12 +265,13 @@ String? _decodeTxt(Uint8List data) {
 }
 
 /// Decodes an uncompressed DNS name from the supplied record payload.
-String? _decodeName(Uint8List data, int start) {
+String? _decodeCompleteName(Uint8List data, int start) {
   final labels = <String>[];
   var offset = start;
   while (offset < data.length) {
     final length = data[offset++];
     if (length == 0) {
+      if (offset != data.length) return null;
       return labels.isEmpty ? '.' : labels.join('.').toLowerCase();
     }
     if ((length & 0xc0) != 0 || offset + length > data.length) return null;

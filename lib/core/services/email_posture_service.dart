@@ -20,7 +20,9 @@ class EmailPostureService {
   /// Builds ordered findings for the enabled send/receive capabilities.
   ///
   /// All DNS values come from [snapshot], so the email and DNS screens describe
-  /// the same observation instead of racing separate lookups.
+  /// the same observation instead of racing separate lookups. Standard owner
+  /// names such as `_dmarc` are planned automatically but remain ordinary TXT
+  /// RRsets; interpretation happens only here, after DNS verification.
   Future<EmailPosture> check(
     DnsSnapshot snapshot,
     String domain, {
@@ -99,11 +101,16 @@ class EmailPostureService {
     List<String> records,
     List<DnsRecord> mx,
   ) async {
-    final query = snapshot.query('_mta-sts.$domain', DnsRecordType.txt);
-    if (query?.state == DnsQueryState.failed) {
-      return _unavailableFinding('mta-sts', 'MTA-STS', query!);
+    final policyRecord = snapshot.query('_mta-sts.$domain', DnsRecordType.txt);
+    if (policyRecord?.state == DnsQueryState.failed) {
+      return _unavailableFinding('mta-sts', 'MTA-STS', policyRecord!);
     }
-    return _mtaStsFinding(domain, records, mx: mx);
+    return _mtaStsFinding(
+      domain,
+      records,
+      mx: mx,
+      mailExchange: snapshot.query(domain, DnsRecordType.mx),
+    );
   }
 
   MailFinding _dkimFromSnapshot(
@@ -153,6 +160,7 @@ class EmailPostureService {
     String domain,
     List<String> records, {
     required List<DnsRecord> mx,
+    required DnsQueryResult? mailExchange,
   }) async {
     final policies = records.where(_isMtaSts).toList(growable: false);
     if (policies.isEmpty) {
@@ -179,6 +187,9 @@ class EmailPostureService {
         state: MailFindingState.invalid,
         summary: 'The MTA-STS DNS record has no policy id.',
       );
+    }
+    if (mailExchange?.state == DnsQueryState.failed) {
+      return _unavailableFinding('mta-sts', 'MTA-STS', mailExchange!);
     }
     try {
       final policy = await _fetchText(
@@ -279,7 +290,7 @@ class EmailPostureService {
     }
     return _policyReader.read(
       response,
-      contentLength: response.contentLength < 0 ? null : response.contentLength,
+      contentLength: expectedResponseBodyLength(response),
     );
   }
 }

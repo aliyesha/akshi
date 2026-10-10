@@ -37,6 +37,8 @@ class MailFinding {
     required this.state,
     required this.summary,
     this.facts = const <MailFact>[],
+    this.observedAt,
+    this.latestError,
   });
 
   final String id;
@@ -45,6 +47,12 @@ class MailFinding {
   final String summary;
   final List<MailFact> facts;
 
+  /// Time of the conclusive observation currently displayed.
+  final DateTime? observedAt;
+
+  /// Failure from the latest attempt when [summary] and [facts] are saved data.
+  final String? latestError;
+
   /// Whether observed data demonstrates a configuration problem.
   ///
   /// An unavailable observation is tracked separately because it proves neither
@@ -52,12 +60,30 @@ class MailFinding {
   bool get needsAttention =>
       state == MailFindingState.warning || state == MailFindingState.invalid;
 
+  bool get isUnavailable =>
+      state == MailFindingState.unavailable || latestError != null;
+
+  MailFinding copyWith({DateTime? observedAt, Object? latestError = _unset}) =>
+      MailFinding(
+        id: id,
+        title: title,
+        state: state,
+        summary: summary,
+        facts: facts,
+        observedAt: observedAt ?? this.observedAt,
+        latestError: identical(latestError, _unset)
+            ? this.latestError
+            : latestError as String?,
+      );
+
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'title': title,
     'state': state.storageValue,
     'summary': summary,
     'facts': facts.map((fact) => fact.toJson()).toList(growable: false),
+    'observed_at': observedAt?.toUtc().toIso8601String(),
+    'latest_error': latestError,
   };
 
   factory MailFinding.fromJson(Map<String, Object?> json) => MailFinding(
@@ -69,6 +95,8 @@ class MailFinding {
         .whereType<Map>()
         .map((fact) => MailFact.fromJson(Map<String, Object?>.from(fact)))
         .toList(growable: false),
+    observedAt: _readDate(json['observed_at']),
+    latestError: json['latest_error'] as String?,
   );
 }
 
@@ -81,8 +109,32 @@ class EmailPosture {
   bool get needsAttention => findings.any((finding) => finding.needsAttention);
 
   /// Whether at least one requested Email check could not be completed.
-  bool get hasUnavailable =>
-      findings.any((finding) => finding.state == MailFindingState.unavailable);
+  bool get hasUnavailable => findings.any((finding) => finding.isUnavailable);
+
+  /// Retains each prior conclusive finding when only its latest dependency
+  /// was unavailable. Other findings from the same attempt still advance.
+  EmailPosture reconcileWith(EmailPosture? previous) {
+    final previousById = <String, MailFinding>{
+      for (final finding in previous?.findings ?? const <MailFinding>[])
+        finding.id: finding,
+    };
+    final reconciled = findings
+        .map((latest) {
+          if (latest.state != MailFindingState.unavailable) {
+            return latest.copyWith(observedAt: checkedAt, latestError: null);
+          }
+          final saved = previousById[latest.id];
+          if (saved == null || saved.state == MailFindingState.unavailable) {
+            return latest.copyWith(latestError: latest.summary);
+          }
+          return saved.copyWith(
+            observedAt: saved.observedAt ?? previous!.checkedAt,
+            latestError: latest.summary,
+          );
+        })
+        .toList(growable: false);
+    return EmailPosture(checkedAt: checkedAt, findings: reconciled);
+  }
 
   String get changeSignature => findings
       .map(
@@ -112,3 +164,10 @@ class EmailPosture {
         .toList(growable: false),
   );
 }
+
+const _unset = Object();
+
+DateTime? _readDate(Object? value) => switch (value) {
+  final String text => DateTime.tryParse(text)?.toLocal(),
+  _ => null,
+};

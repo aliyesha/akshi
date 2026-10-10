@@ -168,6 +168,64 @@ void main() {
     },
   );
 
+  test('MTA-STS remains unavailable when its MX dependency failed', () async {
+    final snapshot = _snapshot(<DnsQueryResult>[
+      const DnsQueryResult(
+        name: 'example.com',
+        type: DnsRecordType.mx,
+        state: DnsQueryState.failed,
+        error: 'The DNS lookup timed out.',
+      ),
+      _txt('_mta-sts.example.com', <String>['v=STSv1; id=20260714']),
+      _absent('_smtp._tls.example.com', DnsRecordType.txt),
+    ]);
+
+    final posture = await EmailPostureService().check(
+      snapshot,
+      'example.com',
+      sends: false,
+      receives: true,
+      dkimSelectors: const <String>[],
+    );
+
+    final mx = posture.findings.singleWhere((finding) => finding.id == 'mx');
+    final mtaSts = posture.findings.singleWhere(
+      (finding) => finding.id == 'mta-sts',
+    );
+
+    expect(mx.state, MailFindingState.unavailable);
+    expect(mtaSts.state, MailFindingState.unavailable);
+    expect(mtaSts.summary, 'The DNS lookup timed out.');
+  });
+
+  test('absent MTA-STS remains conclusive when MX is unavailable', () async {
+    final snapshot = _snapshot(<DnsQueryResult>[
+      const DnsQueryResult(
+        name: 'example.com',
+        type: DnsRecordType.mx,
+        state: DnsQueryState.failed,
+        error: 'The DNS lookup timed out.',
+      ),
+      _absent('_mta-sts.example.com', DnsRecordType.txt),
+      _absent('_smtp._tls.example.com', DnsRecordType.txt),
+    ]);
+
+    final posture = await EmailPostureService().check(
+      snapshot,
+      'example.com',
+      sends: false,
+      receives: true,
+      dkimSelectors: const <String>[],
+    );
+
+    final mtaSts = posture.findings.singleWhere(
+      (finding) => finding.id == 'mta-sts',
+    );
+
+    expect(mtaSts.state, MailFindingState.informational);
+    expect(mtaSts.summary, 'No MTA-STS policy is published.');
+  });
+
   test('shows only findings for the selected email role', () async {
     final snapshot = _snapshot(<DnsQueryResult>[
       _answered('example.com', DnsRecordType.mx, <DnsRecord>[

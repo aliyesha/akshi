@@ -45,12 +45,20 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
     final snapshot = monitor.dnsSnapshot;
     final visible =
         snapshot?.queries
-            .where((query) => query.state != DnsQueryState.absent)
+            .where(
+              (query) =>
+                  query.state != DnsQueryState.absent ||
+                  query.hasCurrentFailure,
+            )
             .toList(growable: false) ??
         const <DnsQueryResult>[];
     final absentCount =
         snapshot?.queries
-            .where((query) => query.state == DnsQueryState.absent)
+            .where(
+              (query) =>
+                  query.state == DnsQueryState.absent &&
+                  !query.hasCurrentFailure,
+            )
             .length ??
         0;
 
@@ -99,7 +107,9 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           if (snapshot != null) ...<Widget>[
             const SizedBox(height: 8),
             Text(
-              'Snapshot captured ${_formatDateTime(snapshot.checkedAt)}',
+              snapshot.hasFailures
+                  ? 'Latest attempt ${_formatDateTime(snapshot.checkedAt)} · saved results retained where lookups failed'
+                  : 'Snapshot verified ${_formatDateTime(snapshot.checkedAt)}',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -174,12 +184,13 @@ class _QueryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final failed = query.state == DnsQueryState.failed;
+    final failed = query.hasCurrentFailure;
+    final hasSavedResult = query.state != DnsQueryState.failed;
     final info = AkshiTheme.infoSurface(scheme);
     return MonitorSurface(
       color: failed ? info.background : scheme.surfaceContainerLowest,
       border: failed ? BorderSide(color: info.border) : null,
-      child: failed
+      child: failed && !hasSavedResult
           ? Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -217,10 +228,36 @@ class _QueryCard extends StatelessWidget {
               leading: _DnsTypeIcon(type: query.type),
               title: _QueryTitle(query: query),
               subtitle: Text(
-                '${query.records.length} ${query.records.length == 1 ? 'value' : 'values'}',
+                failed
+                    ? query.state == DnsQueryState.absent
+                          ? 'Saved as not published · latest lookup failed'
+                          : '${query.records.length} saved ${query.records.length == 1 ? 'value' : 'values'} · latest lookup failed'
+                    : '${query.records.length} ${query.records.length == 1 ? 'value' : 'values'}',
               ),
               childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
               children: <Widget>[
+                if (failed) ...<Widget>[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      query.error ??
+                          'The latest lookup failed. Saved results are shown.',
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: info.foreground),
+                    ),
+                  ),
+                  if (query.lastVerifiedAt != null) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Saved result verified ${_formatDateTime(query.lastVerifiedAt!)}',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                ],
                 for (var index = 0; index < query.records.length; index++)
                   _RecordRow(
                     record: query.records[index],

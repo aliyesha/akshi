@@ -74,6 +74,11 @@ class CheckActivity {
   CheckActivity verified(DateTime at) =>
       CheckActivity(lastAttemptedAt: at, lastVerifiedAt: at);
 
+  /// Records an inconclusive attempt without inventing a verified result.
+  /// Component-level evidence retains the reason it was inconclusive.
+  CheckActivity attempted(DateTime at) =>
+      CheckActivity(lastAttemptedAt: at, lastVerifiedAt: lastVerifiedAt);
+
   CheckActivity failed(CheckFailure value) => CheckActivity(
     lastAttemptedAt: value.occurredAt,
     lastVerifiedAt: lastVerifiedAt,
