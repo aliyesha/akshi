@@ -121,4 +121,48 @@ void main() {
     expect(entry.stage, AlarmAuditStage.failed);
     expect(entry.errorCategory, 'verificationFailed');
   });
+
+  test('upcoming view keeps future failures and excludes elapsed or cancelled work', () {
+    final now = DateTime.utc(2026, 6, 14, 10);
+    AlarmAuditDay day(AlarmAuditEntry entry) =>
+        AlarmAuditDay(date: entry.date, revisions: <AlarmAuditEntry>[entry]);
+
+    final upcoming = AlarmAuditEntry.fromMap(
+      row(
+        date: '2026-07-14',
+        revision: 'upcoming',
+        computedAt: '2026-02-01T08:00:00.000Z',
+        verifiedAt: '2026-02-01T08:00:02.000Z',
+      ),
+    );
+    final failedFuture = AlarmAuditEntry.fromMap(
+      row(
+        date: '2026-08-14',
+        revision: 'failed-future',
+        computedAt: '2026-02-01T08:00:00.000Z',
+        failedAt: '2026-02-01T08:00:02.000Z',
+      ),
+    );
+    final cancelledFuture = AlarmAuditEntry.fromMap(
+      row(
+        date: '2026-08-20',
+        revision: 'cancelled-future',
+        computedAt: '2026-02-01T08:00:00.000Z',
+        cancelledAt: '2026-02-01T08:00:02.000Z',
+      ),
+    );
+    final elapsed = AlarmAuditEntry.fromMap(
+      row(
+        date: '2026-06-14',
+        revision: 'elapsed',
+        computedAt: '2026-02-01T08:00:00.000Z',
+        verifiedAt: '2026-02-01T08:00:02.000Z',
+      ),
+    );
+
+    expect(day(upcoming).isUpcomingAt(now), isTrue);
+    expect(day(failedFuture).isUpcomingAt(now), isTrue);
+    expect(day(cancelledFuture).isUpcomingAt(now), isFalse);
+    expect(day(elapsed).isUpcomingAt(now), isFalse);
+  });
 }

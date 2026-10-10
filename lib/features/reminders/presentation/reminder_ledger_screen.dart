@@ -11,15 +11,29 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
-class ReminderLedgerScreen extends ConsumerWidget {
+class ReminderLedgerScreen extends ConsumerStatefulWidget {
   const ReminderLedgerScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReminderLedgerScreen> createState() =>
+      _ReminderLedgerScreenState();
+}
+
+class _ReminderLedgerScreenState extends ConsumerState<ReminderLedgerScreen> {
+  var _view = _ReminderLedgerView.current;
+
+  @override
+  Widget build(BuildContext context) {
     final health = ref.watch(reminderControllerProvider);
     final settings = ref.watch(settingsControllerProvider).value;
     final days = ref.watch(alarmAuditDaysProvider);
     final remindersEnabled = settings?.remindersEnabled == true;
+    final now = DateTime.now();
+    final allDays = days.value;
+    final visibleDays = allDays == null
+        ? null
+        : _visibleDays(allDays, now: now);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Reminder ledger')),
       body: RefreshIndicator(
@@ -33,7 +47,7 @@ class ReminderLedgerScreen extends ConsumerWidget {
           children: <Widget>[
             _HealthHero(health: health, enabled: remindersEnabled),
             const SizedBox(height: 14),
-            _ProofNotice(platform: _latestPlatform(days.value)),
+            _ProofNotice(platform: _latestPlatform(allDays)),
             const SizedBox(height: 24),
             Row(
               children: <Widget>[
@@ -43,15 +57,70 @@ class ReminderLedgerScreen extends ConsumerWidget {
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                 ),
-                if (days.value?.isNotEmpty == true)
+                if (allDays?.isNotEmpty == true && visibleDays != null)
                   Text(
-                    '${days.value!.length}',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                    '${visibleDays.length} of ${allDays!.length}',
+                    style: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
               ],
             ),
+            if (allDays?.isNotEmpty == true) ...<Widget>[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  ChoiceChip(
+                    avatar: PhosphorIcon(
+                      PhosphorIconsDuotone.bell,
+                      color: _view == _ReminderLedgerView.current
+                          ? scheme.onPrimaryContainer
+                          : scheme.primary,
+                    ),
+                    label: const Text('Current'),
+                    selected: _view == _ReminderLedgerView.current,
+                    selectedColor: scheme.primaryContainer,
+                    showCheckmark: false,
+                    onSelected: (_) {
+                      setState(() => _view = _ReminderLedgerView.current);
+                    },
+                  ),
+                  ChoiceChip(
+                    avatar: PhosphorIcon(
+                      PhosphorIconsDuotone.clock,
+                      color: _view == _ReminderLedgerView.history
+                          ? scheme.onTertiaryContainer
+                          : scheme.tertiary,
+                    ),
+                    label: const Text('History'),
+                    selected: _view == _ReminderLedgerView.history,
+                    selectedColor: scheme.tertiaryContainer,
+                    showCheckmark: false,
+                    onSelected: (_) {
+                      setState(() => _view = _ReminderLedgerView.history);
+                    },
+                  ),
+                  ChoiceChip(
+                    avatar: PhosphorIcon(
+                      PhosphorIconsDuotone.listBullets,
+                      color: _view == _ReminderLedgerView.all
+                          ? scheme.onSecondaryContainer
+                          : scheme.secondary,
+                    ),
+                    label: const Text('All'),
+                    selected: _view == _ReminderLedgerView.all,
+                    selectedColor: scheme.secondaryContainer,
+                    showCheckmark: false,
+                    onSelected: (_) {
+                      setState(() => _view = _ReminderLedgerView.all);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _LedgerViewNotice(view: _view),
+            ],
             const SizedBox(height: 12),
             ...days.when(
               loading: () => const <Widget>[
@@ -67,29 +136,36 @@ class ReminderLedgerScreen extends ConsumerWidget {
                   message: 'Akshi could not read the local proof ledger.',
                 ),
               ],
-              data: (values) => values.isEmpty
-                  ? const <Widget>[
-                      _EmptyLedger(
-                        icon: PhosphorIconsDuotone.clock,
-                        title: 'No alarm work yet',
-                        message:
-                            'When reminders are enabled and an expiry approaches, '
-                            'Akshi will record each platform handoff here.',
-                      ),
-                    ]
-                  : values
-                        .map(
-                          (day) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _AlarmDayCard(
-                              day: day,
-                              onTap: () => context.push(
-                                '/settings/reminder-ledger/${day.date}',
-                              ),
-                            ),
+              data: (values) {
+                if (values.isEmpty) {
+                  return const <Widget>[
+                    _EmptyLedger(
+                      icon: PhosphorIconsDuotone.clock,
+                      title: 'No alarm work yet',
+                      message:
+                          'When reminders are enabled and an expiry approaches, '
+                          'Akshi will record each platform handoff here.',
+                    ),
+                  ];
+                }
+                final visible = _visibleDays(values, now: now);
+                if (visible.isEmpty) {
+                  return <Widget>[_emptyView()];
+                }
+                return visible
+                    .map(
+                      (day) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _AlarmDayCard(
+                          day: day,
+                          onTap: () => context.push(
+                            '/settings/reminder-ledger/${day.date}',
                           ),
-                        )
-                        .toList(growable: false),
+                        ),
+                      ),
+                    )
+                    .toList(growable: false);
+              },
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
@@ -114,6 +190,46 @@ class ReminderLedgerScreen extends ConsumerWidget {
     );
   }
 
+  List<AlarmAuditDay> _visibleDays(
+    List<AlarmAuditDay> days, {
+    required DateTime now,
+  }) {
+    final visible = switch (_view) {
+      _ReminderLedgerView.current =>
+        days.where((day) => day.isUpcomingAt(now)).toList(growable: false),
+      _ReminderLedgerView.history =>
+        days.where((day) => !day.isUpcomingAt(now)).toList(growable: false),
+      _ReminderLedgerView.all => days,
+    };
+    if (_view == _ReminderLedgerView.current) {
+      visible.sort(
+        (left, right) =>
+            left.latest.scheduledUtc.compareTo(right.latest.scheduledUtc),
+      );
+    }
+    return visible;
+  }
+
+  _EmptyLedger _emptyView() => switch (_view) {
+    _ReminderLedgerView.current => const _EmptyLedger(
+      icon: PhosphorIconsDuotone.bell,
+      title: 'No current alarms',
+      message:
+          'There are no upcoming alarm requests. Past and cancelled work '
+          'remains available under History.',
+    ),
+    _ReminderLedgerView.history => const _EmptyLedger(
+      icon: PhosphorIconsDuotone.clock,
+      title: 'No alarm history',
+      message: 'Past and cancelled alarm work will appear here.',
+    ),
+    _ReminderLedgerView.all => const _EmptyLedger(
+      icon: PhosphorIconsDuotone.listBullets,
+      title: 'No alarm work yet',
+      message: 'Akshi has not recorded any alarm work.',
+    ),
+  };
+
   String _actionLabel(ReminderHealth health, bool remindersEnabled) {
     return _canRepair(health, remindersEnabled)
         ? 'Repair and verify reminders'
@@ -131,7 +247,7 @@ class ReminderLedgerScreen extends ConsumerWidget {
     bool remindersEnabled,
   ) async {
     if (!_canRepair(health, remindersEnabled)) {
-      context.go('/settings');
+      context.canPop() ? context.pop() : context.go('/settings');
       return;
     }
 
@@ -153,6 +269,67 @@ class ReminderLedgerScreen extends ConsumerWidget {
   String? _latestPlatform(List<AlarmAuditDay>? days) =>
       days == null || days.isEmpty ? null : days.first.latest.platform;
 }
+
+class _LedgerViewNotice extends StatelessWidget {
+  const _LedgerViewNotice({required this.view});
+
+  final _ReminderLedgerView view;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, message, accent, background, foreground) = switch (view) {
+      _ReminderLedgerView.current => (
+        PhosphorIconsDuotone.bell,
+        'Current shows upcoming alarm requests, including any future request '
+            'that needs attention.',
+        scheme.primary,
+        scheme.primaryContainer,
+        scheme.onPrimaryContainer,
+      ),
+      _ReminderLedgerView.history => (
+        PhosphorIconsDuotone.clock,
+        'History shows alarms whose scheduled time has passed or that are no '
+            'longer scheduled.',
+        scheme.tertiary,
+        scheme.tertiaryContainer,
+        scheme.onTertiaryContainer,
+      ),
+      _ReminderLedgerView.all => (
+        PhosphorIconsDuotone.listBullets,
+        'All shows the complete retained ledger: current, past, cancelled, '
+            'and failed alarm work.',
+        scheme.secondary,
+        scheme.secondaryContainer,
+        scheme.onSecondaryContainer,
+      ),
+    };
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: background.withAlpha(110),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withAlpha(70)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          PhosphorIcon(icon, size: 20, color: foreground),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: foreground),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _ReminderLedgerView { current, history, all }
 
 class ReminderLedgerDetailScreen extends ConsumerWidget {
   const ReminderLedgerDetailScreen({required this.date, super.key});
@@ -917,7 +1094,7 @@ _Visual _stageVisual(AlarmAuditStage stage) => switch (stage) {
   ),
   AlarmAuditStage.cancelled => _Visual(
     icon: PhosphorIconsDuotone.bellSlash,
-    label: 'Replaced',
+    label: 'No longer scheduled',
     color: (scheme) => scheme.onSurfaceVariant,
   ),
   AlarmAuditStage.failed => _Visual(

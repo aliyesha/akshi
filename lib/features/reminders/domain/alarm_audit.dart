@@ -112,6 +112,14 @@ class AlarmAuditDay {
 
   AlarmAuditEntry get latest => revisions.first;
 
+  /// Whether the latest revision still belongs in the current-alarm view.
+  ///
+  /// Failed future work remains current so a filter never hides an alarm
+  /// that needs attention. Cancelled or elapsed work belongs to history.
+  bool isUpcomingAt(DateTime instant) =>
+      latest.stage != AlarmAuditStage.cancelled &&
+      !latest.scheduledUtc.isBefore(instant.toUtc());
+
   static List<AlarmAuditDay> group(Iterable<AlarmAuditEntry> entries) {
     final grouped = <AlarmDate, List<AlarmAuditEntry>>{};
     for (final entry in entries) {
