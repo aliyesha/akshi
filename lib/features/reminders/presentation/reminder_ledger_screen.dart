@@ -71,48 +71,36 @@ class _ReminderLedgerScreenState extends ConsumerState<ReminderLedgerScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: <Widget>[
-                  ChoiceChip(
-                    avatar: PhosphorIcon(
-                      PhosphorIconsDuotone.bell,
-                      color: _view == _ReminderLedgerView.current
-                          ? scheme.onPrimaryContainer
-                          : scheme.primary,
-                    ),
-                    label: const Text('Current'),
+                  _LedgerFilterChip(
+                    icon: PhosphorIconsDuotone.bell,
+                    label: 'Current',
                     selected: _view == _ReminderLedgerView.current,
-                    selectedColor: scheme.primaryContainer,
-                    showCheckmark: false,
-                    onSelected: (_) {
+                    accent: scheme.primary,
+                    selectedBackground: scheme.primaryContainer,
+                    selectedForeground: scheme.onPrimaryContainer,
+                    onSelected: () {
                       setState(() => _view = _ReminderLedgerView.current);
                     },
                   ),
-                  ChoiceChip(
-                    avatar: PhosphorIcon(
-                      PhosphorIconsDuotone.clock,
-                      color: _view == _ReminderLedgerView.history
-                          ? scheme.onTertiaryContainer
-                          : scheme.tertiary,
-                    ),
-                    label: const Text('History'),
+                  _LedgerFilterChip(
+                    icon: PhosphorIconsDuotone.clock,
+                    label: 'History',
                     selected: _view == _ReminderLedgerView.history,
-                    selectedColor: scheme.tertiaryContainer,
-                    showCheckmark: false,
-                    onSelected: (_) {
+                    accent: scheme.tertiary,
+                    selectedBackground: scheme.tertiaryContainer,
+                    selectedForeground: scheme.onTertiaryContainer,
+                    onSelected: () {
                       setState(() => _view = _ReminderLedgerView.history);
                     },
                   ),
-                  ChoiceChip(
-                    avatar: PhosphorIcon(
-                      PhosphorIconsDuotone.listBullets,
-                      color: _view == _ReminderLedgerView.all
-                          ? scheme.onSecondaryContainer
-                          : scheme.secondary,
-                    ),
-                    label: const Text('All'),
+                  _LedgerFilterChip(
+                    icon: PhosphorIconsDuotone.listBullets,
+                    label: 'All',
                     selected: _view == _ReminderLedgerView.all,
-                    selectedColor: scheme.secondaryContainer,
-                    showCheckmark: false,
-                    onSelected: (_) {
+                    accent: scheme.secondary,
+                    selectedBackground: scheme.secondaryContainer,
+                    selectedForeground: scheme.onSecondaryContainer,
+                    onSelected: () {
                       setState(() => _view = _ReminderLedgerView.all);
                     },
                   ),
@@ -270,6 +258,44 @@ class _ReminderLedgerScreenState extends ConsumerState<ReminderLedgerScreen> {
       days == null || days.isEmpty ? null : days.first.latest.platform;
 }
 
+class _LedgerFilterChip extends StatelessWidget {
+  const _LedgerFilterChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.accent,
+    required this.selectedBackground,
+    required this.selectedForeground,
+    required this.onSelected,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final Color accent;
+  final Color selectedBackground;
+  final Color selectedForeground;
+  final VoidCallback onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = selected ? selectedForeground : accent;
+    return ChoiceChip(
+      avatar: PhosphorIcon(icon, color: foreground),
+      label: Text(label),
+      labelStyle: Theme.of(context).textTheme.labelLarge
+          ?.copyWith(color: foreground, fontWeight: FontWeight.w700),
+      selected: selected,
+      backgroundColor: scheme.surfaceContainerLow,
+      selectedColor: selectedBackground,
+      side: BorderSide(color: selected ? selectedBackground : accent),
+      showCheckmark: false,
+      onSelected: (_) => onSelected(),
+    );
+  }
+}
+
 class _LedgerViewNotice extends StatelessWidget {
   const _LedgerViewNotice({required this.view});
 
@@ -278,49 +304,52 @@ class _LedgerViewNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final (icon, message, accent, background, foreground) = switch (view) {
+    final (icon, message, accent) = switch (view) {
       _ReminderLedgerView.current => (
         PhosphorIconsDuotone.bell,
         'Current shows upcoming alarm requests, including any future request '
             'that needs attention.',
         scheme.primary,
-        scheme.primaryContainer,
-        scheme.onPrimaryContainer,
       ),
       _ReminderLedgerView.history => (
         PhosphorIconsDuotone.clock,
         'History shows alarms whose scheduled time has passed or that are no '
             'longer scheduled.',
         scheme.tertiary,
-        scheme.tertiaryContainer,
-        scheme.onTertiaryContainer,
       ),
       _ReminderLedgerView.all => (
         PhosphorIconsDuotone.listBullets,
         'All shows the complete retained ledger: current, past, cancelled, '
             'and failed alarm work.',
         scheme.secondary,
-        scheme.secondaryContainer,
-        scheme.onSecondaryContainer,
       ),
     };
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: background.withAlpha(110),
+        color: scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: accent.withAlpha(70)),
+        border: Border.all(color: scheme.outlineVariant),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          PhosphorIcon(icon, size: 20, color: foreground),
+          Container(
+            width: 3,
+            height: 38,
+            decoration: BoxDecoration(
+              color: accent,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(width: 10),
+          PhosphorIcon(icon, size: 20, color: accent),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
               style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: foreground),
+                  ?.copyWith(color: scheme.onSurface),
             ),
           ),
         ],
