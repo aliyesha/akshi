@@ -140,6 +140,18 @@ class MonitorRefreshInProgressException extends StateError {
     : super('A monitor refresh is already running. Wait for it to finish.');
 }
 
+/// A remote-backed monitor command was declined because the OS reports no
+/// network transport. This is an admission outcome, not a failed observation:
+/// callers must leave all saved evidence and verification times unchanged.
+class MonitorOfflineException extends StateError {
+  MonitorOfflineException([
+    super.message = 'Device offline. Saved results are unchanged.',
+  ]);
+}
+
+/// The outcome of one portfolio refresh request.
+enum MonitorRefreshOutcome { completed, skippedRecent, skippedOffline }
+
 /// Ordered stages exposed while a monitor is being prepared and saved.
 enum MonitorSaveStage {
   preparing,
@@ -265,7 +277,7 @@ class MonitorCheckActivityController
 class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   static const _lifecycleRefreshMaximumAge = Duration(minutes: 15);
 
-  Future<void>? _refreshOperation;
+  Future<MonitorRefreshOutcome>? _refreshOperation;
   final Map<String, Future<MonitorEntry>> _manualCheckOperations =
       <String, Future<MonitorEntry>>{};
   final Map<String, Future<MonitorEntry>> _checkOperations =
@@ -353,6 +365,10 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       label: label?.trim().isEmpty == true ? null : label?.trim(),
       createdAt: now,
       updatedAt: now,
+    );
+
+    await _requireNetworkTransport(
+      message: 'Device offline. Connect before saving this monitor.',
     );
 
     onProgress?.call(
@@ -451,6 +467,9 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     MonitorProgressCallback? onProgress,
   }) async {
     requireValidTlsPort(monitor.tlsPort);
+    await _requireNetworkTransport(
+      message: 'Device offline. Connect before saving changes.',
+    );
     final repository = ref.read(monitorRepositoryProvider);
     final flow = appLogger.start(
       'monitor.update',
@@ -559,16 +578,18 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   ///
   /// Lifecycle callers can skip a recently completed refresh. Explicit user
   /// actions use the default forced behavior.
-  Future<void> refreshAll({bool force = true}) {
+  Future<MonitorRefreshOutcome> refreshAll({bool force = true}) {
     final active = _refreshOperation;
     if (active != null) return active;
 
     final refresh = ref.read(monitorRefreshProvider);
     if (!force && refresh.completedWithin(_lifecycleRefreshMaximumAge)) {
-      return Future<void>.value();
+      return Future<MonitorRefreshOutcome>.value(
+        MonitorRefreshOutcome.skippedRecent,
+      );
     }
 
-    late final Future<void> operation;
+    late final Future<MonitorRefreshOutcome> operation;
     operation = _runRefreshAll().whenComplete(() {
       if (identical(_refreshOperation, operation)) {
         _refreshOperation = null;
@@ -579,8 +600,12 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
   }
 
   /// Prepares every enabled monitor, then publishes one committed snapshot.
-  Future<void> _runRefreshAll() async {
+  Future<MonitorRefreshOutcome> _runRefreshAll() async {
     final flow = appLogger.start('monitor.refresh_all');
+    if (!await _hasNetworkTransport()) {
+      flow.info('skipped_offline');
+      return MonitorRefreshOutcome.skippedOffline;
+    }
     final refresh = ref.read(monitorRefreshProvider.notifier);
     final knownTotal =
         state.value?.where((monitor) => monitor.enabled).length ?? 0;
@@ -610,6 +635,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       await _rescheduleReminders(flow: flow);
       succeeded = true;
       flow.info('completed', data: <String, Object?>{'count': enabled.length});
+      return MonitorRefreshOutcome.completed;
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);
       rethrow;
@@ -626,23 +652,28 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     final active = _manualCheckOperations[id];
     if (active != null) return active;
 
-    final activity = ref.read(monitorCheckActivityProvider.notifier);
-    activity.start(id);
     late final Future<MonitorEntry> operation;
-    operation =
-        _runCommand(
-          () => _check(
-            id,
-            onProgress: (progress) => activity.update(id, progress),
-          ),
-        ).whenComplete(() {
-          if (identical(_manualCheckOperations[id], operation)) {
-            _manualCheckOperations.remove(id);
-            activity.finish(id);
-          }
-        });
+    operation = _runManualCheck(id).whenComplete(() {
+      if (identical(_manualCheckOperations[id], operation)) {
+        _manualCheckOperations.remove(id);
+      }
+    });
     _manualCheckOperations[id] = operation;
     return operation;
+  }
+
+  Future<MonitorEntry> _runManualCheck(String id) async {
+    await _requireNetworkTransport();
+    final activity = ref.read(monitorCheckActivityProvider.notifier);
+    activity.start(id);
+    try {
+      return await _runCommand(
+        () =>
+            _check(id, onProgress: (progress) => activity.update(id, progress)),
+      );
+    } finally {
+      activity.finish(id);
+    }
   }
 
   Future<MonitorEntry> _check(
@@ -1015,6 +1046,22 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
 
   Future<T> _runCommand<T>(Future<T> Function() command) =>
       ref.read(monitorRefreshProvider.notifier).runMutation(command);
+
+  /// Uses the OS transport state only as a conservative admission gate.
+  /// A positive Wi-Fi/cellular result does not promise internet access, so
+  /// source-specific failures after admission still follow normal atomic
+  /// reconciliation. If the platform status itself cannot be read, the
+  /// classifier returns false and Akshi permits the check.
+  Future<bool> _hasNetworkTransport() async =>
+      !await ref.read(checkFailureClassifierProvider).deviceIsOffline;
+
+  Future<void> _requireNetworkTransport({String? message}) async {
+    if (!await _hasNetworkTransport()) {
+      throw message == null
+          ? MonitorOfflineException()
+          : MonitorOfflineException(message);
+    }
+  }
 
   /// Rebuilds reminders without turning a saved monitor operation into failure.
   Future<void> _rescheduleReminders({required AppLogFlow flow}) async {

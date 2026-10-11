@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/database/app_database.dart';
+import 'package:akshi/core/services/check_failure_classifier.dart';
 import 'package:akshi/core/services/rdap_service.dart';
 import 'package:akshi/core/services/system_dns_service.dart';
 import 'package:akshi/core/services/system_settings_service.dart';
@@ -11,6 +12,7 @@ import 'package:akshi/features/monitors/domain/check_result.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -48,6 +50,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           monitorRepositoryProvider.overrideWithValue(repository),
+          connectivitySourceProvider.overrideWithValue(_onlineConnectivity),
           reminderControllerProvider.overrideWith(() => reminders),
         ],
       );
@@ -59,8 +62,12 @@ void main() {
       final joined = controller.refreshAll();
 
       expect(identical(joined, first), isTrue);
-      await Future.wait(<Future<void>>[first, joined]);
+      final outcomes = await Future.wait(<Future<MonitorRefreshOutcome>>[
+        first,
+        joined,
+      ]);
 
+      expect(outcomes, everyElement(MonitorRefreshOutcome.completed));
       expect(repository.portfolioWrites, 1);
       expect(reminders.reconciliations, 1);
       expect(container.read(monitorRefreshProvider).isRunning, isFalse);
@@ -85,6 +92,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           monitorRepositoryProvider.overrideWithValue(repository),
+          connectivitySourceProvider.overrideWithValue(_onlineConnectivity),
           rdapServiceProvider.overrideWithValue(rdap),
           dnsSnapshotServiceProvider.overrideWithValue(dns),
           reminderControllerProvider.overrideWith(() => reminders),
@@ -98,6 +106,7 @@ void main() {
       final joined = controller.check(monitor.id);
 
       expect(identical(joined, first), isTrue);
+      await Future<void>.delayed(Duration.zero);
       expect(
         container.read(monitorCheckActivityProvider),
         containsPair(monitor.id, isA<MonitorSaveProgress>()),
@@ -113,6 +122,155 @@ void main() {
       expect(container.read(monitorCheckActivityProvider), isEmpty);
     },
   );
+
+  test(
+    'known-offline checks leave every saved observation untouched',
+    () async {
+      final monitor = MonitorEntry(
+        id: 'monitor-offline',
+        hostname: 'example.com',
+        tlsHostname: 'example.com',
+        tlsPort: 443,
+        createdAt: DateTime.utc(2026, 2, 14, 9),
+        updatedAt: DateTime.utc(2026, 6, 14, 9),
+        dnsSnapshot: DnsSnapshot(
+          checkedAt: DateTime.utc(2026, 6, 14, 10),
+          queries: <DnsQueryResult>[
+            DnsQueryResult(
+              name: 'example.com',
+              type: DnsRecordType.a,
+              state: DnsQueryState.answered,
+              records: const <DnsRecord>[
+                DnsRecord(
+                  owner: 'example.com',
+                  type: DnsRecordType.a,
+                  ttlSeconds: 3600,
+                  value: '192.0.2.1',
+                ),
+              ],
+              lastAttemptedAt: DateTime.utc(2026, 6, 14, 10),
+              lastVerifiedAt: DateTime.utc(2026, 6, 14, 10),
+            ),
+          ],
+        ),
+      );
+      final repository = _MemoryMonitorRepository(monitor: monitor);
+      final rdap = _ControlledRdapService();
+      final dns = _StaticDnsSnapshotService();
+      final reminders = _RecordingReminderController();
+      final container = ProviderContainer(
+        overrides: [
+          monitorRepositoryProvider.overrideWithValue(repository),
+          connectivitySourceProvider.overrideWithValue(_offlineConnectivity),
+          rdapServiceProvider.overrideWithValue(rdap),
+          dnsSnapshotServiceProvider.overrideWithValue(dns),
+          reminderControllerProvider.overrideWith(() => reminders),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(monitorControllerProvider.future);
+
+      final controller = container.read(monitorControllerProvider.notifier);
+      expect(
+        await controller.refreshAll(),
+        MonitorRefreshOutcome.skippedOffline,
+      );
+      await expectLater(
+        controller.check(monitor.id),
+        throwsA(isA<MonitorOfflineException>()),
+      );
+
+      expect(rdap.checks, 0);
+      expect(dns.checks, 0);
+      expect(repository.portfolioWrites, 0);
+      expect(repository.observationWrites, 0);
+      expect(reminders.reconciliations, 0);
+      expect(container.read(monitorCheckActivityProvider), isEmpty);
+      expect(container.read(monitorRefreshProvider).lastFailedAt, isNull);
+      expect(
+        (await repository.byId(monitor.id))!.dnsSnapshot,
+        same(monitor.dnsSnapshot),
+      );
+    },
+  );
+
+  test('offline add is rejected before persistence or provisioning', () async {
+    final repository = _MemoryMonitorRepository();
+    final rdap = _ControlledRdapService();
+    final dns = _StaticDnsSnapshotService();
+    final container = ProviderContainer(
+      overrides: [
+        monitorRepositoryProvider.overrideWithValue(repository),
+        connectivitySourceProvider.overrideWithValue(_offlineConnectivity),
+        rdapServiceProvider.overrideWithValue(rdap),
+        dnsSnapshotServiceProvider.overrideWithValue(dns),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(monitorControllerProvider.future);
+
+    await expectLater(
+      container
+          .read(monitorControllerProvider.notifier)
+          .add(
+            hostname: 'example.com',
+            tlsHostname: 'example.com',
+            tlsPort: 443,
+          ),
+      throwsA(
+        isA<MonitorOfflineException>().having(
+          (error) => error.message,
+          'message',
+          'Device offline. Connect before saving this monitor.',
+        ),
+      ),
+    );
+
+    expect(repository.createCalled, isFalse);
+    expect(await repository.all(), isEmpty);
+    expect(rdap.checks, 0);
+    expect(dns.checks, 0);
+    expect(repository.observationWrites, 0);
+    expect(container.read(monitorProvisioningProvider), isEmpty);
+  });
+
+  test('offline edit is rejected before persistence', () async {
+    final monitor = MonitorEntry(
+      id: 'monitor-offline-edit',
+      hostname: 'example.com',
+      tlsHostname: 'example.com',
+      tlsPort: 443,
+      label: 'Original',
+      createdAt: DateTime.utc(2026, 2, 14, 9),
+      updatedAt: DateTime.utc(2026, 6, 14, 9),
+    );
+    final repository = _MemoryMonitorRepository(monitor: monitor);
+    final container = ProviderContainer(
+      overrides: [
+        monitorRepositoryProvider.overrideWithValue(repository),
+        connectivitySourceProvider.overrideWithValue(_offlineConnectivity),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(monitorControllerProvider.future);
+
+    await expectLater(
+      container
+          .read(monitorControllerProvider.notifier)
+          .updateMonitor(monitor.copyWith(label: 'Changed')),
+      throwsA(
+        isA<MonitorOfflineException>().having(
+          (error) => error.message,
+          'message',
+          'Device offline. Connect before saving changes.',
+        ),
+      ),
+    );
+
+    expect(repository.definitionWrites, 0);
+    expect((await repository.byId(monitor.id))!.label, 'Original');
+  });
+
   test(
     'metadata-only edit retains observations and skips external checks',
     () async {
@@ -138,6 +296,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           monitorRepositoryProvider.overrideWithValue(repository),
+          connectivitySourceProvider.overrideWithValue(_onlineConnectivity),
           rdapServiceProvider.overrideWithValue(rdap),
           dnsSnapshotServiceProvider.overrideWithValue(dns),
           reminderControllerProvider.overrideWith(() => reminders),
@@ -164,6 +323,26 @@ void main() {
       expect(reminders.reconciliations, 1);
     },
   );
+}
+
+const _onlineConnectivity = _StaticConnectivitySource(<ConnectivityResult>[
+  ConnectivityResult.wifi,
+]);
+const _offlineConnectivity = _StaticConnectivitySource(<ConnectivityResult>[
+  ConnectivityResult.none,
+]);
+
+class _StaticConnectivitySource implements ConnectivitySource {
+  const _StaticConnectivitySource(this.states);
+
+  final List<ConnectivityResult> states;
+
+  @override
+  Future<List<ConnectivityResult>> checkConnectivity() async => states;
+
+  @override
+  Stream<List<ConnectivityResult>> get onConnectivityChanged =>
+      const Stream<List<ConnectivityResult>>.empty();
 }
 
 class _MemoryMonitorRepository extends MonitorRepository {
@@ -212,6 +391,7 @@ class _MemoryMonitorRepository extends MonitorRepository {
     Iterable<String> tagIds = const <String>[],
   }) async {
     createCalled = true;
+    _monitor = monitor;
   }
 }
 

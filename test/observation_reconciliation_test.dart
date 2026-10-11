@@ -162,6 +162,63 @@ void main() {
       expect(query.lastVerifiedAt, attemptedAt);
       expect(query.error, isNull);
     });
+
+    test('failed query retains a previously verified absence', () {
+      final verifiedAt = DateTime.utc(2026, 6, 14, 9);
+      final attemptedAt = DateTime.utc(2026, 7, 14, 10);
+      final previous = DnsSnapshot(
+        checkedAt: verifiedAt,
+        queries: const <DnsQueryResult>[
+          DnsQueryResult(
+            name: 'example.com',
+            type: DnsRecordType.aaaa,
+            state: DnsQueryState.absent,
+          ),
+        ],
+      );
+      final attempt = DnsSnapshot(
+        checkedAt: attemptedAt,
+        queries: const <DnsQueryResult>[
+          DnsQueryResult(
+            name: 'example.com',
+            type: DnsRecordType.aaaa,
+            state: DnsQueryState.failed,
+            error: 'The DNS lookup timed out.',
+          ),
+        ],
+      );
+
+      final query = attempt.reconcileWith(previous).queries.single;
+
+      expect(query.state, DnsQueryState.absent);
+      expect(query.records, isEmpty);
+      expect(query.lastAttemptedAt, attemptedAt);
+      expect(query.lastVerifiedAt, verifiedAt);
+      expect(query.error, 'The DNS lookup timed out.');
+    });
+
+    test('failed query without saved evidence remains unverified', () {
+      final attemptedAt = DateTime.utc(2026, 8, 14, 11);
+      final attempt = DnsSnapshot(
+        checkedAt: attemptedAt,
+        queries: const <DnsQueryResult>[
+          DnsQueryResult(
+            name: 'example.com',
+            type: DnsRecordType.aaaa,
+            state: DnsQueryState.failed,
+            error: 'The DNS lookup timed out.',
+          ),
+        ],
+      );
+
+      final query = attempt.reconcileWith(null).queries.single;
+
+      expect(query.state, DnsQueryState.failed);
+      expect(query.records, isEmpty);
+      expect(query.lastAttemptedAt, attemptedAt);
+      expect(query.lastVerifiedAt, isNull);
+      expect(query.error, 'The DNS lookup timed out.');
+    });
   });
 
   group('email finding reconciliation', () {

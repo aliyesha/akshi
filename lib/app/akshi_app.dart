@@ -65,8 +65,11 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
       reconcileReminders: () async {
         await ref.read(reminderControllerProvider.notifier).reconcile();
       },
-      refreshMonitors: () =>
-          ref.read(monitorControllerProvider.notifier).refreshAll(force: false),
+      refreshMonitors: () async {
+        await ref
+            .read(monitorControllerProvider.notifier)
+            .refreshAll(force: false);
+      },
       reportError: (event, error, stackTrace) {
         appLogger.error(event, error, stackTrace);
       },
