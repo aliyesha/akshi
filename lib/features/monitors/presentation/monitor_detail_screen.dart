@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
 
 import 'package:akshi/core/errors/user_facing_error.dart';
@@ -7,6 +8,7 @@ import 'package:akshi/core/formatters/certificate_algorithm_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/check_activity.dart';
@@ -28,11 +30,17 @@ class MonitorDetailScreen extends ConsumerStatefulWidget {
   const MonitorDetailScreen({
     required this.monitorId,
     this.focusKind,
+    this.revealAttention = false,
     super.key,
   });
 
   final String monitorId;
   final MonitorCheckKind? focusKind;
+
+  /// Whether this visit came from the Attention screen. Section selection and
+  /// attention reveal are separate so ordinary detail navigation never scrolls
+  /// or pulses automatically.
+  final bool revealAttention;
 
   @override
   ConsumerState<MonitorDetailScreen> createState() =>
@@ -55,17 +63,18 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _activeFocusKind = widget.focusKind;
-    _focusVisitSettled = widget.focusKind == null;
+    _activeFocusKind = widget.revealAttention ? widget.focusKind : null;
+    _focusVisitSettled = !widget.revealAttention;
     _scrollController.addListener(_scheduleVisibilityScan);
   }
 
   @override
   void didUpdateWidget(covariant MonitorDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.focusKind != widget.focusKind) {
-      _activeFocusKind = widget.focusKind;
-      _focusVisitSettled = widget.focusKind == null;
+    if (oldWidget.focusKind != widget.focusKind ||
+        oldWidget.revealAttention != widget.revealAttention) {
+      _activeFocusKind = widget.revealAttention ? widget.focusKind : null;
+      _focusVisitSettled = !widget.revealAttention;
       _focusScrollScheduled = false;
       _announcedKinds.clear();
       _pulseVersions.clear();
@@ -84,6 +93,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   Widget build(BuildContext context) {
     final items = ref.watch(monitorControllerProvider);
     final refresh = ref.watch(monitorRefreshProvider);
+    final offline = ref.watch(deviceOfflineProvider).value ?? false;
     final settings =
         ref.watch(settingsControllerProvider).value ?? AppSettings();
     final monitor = _find(items.value ?? const <MonitorEntry>[]);
@@ -149,7 +159,13 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             tooltip: 'Edit',
             onPressed: checking || refresh.isRunning
                 ? null
-                : () => context.push('/monitor/${monitor.id}/edit'),
+                : () {
+                    if (offline) {
+                      showOfflineMessage(context);
+                      return;
+                    }
+                    context.push('/monitor/${monitor.id}/edit');
+                  },
             icon: const PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
           ),
           IconButton(
@@ -164,7 +180,9 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: refresh.isRunning
-            ? () => ref.read(monitorControllerProvider.notifier).refreshAll()
+            ? () async {
+                await ref.read(monitorControllerProvider.notifier).refreshAll();
+              }
             : () => _refresh(monitor),
         child: SingleChildScrollView(
           controller: _scrollController,
@@ -175,6 +193,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
             children: <Widget>[
               if (refresh.shouldShowStatus) ...<Widget>[
                 const MonitorRefreshBanner(),
+                const SizedBox(height: 14),
+              ],
+              if (offline) ...<Widget>[
+                const OfflineNotice(),
                 const SizedBox(height: 14),
               ],
               Row(
@@ -224,7 +246,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   StatusPill(status: status),
                   const Spacer(),
                   FilledButton.icon(
-                    onPressed: checking || refresh.isRunning
+                    onPressed: checking || refresh.isRunning || offline
                         ? null
                         : () => _refresh(monitor),
                     icon: checking
@@ -246,7 +268,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                 const SizedBox(height: 8),
                 LinearProgressIndicator(value: checkProgress.fraction),
               ],
-              if (widget.focusKind != null &&
+              if (widget.revealAttention &&
                   _attentionFindings.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 14),
                 _AttentionNavigator(
@@ -581,7 +603,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
 
   void _scheduleFocusScroll() {
     final focusKind = _activeFocusKind;
-    if (focusKind == null || _focusScrollScheduled) {
+    if (!widget.revealAttention || focusKind == null || _focusScrollScheduled) {
       return;
     }
     _focusScrollScheduled = true;
@@ -630,7 +652,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
 
   void _scheduleVisibilityScan() {
     if (!mounted ||
-        widget.focusKind == null ||
+        !widget.revealAttention ||
         !_focusVisitSettled ||
         _visibilityScanScheduled) {
       return;
@@ -680,6 +702,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
+    if (ref.read(deviceOfflineProvider).value ?? false) {
+      showOfflineMessage(context);
+      return;
+    }
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
       if (!mounted) return;
@@ -688,6 +714,10 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ..showSnackBar(
           const SnackBar(content: Text('Check complete. Results updated.')),
         );
+    } on MonitorOfflineException {
+      if (mounted) {
+        showOfflineMessage(context);
+      }
     } catch (error, stackTrace) {
       appLogger.error(
         'ui.monitor_detail.check.failed',

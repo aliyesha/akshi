@@ -15,6 +15,19 @@ abstract final class AkshiTheme {
   static const Color brandCyan = Color(0xFF5893AD);
   static const Color brandPlum = Color(0xFF913160);
   static const Color brandRose = Color(0xFFBB386F);
+
+  static Color domainMetricAccent(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? const Color(0xFF93C5FD)
+      : const Color(0xFF2563EB);
+  static Color certificateMetricAccent(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? const Color(0xFFC4B5FD)
+      : const Color(0xFF7C3AED);
+  static Color emailMetricAccent(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? const Color(0xFF5EEAD4)
+      : const Color(0xFF0F766E);
   static const Color night = Color(0xFF0B090C);
   static const Color paper = Color(0xFFFBF8FA);
 

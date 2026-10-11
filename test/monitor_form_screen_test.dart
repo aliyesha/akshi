@@ -1,3 +1,4 @@
+import 'package:akshi/app/providers.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/presentation/monitor_form_screen.dart';
@@ -16,6 +17,9 @@ void main() {
         overrides: [
           monitorControllerProvider.overrideWith(
             () => _TestMonitorController(const <MonitorEntry>[]),
+          ),
+          deviceOfflineProvider.overrideWith(
+            (ref) => Stream<bool>.value(false),
           ),
         ],
         child: const MaterialApp(
@@ -40,6 +44,9 @@ void main() {
         overrides: [
           monitorControllerProvider.overrideWith(
             () => _TestMonitorController(const <MonitorEntry>[]),
+          ),
+          deviceOfflineProvider.overrideWith(
+            (ref) => Stream<bool>.value(false),
           ),
           tagControllerProvider.overrideWith(_TestTagController.new),
         ],

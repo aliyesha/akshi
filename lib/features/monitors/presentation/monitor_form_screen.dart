@@ -1,6 +1,8 @@
+import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
@@ -84,6 +86,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
     }
     final tags = ref.watch(tagControllerProvider).value ?? const <MonitorTag>[];
     final refresh = ref.watch(monitorRefreshProvider);
+    final offline = ref.watch(deviceOfflineProvider).value ?? false;
     final atTagLimit = !TagPolicy.canCreate(tags.length);
     final editing = widget.isEditing;
     final original = editing ? _find(items, widget.monitorId) : null;
@@ -122,6 +125,12 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
             children: <Widget>[
               if (refresh.shouldShowStatus) ...<Widget>[
                 const MonitorRefreshBanner(),
+                const SizedBox(height: 14),
+              ],
+              if (offline) ...<Widget>[
+                const OfflineNotice(
+                  message: 'Connect to add or save a monitor. Existing saved data is unchanged.',
+                ),
                 const SizedBox(height: 14),
               ],
               _Intro(editing: editing),
@@ -384,7 +393,7 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
               ],
               const SizedBox(height: 26),
               FilledButton.icon(
-                onPressed: _saving || refresh.isRunning
+                onPressed: _saving || refresh.isRunning || offline
                     ? null
                     : () => _save(original),
                 icon: _saving

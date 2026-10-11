@@ -2,6 +2,7 @@ import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/akshi_mark.dart';
+import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/core/widgets/expiry_metric.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
@@ -50,7 +51,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         tooltip: 'Add monitor',
         onPressed: refresh.isRunning
             ? null
-            : () => context.push('/monitor/new'),
+            : () {
+                if (offline) {
+                  showOfflineMessage(context);
+                  return;
+                }
+                context.push('/monitor/new');
+              },
         child: const PhosphorIcon(PhosphorIconsRegular.plus),
       ),
       body: SafeArea(
@@ -120,7 +127,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         tooltip: refresh.isRunning
                             ? 'Refreshing…'
                             : 'Refresh all',
-                        onPressed: items.isEmpty || refresh.isRunning
+                        onPressed: items.isEmpty || refresh.isRunning || offline
                             ? null
                             : () => _refreshAll(),
                         icon: AnimatedSwitcher(
@@ -163,7 +170,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   if (offline)
                     const SliverPadding(
                       padding: EdgeInsets.fromLTRB(18, 10, 18, 0),
-                      sliver: SliverToBoxAdapter(child: _OfflineNotice()),
+                      sliver: SliverToBoxAdapter(child: OfflineNotice()),
                     ),
                   if (items.isNotEmpty)
                     SliverPadding(
@@ -285,15 +292,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             .where((monitor) => monitor.enabled)
             .length;
     try {
-      await controller.refreshAll();
-      if (!mounted || !announce) {
+      final outcome = await controller.refreshAll();
+      if (!mounted) {
         return;
       }
-      final message = enabledCount == 0
-          ? 'No enabled monitors to check.'
-          : enabledCount == 1
-          ? '1 monitor checked.'
-          : '$enabledCount monitors checked.';
+      if (outcome == MonitorRefreshOutcome.skippedOffline) {
+        showOfflineMessage(context);
+        return;
+      }
+      if (!announce) return;
+      final message = switch (outcome) {
+        MonitorRefreshOutcome.skippedOffline =>
+          'Device offline. Saved results are unchanged.',
+        MonitorRefreshOutcome.skippedRecent =>
+          'The monitor list was checked recently.',
+        MonitorRefreshOutcome.completed =>
+          enabledCount == 0
+              ? 'No enabled monitors to check.'
+              : enabledCount == 1
+              ? '1 monitor checked.'
+              : '$enabledCount monitors checked.',
+      };
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(message)));
@@ -325,41 +344,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             left.name.toLowerCase().compareTo(right.name.toLowerCase()),
       );
     return tags;
-  }
-}
-
-class _OfflineNotice extends StatelessWidget {
-  const _OfflineNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AkshiTheme.infoSurface(Theme.of(context).colorScheme);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: colors.background,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: <Widget>[
-          PhosphorIcon(
-            PhosphorIconsDuotone.wifiSlash,
-            size: 19,
-            color: colors.accent,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'No network connection. Saved results remain available and '
-              'live checks can resume when a connection returns.',
-              style: Theme.of(context).textTheme.labelLarge
-                  ?.copyWith(color: colors.foreground),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -516,6 +500,10 @@ class _SwipeableMonitorCard extends ConsumerWidget {
     DismissDirection direction,
   ) async {
     if (direction == DismissDirection.endToStart) {
+      if (ref.read(deviceOfflineProvider).value ?? false) {
+        showOfflineMessage(context);
+        return false;
+      }
       await context.push<void>('/monitor/${monitor.id}/edit');
       return false;
     }
@@ -622,18 +610,16 @@ class _MonitorCard extends StatelessWidget {
       criticalDays: settings.secondWarningDays,
     );
     final highlighted = findings.any((finding) => finding.needsAttention);
+    final attentionAlpha = scheme.brightness == Brightness.dark ? .18 : .12;
     final surfaceColor = highlighted
-        ? Color.lerp(scheme.surfaceContainerLowest, accent, .055)!
+        ? Color.alphaBlend(
+            accent.withValues(alpha: attentionAlpha),
+            scheme.surfaceContainerLowest,
+          )
         : scheme.surfaceContainerLowest;
-    final borderSide = highlighted
-        ? BorderSide(color: accent.withValues(alpha: .38))
-        : BorderSide.none;
     return Material(
       color: surfaceColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: borderSide,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => context.push('/monitor/${monitor.id}'),
@@ -694,6 +680,7 @@ class _MonitorCard extends StatelessWidget {
                     label: 'Domain',
                     date: monitor.domainExpiresAt,
                     icon: PhosphorIconsDuotone.globeHemisphereWest,
+                    accent: AkshiTheme.domainMetricAccent(scheme),
                   ),
                   if (monitor.checksCertificate) ...<Widget>[
                     const SizedBox(width: 10),
@@ -701,6 +688,7 @@ class _MonitorCard extends StatelessWidget {
                       label: 'Certificate',
                       date: monitor.certificateExpiresAt,
                       icon: PhosphorIconsDuotone.certificate,
+                      accent: AkshiTheme.certificateMetricAccent(scheme),
                     ),
                   ] else if (monitor.checksEmail) ...<Widget>[
                     const SizedBox(width: 10),
@@ -751,6 +739,7 @@ class _EmailMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final posture = monitor.emailPosture;
+    final identityAccent = AkshiTheme.emailMetricAccent(scheme);
     final failed = monitor.emailActivity.failure != null;
     final attention = posture?.needsAttention ?? false;
     final incomplete = posture?.hasUnavailable ?? false;
@@ -760,7 +749,7 @@ class _EmailMetric extends StatelessWidget {
         ? scheme.tertiary
         : incomplete
         ? scheme.outline
-        : scheme.primary;
+        : identityAccent;
     final value = failed
         ? 'Unavailable'
         : posture == null
@@ -772,33 +761,42 @@ class _EmailMetric extends StatelessWidget {
         : 'Published';
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(16),
+          color: identityAccent.withValues(
+            alpha: scheme.brightness == Brightness.dark ? .18 : .10,
+          ),
+          borderRadius: BorderRadius.circular(18),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            PhosphorIcon(
-              PhosphorIconsDuotone.envelopeSimpleOpen,
-              size: 19,
-              color: color,
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text('Email', style: Theme.of(context).textTheme.labelSmall),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
+            Row(
+              children: <Widget>[
+                PhosphorIcon(
+                  PhosphorIconsDuotone.envelopeSimpleOpen,
+                  size: 16,
+                  color: color,
+                ),
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    'Email',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
+                    style: Theme.of(context).textTheme.labelMedium
+                        ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(color: color),
             ),
           ],
         ),

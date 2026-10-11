@@ -50,6 +50,7 @@ final appRouter = GoRouter(
           builder: (context, state) => MonitorDetailScreen(
             monitorId: state.pathParameters['id']!,
             focusKind: MonitorCheckKind.domainRegistration,
+            revealAttention: state.uri.queryParameters['attention'] == '1',
           ),
         ),
         GoRoute(
@@ -57,6 +58,7 @@ final appRouter = GoRouter(
           builder: (context, state) => MonitorDetailScreen(
             monitorId: state.pathParameters['id']!,
             focusKind: MonitorCheckKind.tlsCertificate,
+            revealAttention: state.uri.queryParameters['attention'] == '1',
           ),
         ),
         GoRoute(
@@ -64,6 +66,7 @@ final appRouter = GoRouter(
           builder: (context, state) => MonitorDetailScreen(
             monitorId: state.pathParameters['id']!,
             focusKind: MonitorCheckKind.emailConfiguration,
+            revealAttention: state.uri.queryParameters['attention'] == '1',
           ),
         ),
         GoRoute(

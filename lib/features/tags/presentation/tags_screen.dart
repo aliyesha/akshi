@@ -68,7 +68,18 @@ class TagsScreen extends ConsumerWidget {
                             ),
                             title: Align(
                               alignment: Alignment.centerLeft,
-                              child: TagPill(tag: tag),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  PhosphorIcon(
+                                    PhosphorIconsDuotone.tag,
+                                    size: 20,
+                                    color: Color(tag.colorArgb),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Flexible(child: TagPill(tag: tag)),
+                                ],
+                              ),
                             ),
                             trailing: PopupMenuButton<String>(
                               enabled: !refresh.isRunning,
@@ -79,11 +90,29 @@ class TagsScreen extends ConsumerWidget {
                                   const <PopupMenuEntry<String>>[
                                     PopupMenuItem(
                                       value: 'edit',
-                                      child: Text('Edit'),
+                                      child: Row(
+                                        children: <Widget>[
+                                          PhosphorIcon(
+                                            PhosphorIconsRegular.pencilSimple,
+                                            size: 19,
+                                          ),
+                                          SizedBox(width: 10),
+                                          Text('Edit'),
+                                        ],
+                                      ),
                                     ),
                                     PopupMenuItem(
                                       value: 'delete',
-                                      child: Text('Delete'),
+                                      child: Row(
+                                        children: <Widget>[
+                                          PhosphorIcon(
+                                            PhosphorIconsRegular.trash,
+                                            size: 19,
+                                          ),
+                                          SizedBox(width: 10),
+                                          Text('Delete'),
+                                        ],
+                                      ),
                                     ),
                                   ],
                             ),

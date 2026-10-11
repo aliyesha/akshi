@@ -6,12 +6,14 @@ class ExpiryMetric extends StatelessWidget {
     required this.label,
     required this.date,
     required this.icon,
+    required this.accent,
     super.key,
   });
 
   final String label;
   final DateTime? date;
   final IconData icon;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
@@ -25,13 +27,22 @@ class ExpiryMetric extends StatelessWidget {
       _ => '$days days',
     };
     final urgent = days != null && days <= 5;
+    final identityBackground = accent.withValues(
+      alpha: scheme.brightness == Brightness.dark ? .18 : .10,
+    );
+    final background = urgent
+        ? Color.alphaBlend(
+            scheme.error.withValues(
+              alpha: scheme.brightness == Brightness.dark ? .12 : .07,
+            ),
+            identityBackground,
+          )
+        : identityBackground;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: urgent
-              ? scheme.errorContainer.withValues(alpha: (90) / 255)
-              : scheme.surfaceContainerLow,
+          color: background,
           borderRadius: BorderRadius.circular(18),
         ),
         child: Column(
@@ -39,7 +50,7 @@ class ExpiryMetric extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                PhosphorIcon(icon, size: 16, color: scheme.onSurfaceVariant),
+                PhosphorIcon(icon, size: 16, color: accent),
                 const SizedBox(width: 7),
                 Flexible(
                   child: Text(

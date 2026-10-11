@@ -1,10 +1,11 @@
+import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
+import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
-import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
 import 'package:akshi/features/monitors/domain/monitor_finding.dart';
 import 'package:akshi/features/monitors/domain/monitor_status.dart';
@@ -33,6 +34,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
   Widget build(BuildContext context) {
     final items = ref.watch(monitorControllerProvider);
     final refresh = ref.watch(monitorRefreshProvider);
+    final offline = ref.watch(deviceOfflineProvider).value ?? false;
     final monitor = _find(items.value ?? const <MonitorEntry>[]);
     if (monitor == null) {
       return Scaffold(
@@ -64,10 +66,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
     final recordCount =
         dns?.queries.expand((query) => query.records).length ?? 0;
     final failedQueries =
-        dns?.queries
-            .where((query) => query.state == DnsQueryState.failed)
-            .length ??
-        0;
+        dns?.queries.where((query) => query.hasCurrentFailure).length ?? 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -80,7 +79,13 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
                     refresh.isRunning ||
                     (provisioning?.isRunning ?? false)
                 ? null
-                : () => context.push('/monitor/${monitor.id}/edit'),
+                : () {
+                    if (offline) {
+                      showOfflineMessage(context);
+                      return;
+                    }
+                    context.push('/monitor/${monitor.id}/edit');
+                  },
             icon: const PhosphorIcon(PhosphorIconsDuotone.pencilSimple),
           ),
           IconButton(
@@ -95,7 +100,9 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: refresh.isRunning
-            ? () => ref.read(monitorControllerProvider.notifier).refreshAll()
+            ? () async {
+                await ref.read(monitorControllerProvider.notifier).refreshAll();
+              }
             : () => _refresh(monitor),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -103,6 +110,10 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
           children: <Widget>[
             if (refresh.shouldShowStatus) ...<Widget>[
               const MonitorRefreshBanner(),
+              const SizedBox(height: 14),
+            ],
+            if (offline) ...<Widget>[
+              const OfflineNotice(),
               const SizedBox(height: 14),
             ],
             Row(
@@ -172,6 +183,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
                   onPressed:
                       checking ||
                           refresh.isRunning ||
+                          offline ||
                           (provisioning?.isRunning ?? false)
                       ? null
                       : () => _refresh(monitor),
@@ -245,6 +257,10 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
+    if (ref.read(deviceOfflineProvider).value ?? false) {
+      showOfflineMessage(context);
+      return;
+    }
     ref.read(monitorProvisioningProvider.notifier).clear(monitor.id);
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
@@ -254,6 +270,10 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
           ..showSnackBar(
             const SnackBar(content: Text('Check complete. Results updated.')),
           );
+      }
+    } on MonitorOfflineException {
+      if (mounted) {
+        showOfflineMessage(context);
       }
     } catch (error, stackTrace) {
       appLogger.error(

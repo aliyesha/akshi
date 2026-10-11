@@ -1,5 +1,8 @@
+import 'package:akshi/app/providers.dart';
+import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
+import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
@@ -29,11 +32,36 @@ class AttentionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final monitors = ref.watch(monitorControllerProvider);
     final refresh = ref.watch(monitorRefreshProvider);
+    final offline = ref.watch(deviceOfflineProvider).value ?? false;
     final settings =
         ref.watch(settingsControllerProvider).value ?? AppSettings();
     final title = source == 'expiry' ? 'Expiry reminder' : 'Needs attention';
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: <Widget>[
+          IconButton(
+            tooltip: refresh.isRunning ? 'Refreshing…' : 'Refresh all',
+            onPressed: refresh.isRunning || offline
+                ? null
+                : () => _refreshAll(context, ref, announce: true),
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: refresh.isRunning
+                  ? const SizedBox.square(
+                      key: ValueKey<String>('refresh-progress'),
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    )
+                  : const PhosphorIcon(
+                      PhosphorIconsRegular.arrowsClockwise,
+                      key: ValueKey<String>('refresh-icon'),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: monitors.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) {
@@ -46,14 +74,17 @@ class AttentionScreen extends ConsumerWidget {
           final visible = _visible(items, settings);
           final missing = monitorIds.length - visible.length;
           return RefreshIndicator(
-            onRefresh: () =>
-                ref.read(monitorControllerProvider.notifier).refreshAll(),
+            onRefresh: () => _refreshAll(context, ref, announce: false),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
               children: <Widget>[
                 if (refresh.shouldShowStatus) ...<Widget>[
                   const MonitorRefreshBanner(),
+                  const SizedBox(height: 14),
+                ],
+                if (offline) ...<Widget>[
+                  const OfflineNotice(),
                   const SizedBox(height: 14),
                 ],
                 _AttentionHeader(
@@ -80,6 +111,37 @@ class AttentionScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _refreshAll(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool announce,
+  }) async {
+    try {
+      final outcome = await ref
+          .read(monitorControllerProvider.notifier)
+          .refreshAll();
+      if (!context.mounted) return;
+      if (outcome == MonitorRefreshOutcome.skippedOffline) {
+        showOfflineMessage(context);
+        return;
+      }
+      if (!announce) return;
+      final message = outcome == MonitorRefreshOutcome.skippedRecent
+          ? 'The monitor list was checked recently.'
+          : 'Monitors checked.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    } catch (error, stackTrace) {
+      appLogger.error('ui.attention.refresh.failed', error, stackTrace);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+      }
+    }
   }
 
   List<MonitorEntry> _visible(
@@ -378,5 +440,7 @@ String _detailLocation(String monitorId, List<MonitorFinding> findings) {
     MonitorCheckKind.emailConfiguration => 'email',
     null => null,
   };
-  return path == null ? '/monitor/$monitorId' : '/monitor/$monitorId/$path';
+  return path == null
+      ? '/monitor/$monitorId'
+      : '/monitor/$monitorId/$path?attention=1';
 }

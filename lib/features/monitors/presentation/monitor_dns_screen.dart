@@ -1,7 +1,9 @@
+import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/monitor_entry.dart';
@@ -27,6 +29,7 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
   Widget build(BuildContext context) {
     final items = ref.watch(monitorControllerProvider);
     final refresh = ref.watch(monitorRefreshProvider);
+    final offline = ref.watch(deviceOfflineProvider).value ?? false;
     final monitor = _find(items.value ?? const <MonitorEntry>[]);
     if (monitor == null) {
       return Scaffold(
@@ -52,15 +55,15 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
             )
             .toList(growable: false) ??
         const <DnsQueryResult>[];
-    final absentCount =
+    final absent =
         snapshot?.queries
             .where(
               (query) =>
                   query.state == DnsQueryState.absent &&
                   !query.hasCurrentFailure,
             )
-            .length ??
-        0;
+            .toList(growable: false) ??
+        const <DnsQueryResult>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -68,8 +71,8 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         title: const Text('DNS records'),
         actions: <Widget>[
           IconButton(
-            tooltip: 'Check now',
-            onPressed: checking || refresh.isRunning
+            tooltip: 'Check monitor',
+            onPressed: checking || refresh.isRunning || offline
                 ? null
                 : () => _refresh(monitor),
             icon: checking
@@ -82,64 +85,73 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
-        children: <Widget>[
-          if (refresh.shouldShowStatus) ...<Widget>[
-            const MonitorRefreshBanner(),
-            const SizedBox(height: 14),
-          ],
-          if (checkProgress != null) ...<Widget>[
-            Text(checkProgress.message),
-            const SizedBox(height: 8),
-            LinearProgressIndicator(value: checkProgress.fraction),
-            const SizedBox(height: 14),
-          ],
-          Text(monitor.hostname, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 6),
-          Text(
-            'A snapshot from this device’s system DNS resolver. Akshi asks for specific record types; it does not use an incomplete ANY response.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              height: 1.45,
-            ),
-          ),
-          if (snapshot != null) ...<Widget>[
-            const SizedBox(height: 8),
-            Text(
-              snapshot.hasFailures
-                  ? 'Latest attempt ${_formatDateTime(snapshot.checkedAt)} · saved results retained where lookups failed'
-                  : 'Snapshot verified ${_formatDateTime(snapshot.checkedAt)}',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-          const SizedBox(height: 20),
-          if (snapshot == null)
-            _EmptyDns(
-              onCheck: checking || refresh.isRunning
-                  ? null
-                  : () => _refresh(monitor),
-            )
-          else if (visible.isEmpty)
-            const _NoPublishedRecords()
-          else
-            for (final query in visible) ...<Widget>[
-              _QueryCard(query: query),
-              const SizedBox(height: 10),
+      body: RefreshIndicator(
+        onRefresh: refresh.isRunning
+            ? () async {
+                await ref.read(monitorControllerProvider.notifier).refreshAll();
+              }
+            : () => _refresh(monitor),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 40),
+          children: <Widget>[
+            if (refresh.shouldShowStatus) ...<Widget>[
+              const MonitorRefreshBanner(),
+              const SizedBox(height: 14),
             ],
-          if (snapshot != null && absentCount > 0) ...<Widget>[
-            const SizedBox(height: 8),
+            if (offline) ...<Widget>[
+              const OfflineNotice(),
+              const SizedBox(height: 14),
+            ],
+            if (checkProgress != null) ...<Widget>[
+              Text(checkProgress.message),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(value: checkProgress.fraction),
+              const SizedBox(height: 14),
+            ],
             Text(
-              '$absentCount requested record ${absentCount == 1 ? 'group is' : 'groups are'} '
-              'not published. Missing types are normal and do not affect health.',
+              monitor.hostname,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'A snapshot from this device’s system DNS resolver. Akshi asks for specific record types; it does not use an incomplete ANY response.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.45,
               ),
             ),
+            if (snapshot != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                snapshot.hasFailures
+                    ? 'Latest attempt ${_formatDateTime(snapshot.checkedAt)} · saved results retained where lookups failed'
+                    : 'Snapshot verified ${_formatDateTime(snapshot.checkedAt)}',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            if (snapshot == null)
+              _EmptyDns(
+                onCheck: checking || refresh.isRunning || offline
+                    ? null
+                    : () => _refresh(monitor),
+              )
+            else if (visible.isEmpty)
+              const _NoPublishedRecords()
+            else
+              for (final query in visible) ...<Widget>[
+                _QueryCard(query: query),
+                const SizedBox(height: 10),
+              ],
+            if (absent.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 8),
+              _AbsentDnsSummary(queries: absent, hostname: monitor.hostname),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -152,6 +164,10 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
   }
 
   Future<void> _refresh(MonitorEntry monitor) async {
+    if (ref.read(deviceOfflineProvider).value ?? false) {
+      showOfflineMessage(context);
+      return;
+    }
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
       if (!mounted) return;
@@ -160,6 +176,10 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         ..showSnackBar(
           const SnackBar(content: Text('Check complete. Results updated.')),
         );
+    } on MonitorOfflineException {
+      if (mounted) {
+        showOfflineMessage(context);
+      }
     } catch (error, stackTrace) {
       appLogger.error(
         'ui.monitor_dns.check.failed',
@@ -186,17 +206,14 @@ class _QueryCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final failed = query.hasCurrentFailure;
     final hasSavedResult = query.state != DnsQueryState.failed;
-    final info = AkshiTheme.infoSurface(scheme);
     return MonitorSurface(
-      color: failed ? info.background : scheme.surfaceContainerLowest,
-      border: failed ? BorderSide(color: info.border) : null,
       child: failed && !hasSavedResult
           ? Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  _DnsTypeIcon(type: query.type, failed: true),
+                  _DnsTypeIcon(type: query.type),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -207,62 +224,74 @@ class _QueryCard extends StatelessWidget {
                         Text(
                           query.error ?? 'This lookup could not be completed.',
                           style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: info.foreground),
+                              ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
+                        const SizedBox(height: 10),
+                        _DnsVerificationStatus(query: query),
                       ],
                     ),
                   ),
                 ],
               ),
             )
-          : ExpansionTile(
-              // Flutter's default expanded shape paints top and bottom borders.
-              // Explicit empty shapes avoid the glow/stripe seen on some
-              // mid-range Android renderers.
-              shape: const Border(),
-              collapsedShape: const Border(),
-              backgroundColor: Colors.transparent,
-              collapsedBackgroundColor: Colors.transparent,
-              tilePadding: const EdgeInsets.fromLTRB(14, 4, 12, 4),
-              initiallyExpanded: query.records.length <= 3,
-              leading: _DnsTypeIcon(type: query.type),
-              title: _QueryTitle(query: query),
-              subtitle: Text(
-                failed
-                    ? query.state == DnsQueryState.absent
-                          ? 'Saved as not published · latest lookup failed'
-                          : '${query.records.length} saved ${query.records.length == 1 ? 'value' : 'values'} · latest lookup failed'
-                    : '${query.records.length} ${query.records.length == 1 ? 'value' : 'values'}',
-              ),
-              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          : Column(
               children: <Widget>[
-                if (failed) ...<Widget>[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      query.error ??
-                          'The latest lookup failed. Saved results are shown.',
-                      style: Theme.of(context).textTheme.bodySmall
-                          ?.copyWith(color: info.foreground),
-                    ),
+                ExpansionTile(
+                  // Flutter's default expanded shape paints top and bottom borders.
+                  // Explicit empty shapes avoid the glow/stripe seen on some
+                  // mid-range Android renderers.
+                  shape: const Border(),
+                  collapsedShape: const Border(),
+                  backgroundColor: Colors.transparent,
+                  collapsedBackgroundColor: Colors.transparent,
+                  tilePadding: const EdgeInsets.fromLTRB(14, 4, 12, 4),
+                  initiallyExpanded: query.records.length <= 3,
+                  leading: _DnsTypeIcon(type: query.type),
+                  title: _QueryTitle(query: query),
+                  subtitle: Text(
+                    failed
+                        ? query.state == DnsQueryState.absent
+                              ? 'Saved as not published · latest lookup failed'
+                              : '${query.records.length} saved ${query.records.length == 1 ? 'value' : 'values'} · latest lookup failed'
+                        : '${query.records.length} ${query.records.length == 1 ? 'value' : 'values'}',
                   ),
-                  if (query.lastVerifiedAt != null) ...<Widget>[
-                    const SizedBox(height: 4),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Saved result verified ${_formatDateTime(query.lastVerifiedAt!)}',
-                        style: Theme.of(context).textTheme.labelSmall,
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                  children: <Widget>[
+                    if (failed) ...<Widget>[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          query.error ?? 'The latest lookup failed. Saved results are shown.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
                       ),
-                    ),
+                      if (query.lastVerifiedAt != null) ...<Widget>[
+                        const SizedBox(height: 4),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Saved result verified ${_formatDateTime(query.lastVerifiedAt!)}',
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                    ],
+                    for (var index = 0; index < query.records.length; index++)
+                      _RecordRow(
+                        record: query.records[index],
+                        showDivider: index != query.records.length - 1,
+                      ),
                   ],
-                  const SizedBox(height: 10),
-                ],
-                for (var index = 0; index < query.records.length; index++)
-                  _RecordRow(
-                    record: query.records[index],
-                    showDivider: index != query.records.length - 1,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _DnsVerificationStatus(query: query),
                   ),
+                ),
               ],
             ),
     );
@@ -294,20 +323,59 @@ class _QueryTitle extends StatelessWidget {
 }
 
 class _DnsTypeIcon extends StatelessWidget {
-  const _DnsTypeIcon({required this.type, this.failed = false});
+  const _DnsTypeIcon({required this.type});
 
   final DnsRecordType type;
-  final bool failed;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final foreground = failed
-        ? AkshiTheme.infoSurface(scheme).accent
-        : scheme.primary;
-    return MonitorIconBadge(
-      icon: failed ? PhosphorIconsDuotone.cloudSlash : _dnsIcon(type),
-      color: foreground,
+    return MonitorIconBadge(icon: _dnsIcon(type), color: scheme.primary);
+  }
+}
+
+class _DnsVerificationStatus extends StatelessWidget {
+  const _DnsVerificationStatus({required this.query});
+
+  final DnsQueryResult query;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (icon, color, message) = query.hasCurrentFailure
+        ? (
+            PhosphorIconsDuotone.cloudSlash,
+            scheme.tertiary,
+            query.state == DnsQueryState.failed
+                ? 'Not available'
+                : 'Latest lookup unavailable · saved result shown',
+          )
+        : query.state == DnsQueryState.absent
+        ? (
+            PhosphorIconsDuotone.minusCircle,
+            scheme.onSurfaceVariant,
+            'Verified · not published',
+          )
+        : (
+            PhosphorIconsDuotone.checkCircle,
+            scheme.brightness == Brightness.dark
+                ? const Color(0xFF7ED39B)
+                : const Color(0xFF227A45),
+            'Verified',
+          );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        PhosphorIcon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            message,
+            style: Theme.of(context).textTheme.labelSmall
+                ?.copyWith(color: color, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -320,6 +388,41 @@ IconData _dnsIcon(DnsRecordType type) => switch (type) {
   DnsRecordType.caa => PhosphorIconsDuotone.certificate,
   DnsRecordType.ns || DnsRecordType.cname => PhosphorIconsDuotone.network,
 };
+
+class _AbsentDnsSummary extends StatelessWidget {
+  const _AbsentDnsSummary({required this.queries, required this.hostname});
+
+  final List<DnsQueryResult> queries;
+  final String hostname;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final labels = queries.map(
+      (query) => query.name == hostname
+          ? query.type.label
+          : '${query.type.label} ${query.name}',
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        PhosphorIcon(
+          PhosphorIconsDuotone.minusCircle,
+          size: 18,
+          color: scheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'Not published: ${labels.join(', ')}',
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class _RecordRow extends StatelessWidget {
   const _RecordRow({required this.record, required this.showDivider});
@@ -396,7 +499,7 @@ class _EmptyDns extends StatelessWidget {
         const SizedBox(height: 12),
         const Text('No DNS snapshot yet'),
         const SizedBox(height: 12),
-        FilledButton(onPressed: onCheck, child: const Text('Check now')),
+        FilledButton(onPressed: onCheck, child: const Text('Check monitor')),
       ],
     ),
   );
