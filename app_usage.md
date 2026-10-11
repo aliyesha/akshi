@@ -110,7 +110,10 @@ reliable universal selector-discovery mechanism.
 5. Optionally add a recognizable **Name**, such as “Production Website”, and
    tags. The name appears prominently while the domain remains visible. Tags
    organize monitors and never change which checks run.
-6. Save the asset. Akshi commits the complete monitor definition and tags in
+6. Save the asset while the device is online. Add and edit saves are disabled
+   when the operating system reports no network transport, so Akshi does not
+   create an unverified monitor or silently change an existing one offline.
+   Akshi commits the complete monitor definition and tags in
    one local transaction, then opens its summary immediately. Selected initial
    checks continue there with a live stage and progress indicator. Independent
    network work runs in parallel through the shared window of at most ten
@@ -151,15 +154,21 @@ presentation only and never changes the underlying result.
 
 DNS is neutral inventory, not a health score. A type that is not published is
 normal. This does not change monitor health or create an attention item.
+DNS cards keep the same neutral surface in every state. A green check means
+records were returned, a neutral minus means the RRset was conclusively not
+published, and a rose cloud-slash means the latest lookup failed. Failed
+lookups retain any previously verified records or verified absence.
 
 A missing optional Email record is informational; an invalid or
 expected-but-missing record needs review. Records are read through the device's
 configured DNS resolver. Each RRset has its own latest-attempt and
 latest-verified time. A complete changed answer replaces that RRset; a complete
 unchanged answer refreshes its verification time; and a confirmed absence
-replaces it with verified absence. An offline device, timeout, malformed answer,
-or resolver failure retains the complete saved RRset and is reported as a
-lookup failure—not as proof that records are missing. The dashboard
+replaces it with verified absence. If the device is already offline, Akshi does
+not start the check or change any RRset activity. If connectivity disappears
+mid-check, a timeout, malformed answer, or resolver failure retains the complete
+saved RRset and is reported as a lookup failure—not as proof that records are
+missing. The dashboard
 uses the most urgent enabled result as the asset's overall status, while the
 Attention screen always names the exact component or components involved.
 
@@ -331,7 +340,8 @@ network-recipient, backup, and contact details.
 Some domain registries do not publish a usable expiry date through RDAP, and
 temporary network, DNS, firewall, or TLS problems can prevent a check. Akshi
 preserves the last useful result and displays the latest error. If the device
-is offline, Akshi says so directly and continues to show the last saved values.
+is already offline, Akshi says so directly, does not start remote work, and
+continues to show the last saved values without changing attempt timestamps.
 A timeout, DNS failure, unavailable source, invalid response, and TLS connection
 failure are kept distinct.
 

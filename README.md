@@ -207,8 +207,10 @@ expiry or other field may be unavailable even when another check succeeds.
 “Public registrant” is the registry-published value and may be absent, redacted,
 or identify a privacy service; Akshi does not treat it as proof of legal
 ownership and does not scrape legacy WHOIS data to fill gaps. A failed refresh
-records whether the device is offline, a lookup timed out, DNS failed, or the
-source returned unusable data.
+records whether connectivity disappeared during the run, a lookup timed out,
+DNS failed, or the source returned unusable data. When the operating system
+already reports no network transport, Akshi skips the remote operation before
+progress, queueing, timestamps, or observations change.
 
 Akshi reconciles DNS by complete requested RRset and Email by individual
 finding dependency set. Conclusive answers and confirmed absence update

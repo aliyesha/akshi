@@ -263,6 +263,16 @@ Akshi treats a portfolio refresh as one foreground snapshot transaction. It is
 asynchronous, but it is not background monitoring and it does not pretend that
 partly refreshed data is a new coherent state.
 
+Before a remote operation starts, the controller performs one conservative OS
+transport check. If every reported transport is `none`, it returns
+`MonitorRefreshOutcome.skippedOffline` for a portfolio refresh. A manual check
+throws the typed `MonitorOfflineException`. Creating a monitor and saving any
+monitor edit are also rejected while the device is known offline. These
+decisions happen before persistence, refresh activity, FIFO admission,
+external requests, attempt timestamps, or observation writes. A positive
+transport result is only permission to try; it does not assert that the
+internet or any individual source is reachable.
+
 1. The controller freezes enabled monitor definitions from SQLite at the start
    of the session. Checks only read those immutable values.
 2. Each monitor is prepared in memory. Independent sources run concurrently;
@@ -315,6 +325,10 @@ flow.
 Create and edit are explicit form modes. Edit waits for monitor state to load.
 A missing id renders a not-found state, and an edit save can call only
 `updateMonitor`; it never falls through to `add`.
+Both form modes show the shared offline notice and disable their save action
+while the device is known offline. The controller repeats that guard before
+persistence so a direct call or a connectivity change during interaction
+cannot bypass it.
 
 `MonitorController.add` commits the immutable monitor definition and tag links
 in one SQLite transaction, reloads Riverpod, and returns immediately. The form
@@ -334,8 +348,9 @@ a retry message on the summary.
 
 `updateMonitor` uses the same preparation-before-persistence boundary. A changed
 check definition clears obsolete results before preparing fresh observations;
-a label, tag, or enabled-state-only edit persists immediately without external
-network checks and retains existing result data.
+a label, tag, or enabled-state-only edit skips external checks and retains
+existing result data, but an edit is still saved only while a transport is
+available. This keeps the form's save contract uniform.
 
 `MonitorRepository.delete` removes monitor-tag links and the monitor row in one
 transaction. SQLite foreign keys are enabled as an additional cascade safety
@@ -399,7 +414,7 @@ portfolio refresh collects every result before one batch transaction.
    limited to 128 KiB by declared and streamed length, uses one ten-second
    deadline for the complete body, requires strict UTF-8, and cancels
    non-successful, oversized, or timed-out bodies.
-6. After every run finishes, the controller advances `lastAttemptedAt`.
+6. After every admitted run finishes, the controller advances `lastAttemptedAt`.
    It advances `lastVerifiedAt` only when Domain and every enabled TLS or Email
    activity completed in that same run, every requested DNS query was answered
    or confirmed absent, and no Email finding is unavailable. A successfully
@@ -416,8 +431,8 @@ only as the protocol-neutral range 1 through 65535. The TLS service performs one
 direct handshake on the exact endpoint; it records certificate trust failures
 without reconnecting and classifies DNS, closed-port, and wrong-protocol errors
 separately. A failed TLS check does not erase a successful registration result.
-Failure classification turns platform exceptions, timeouts, offline conditions,
-and invalid responses into user-readable `CheckFailure` values.
+Failure classification turns platform exceptions, timeouts, connectivity lost
+after admission, and invalid responses into user-readable `CheckFailure` values.
 
 Expected external failures are data, not orchestration exceptions. They are
 contained per source and per monitor, so another host can still prepare its
@@ -452,8 +467,9 @@ state or timestamps.
 Persistence reconciles each DNS RRset independently. A complete answer or a
 conclusive negative answer (NXDOMAIN or NOERROR/NODATA) replaces the previous
 observation. An unchanged complete answer still advances that RRset's
-verification time. Timeout, offline state, SERVFAIL, cancellation, malformed
-metadata, or one undecodable member makes the whole RRset unavailable: its
+verification time. Timeout, connectivity loss after admission, SERVFAIL,
+cancellation, malformed metadata, or one undecodable member makes the whole
+RRset unavailable: its
 attempt time advances, while its previous conclusive state, complete record
 list, and verification time remain intact. A response containing three valid
 members and one malformed member is never saved as a three-member partial
@@ -524,6 +540,12 @@ the transient notice. It neither mutates saved `CheckActivity` failures nor
 starts an extra refresh. This keeps connectivity presentation responsive while
 preserving the distinction between "a transport exists" and "this source was
 successfully verified".
+
+The controller reads the same platform source once at each remote-operation
+boundary. A known-offline result skips the whole operation and leaves every
+saved state and timestamp untouched. If connectivity disappears after that
+admission, each source and DNS RRset follows its normal independent failure and
+reconciliation boundary.
 
 ## Persistence
 
