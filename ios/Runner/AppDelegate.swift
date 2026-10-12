@@ -223,11 +223,18 @@ private final class SystemDnsQuery {
       finish(error: "DNS lookup failed (\(errorCode)).")
       return
     }
-    // ReturnIntermediates may report an alias before the requested answer.
-    // Keep waiting for the requested type so the native bridge has the same
-    // one-query/one-type contract as Android.
-    guard recordType == type, recordClass == UInt16(kDNSServiceClass_IN) else {
+    guard recordClass == UInt16(kDNSServiceClass_IN) else {
       finish(error: "The system DNS resolver returned an unexpected record.")
+      return
+    }
+    // ReturnIntermediates deliberately reports a CNAME before following it to
+    // the requested RRset. It is progress, not a failed answer. Keep the query
+    // alive and publish only the requested type, matching Android's contract.
+    if recordType != type {
+      guard recordType == UInt16(kDNSServiceType_CNAME) else {
+        finish(error: "The system DNS resolver returned an unexpected record.")
+        return
+      }
       return
     }
 

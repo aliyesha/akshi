@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:akshi/core/services/rdap_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -135,6 +136,37 @@ void main() {
       );
       expect(wasCancelled, isTrue);
     });
+  });
+
+  test('concurrent checks share one IANA bootstrap download', () async {
+    final bootstrapBody = StreamController<List<int>>();
+    addTearDown(() {
+      if (!bootstrapBody.isClosed) unawaited(bootstrapBody.close());
+    });
+    final client = _RoutingHttpClient(bootstrapBody.stream);
+    final service = RdapService(client: client);
+
+    final first = service.check('first.test');
+    final second = service.check('second.test');
+
+    expect(client.bootstrapRequests, 1);
+    bootstrapBody.add(
+      utf8.encode('''
+        {"services": [[ ["test"], ["https://rdap.example/"] ]]}
+      '''),
+    );
+    await bootstrapBody.close();
+
+    expect(await Future.wait(<Future<Object?>>[first, second]), <Object?>[
+      null,
+      null,
+    ]);
+    expect(client.bootstrapRequests, 1);
+    expect(client.domainRequests, 2);
+
+    expect(await service.check('third.test'), isNull);
+    expect(client.bootstrapRequests, 1);
+    expect(client.domainRequests, 3);
   });
 
   test('parses public registration facts without inventing ownership', () {
@@ -275,4 +307,108 @@ void main() {
       );
     }
   });
+}
+
+final class _RoutingHttpClient implements HttpClient {
+  _RoutingHttpClient(this._bootstrapBody);
+
+  final Stream<List<int>> _bootstrapBody;
+  var bootstrapRequests = 0;
+  var domainRequests = 0;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    if (url.host == 'data.iana.org') {
+      bootstrapRequests++;
+      return _FakeHttpClientRequest(
+        _FakeHttpClientResponse(
+          _bootstrapBody,
+          statusCode: HttpStatus.ok,
+          contentType: 'application/json',
+        ),
+      );
+    }
+    domainRequests++;
+    return _FakeHttpClientRequest(
+      _FakeHttpClientResponse(
+        const Stream<List<int>>.empty(),
+        statusCode: HttpStatus.notFound,
+        contentType: 'application/rdap+json',
+      ),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _FakeHttpClientRequest implements HttpClientRequest {
+  _FakeHttpClientRequest(this._response);
+
+  final HttpClientResponse _response;
+
+  @override
+  final HttpHeaders headers = _FakeHttpHeaders();
+
+  @override
+  Future<HttpClientResponse> close() async => _response;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _FakeHttpClientResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  _FakeHttpClientResponse(
+    this._body, {
+    required this.statusCode,
+    required String contentType,
+  }) : headers = _FakeHttpHeaders(contentType);
+
+  final Stream<List<int>> _body;
+
+  @override
+  final int statusCode;
+
+  @override
+  final HttpHeaders headers;
+
+  @override
+  int get contentLength => -1;
+
+  @override
+  HttpClientResponseCompressionState get compressionState =>
+      HttpClientResponseCompressionState.notCompressed;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _body.listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _FakeHttpHeaders implements HttpHeaders {
+  _FakeHttpHeaders([this._contentType]);
+
+  final String? _contentType;
+
+  @override
+  String? value(String name) =>
+      name.toLowerCase() == HttpHeaders.contentTypeHeader ? _contentType : null;
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

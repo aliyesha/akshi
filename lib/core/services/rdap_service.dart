@@ -16,6 +16,7 @@ class RdapService {
   final HttpClient _client;
   final _responseReader = const RdapResponseReader();
   Map<String, String>? _services;
+  Future<Map<String, String>>? _servicesLoading;
 
   /// Resolves the registrable domain and returns normalized registration facts.
   Future<DomainCheckResult?> check(String hostname) async {
@@ -60,11 +61,29 @@ class RdapService {
   }
 
   /// Loads and caches the IANA TLD-to-RDAP endpoint mapping for this session.
-  Future<Map<String, String>> _loadServices() async {
+  ///
+  /// Concurrent first checks join one in-flight download. A failed download is
+  /// not cached, so a later foreground check can retry cleanly.
+  Future<Map<String, String>> _loadServices() {
     final cached = _services;
     if (cached != null) {
-      return cached;
+      return Future<Map<String, String>>.value(cached);
     }
+
+    final active = _servicesLoading;
+    if (active != null) return active;
+
+    late final Future<Map<String, String>> operation;
+    operation = _fetchServices().whenComplete(() {
+      if (identical(_servicesLoading, operation)) {
+        _servicesLoading = null;
+      }
+    });
+    _servicesLoading = operation;
+    return operation;
+  }
+
+  Future<Map<String, String>> _fetchServices() async {
     final payload = await _getJson(Uri.parse(_bootstrapUri));
     if (payload == null) {
       throw const RdapException('RDAP bootstrap unavailable');

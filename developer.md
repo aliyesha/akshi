@@ -383,6 +383,12 @@ portfolio refresh collects every result before one batch transaction.
    response bodies are cancelled without being read. The shared bounded-body
    reader owns one stream subscription and completes only after that
    subscription has been cancelled on timeout, overflow, error, or completion.
+
+   The process-lifetime service caches the completed IANA bootstrap map. While
+   the first bootstrap download is still active, concurrent monitor checks join
+   its single in-flight `Future` instead of issuing duplicate requests. The
+   temporary reference is cleared after success or failure: a successful map
+   remains cached, while a failed load can be retried by a later check.
 3. `SiteIconService` discovers and caches a declared HTTPS site icon when the
    cache is absent or stale. Page responses are limited to 512 KiB and icon
    responses to 1 MiB by both declared and streamed length. Each request has a
@@ -505,6 +511,15 @@ headers, follows compressed names, and returns normalized wire data with owner,
 type, and TTL. The iOS bridge uses `DNSServiceQueryRecord` and returns the same
 metadata through the `com.aliyesha.akshi/dns` method channel. Dart decodes the
 wire values into the shared domain model.
+
+On iOS, `kDNSServiceFlagsReturnIntermediates` makes conclusive negative answers
+available promptly, but it can also deliver a CNAME before the requested RRset.
+For a TXT question, that CNAME is resolution progress rather than the TXT
+answer. The native query therefore stays active, discards only that intermediate
+callback, and publishes the later requested `IN` record type. A direct CNAME
+question still records its CNAME normally. A wrong DNS class or an unrelated
+record type remains a contract error. This matches Android's one-question,
+one-type result.
 
 `EmailPostureService` consumes the snapshot by querying records in memory. It
 produces only findings selected by the configured mail roles: MX, SPF, DMARC,
