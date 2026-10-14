@@ -180,22 +180,22 @@ See [PRIVACY.md](PRIVACY.md) for the complete policy and platform limitations.
 
 The app makes only these task-specific network requests while it is active:
 
-- **https://data.iana.org/rdap/dns.json** to discover the authoritative RDAP
+- `https://data.iana.org/rdap/dns.json` to discover the authoritative RDAP
   base URL for each top-level domain;
 - the HTTPS RDAP URL published by that IANA document, followed by
-  **domain/&lt;registered-domain&gt;**, for registration data;
-- a direct TLS socket to **&lt;TLS-hostname&gt;:&lt;TLS-port&gt;** when certificate
+  `domain/<registered-domain>`, for registration data;
+- a direct TLS socket to `<TLS-hostname>:<TLS-port>` when certificate
   checking is enabled;
-- **https://&lt;TLS-hostname&gt;[:port]/** to read standard HTML icon
+- `https://<TLS-hostname>[:port]/` to read standard HTML icon
   declarations, then the declared HTTPS icon URLs and
-  **https://&lt;TLS-hostname&gt;[:port]/favicon.ico** as a fallback;
+  `https://<TLS-hostname>[:port]/favicon.ico` as a fallback;
 - explicit A, AAAA, CNAME, MX, NS, TXT, and CAA lookups at the monitored domain
   through the device-configured system DNS resolver;
-- role-appropriate TXT lookups at **_dmarc.&lt;domain&gt;**,
-  **_mta-sts.&lt;domain&gt;**, **_smtp._tls.&lt;domain&gt;**, and user-entered
-  **&lt;selector&gt;._domainkey.&lt;domain&gt;** names when Email checking is
+- role-appropriate TXT lookups at `_dmarc.<domain>`,
+  `_mta-sts.<domain>`, `_smtp._tls.<domain>`, and user-entered
+  `<selector>._domainkey.<domain>` names when Email checking is
   enabled;
-- **https://mta-sts.&lt;domain&gt;/.well-known/mta-sts.txt** only when an MTA-STS
+- `https://mta-sts.<domain>/.well-known/mta-sts.txt` only when an MTA-STS
   DNS record is published.
 
 Akshi does not use a public DNS-over-HTTPS provider, favicon proxy, analytics

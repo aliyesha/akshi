@@ -306,18 +306,18 @@ finishes with a conclusive answer.
 
 Checking still requires network access. While the app is active it can contact:
 
-- **https://data.iana.org/rdap/dns.json**, followed by the registry RDAP HTTPS
-  server listed there and its **domain/&lt;registered-domain&gt;** path;
+- `https://data.iana.org/rdap/dns.json`, followed by the registry RDAP HTTPS
+  server listed there and its `domain/<registered-domain>` path;
 - the configured TLS endpoint through a direct TLS connection and
-  **https://&lt;TLS-hostname&gt;[:port]/**, declared HTTPS icon URLs, and
-  **https://&lt;TLS-hostname&gt;[:port]/favicon.ico** when TLS checking is enabled;
+  `https://<TLS-hostname>[:port]/`, declared HTTPS icon URLs, and
+  `https://<TLS-hostname>[:port]/favicon.ico` when TLS checking is enabled;
 - the device-configured DNS resolver for explicit A, AAAA, CNAME, MX, NS, TXT,
   and CAA lookups at the monitored domain;
 - the same resolver for role-appropriate Email TXT lookups at
-  **_dmarc.&lt;domain&gt;**, **_mta-sts.&lt;domain&gt;**,
-  **_smtp._tls.&lt;domain&gt;**, and any user-entered
-  **&lt;selector&gt;._domainkey.&lt;domain&gt;**;
-- **https://mta-sts.&lt;domain&gt;/.well-known/mta-sts.txt** when that domain
+  `_dmarc.<domain>`, `_mta-sts.<domain>`,
+  `_smtp._tls.<domain>`, and any user-entered
+  `<selector>._domainkey.<domain>`;
+- `https://mta-sts.<domain>/.well-known/mta-sts.txt` when that domain
   publishes an MTA-STS DNS record.
 
 Akshi does not use a third-party favicon proxy or public DNS-over-HTTPS provider.
