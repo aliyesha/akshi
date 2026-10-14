@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:akshi/core/services/email_posture_service.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
@@ -7,6 +8,7 @@ import 'package:akshi/features/monitors/domain/email_posture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  final service = EmailPostureService(_UnusedHttpClient());
   group('bounded MTA-STS policy reader', () {
     const reader = MtaStsPolicyReader(maxBytes: 64);
 
@@ -21,6 +23,7 @@ void main() {
 
       final policy = await reader.read(
         Stream<List<int>>.value(bytes),
+        contentType: 'text/plain; charset=utf-8',
         contentLength: bytes.length,
       );
 
@@ -38,7 +41,11 @@ void main() {
       addTearDown(() => unawaited(body.close()));
 
       await expectLater(
-        smallReader.read(body.stream, contentLength: 5),
+        smallReader.read(
+          body.stream,
+          contentType: 'text/plain',
+          contentLength: 5,
+        ),
         throwsA(isA<FormatException>()),
       );
       expect(wasCancelled, isTrue);
@@ -53,9 +60,33 @@ void main() {
       );
 
       await expectLater(
-        impatientReader.read(body.stream, contentLength: null),
+        impatientReader.read(
+          body.stream,
+          contentType: 'text/plain',
+          contentLength: null,
+        ),
         throwsA(isA<TimeoutException>()),
       );
+    });
+
+    test('rejects and cancels a non-text policy response', () async {
+      var wasCancelled = false;
+      final body = StreamController<List<int>>(
+        onCancel: () {
+          wasCancelled = true;
+        },
+      );
+      addTearDown(() => unawaited(body.close()));
+
+      await expectLater(
+        reader.read(
+          body.stream,
+          contentType: 'text/html; charset=utf-8',
+          contentLength: null,
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      expect(wasCancelled, isTrue);
     });
   });
 
@@ -73,7 +104,7 @@ void main() {
       _txt('mail._domainkey.example.com', <String>['v=DKIM1; k=rsa; p=abc123']),
     ]);
 
-    final posture = await EmailPostureService().check(
+    final posture = await service.check(
       snapshot,
       'example.com',
       sends: true,
@@ -106,7 +137,7 @@ void main() {
       _absent('_smtp._tls.example.com', DnsRecordType.txt),
     ]);
 
-    final posture = await EmailPostureService().check(
+    final posture = await service.check(
       snapshot,
       'example.com',
       sends: true,
@@ -143,7 +174,7 @@ void main() {
         _absent('_smtp._tls.example.com', DnsRecordType.txt),
       ]);
 
-      final posture = await EmailPostureService().check(
+      final posture = await service.check(
         snapshot,
         'example.com',
         sends: true,
@@ -180,7 +211,7 @@ void main() {
       _absent('_smtp._tls.example.com', DnsRecordType.txt),
     ]);
 
-    final posture = await EmailPostureService().check(
+    final posture = await service.check(
       snapshot,
       'example.com',
       sends: false,
@@ -210,7 +241,7 @@ void main() {
       _absent('_smtp._tls.example.com', DnsRecordType.txt),
     ]);
 
-    final posture = await EmailPostureService().check(
+    final posture = await service.check(
       snapshot,
       'example.com',
       sends: false,
@@ -235,7 +266,7 @@ void main() {
       _absent('_smtp._tls.example.com', DnsRecordType.txt),
     ]);
 
-    final posture = await EmailPostureService().check(
+    final posture = await service.check(
       snapshot,
       'example.com',
       sends: false,
@@ -290,3 +321,8 @@ DnsRecord _mx(String owner, int preference, String exchange) => DnsRecord(
   value: exchange,
   preference: preference,
 );
+
+final class _UnusedHttpClient implements HttpClient {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}

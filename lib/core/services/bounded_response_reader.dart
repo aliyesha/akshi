@@ -2,6 +2,47 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+/// Opens one GET request and aborts it if it materializes after the deadline.
+///
+/// [Future.timeout] stops waiting but cannot cancel its source Future. During
+/// connection setup there is no request to abort yet, so a late completion is
+/// observed and the resulting request is aborted immediately.
+Future<HttpClientRequest> openHttpGetRequest(
+  HttpClient client,
+  Uri uri, {
+  required Duration timeout,
+}) async {
+  _requirePositiveTimeout(timeout);
+  final pending = client.getUrl(uri);
+  try {
+    return await pending.timeout(timeout);
+  } on TimeoutException catch (error, stackTrace) {
+    unawaited(
+      pending.then<void>(
+        (request) => request.abort(error, stackTrace),
+        onError: (Object _, StackTrace _) {},
+      ),
+    );
+    rethrow;
+  }
+}
+
+/// Sends one request and aborts it if response headers miss the deadline.
+Future<HttpClientResponse> sendHttpRequest(
+  HttpClientRequest request, {
+  required Duration timeout,
+}) {
+  _requirePositiveTimeout(timeout);
+  return request.close().timeout(
+    timeout,
+    onTimeout: () {
+      final error = TimeoutException('HTTP request timed out.', timeout);
+      request.abort(error, StackTrace.current);
+      throw error;
+    },
+  );
+}
+
 /// Reads an HTTP response body within declared, streamed, and elapsed limits.
 ///
 /// [contentLength] is null when the server did not declare a length. The actual
@@ -108,3 +149,9 @@ int? expectedResponseBodyLength(HttpClientResponse response) =>
         response.contentLength >= 0
     ? response.contentLength
     : null;
+
+void _requirePositiveTimeout(Duration timeout) {
+  if (timeout <= Duration.zero) {
+    throw ArgumentError.value(timeout, 'timeout', 'Must be positive');
+  }
+}

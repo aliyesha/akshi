@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/bounded_response_reader.dart';
+import 'package:akshi/core/services/mta_sts_policy.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
 import 'package:akshi/features/monitors/domain/email_posture.dart';
 
@@ -12,7 +13,7 @@ import 'package:akshi/features/monitors/domain/email_posture.dart';
 /// This service reports facts and configuration gaps; it deliberately avoids
 /// opaque third-party scores that could become stale or misleading.
 class EmailPostureService {
-  EmailPostureService({HttpClient? client}) : _client = client ?? HttpClient();
+  EmailPostureService(this._client);
 
   final HttpClient _client;
   final _policyReader = const MtaStsPolicyReader();
@@ -195,25 +196,8 @@ class EmailPostureService {
       final policy = await _fetchText(
         Uri.https('mta-sts.$domain', '/.well-known/mta-sts.txt'),
       );
-      final values = _lineValues(policy);
-      final mode = values['mode'];
-      final maxAge = int.tryParse(values['max_age'] ?? '');
-      final versionValid = values['version']?.toUpperCase() == 'STSV1';
-      final modeValid = const <String>{
-        'none',
-        'testing',
-        'enforce',
-      }.contains(mode);
-      final mxPatterns = policy
-          .split(RegExp(r'\r?\n'))
-          .where((line) => line.trimLeft().toLowerCase().startsWith('mx:'))
-          .map((line) => line.split(':').skip(1).join(':').trim())
-          .where((value) => value.isNotEmpty)
-          .toList(growable: false);
-      if (!versionValid ||
-          !modeValid ||
-          maxAge == null ||
-          (mode != 'none' && mxPatterns.isEmpty)) {
+      final parsedPolicy = MtaStsPolicy.tryParse(policy);
+      if (parsedPolicy == null) {
         return const MailFinding(
           id: 'mta-sts',
           title: 'MTA-STS',
@@ -221,6 +205,9 @@ class EmailPostureService {
           summary: 'The published HTTPS policy is incomplete or invalid.',
         );
       }
+      final mode = parsedPolicy.mode;
+      final maxAge = parsedPolicy.maxAgeSeconds;
+      final mxPatterns = parsedPolicy.mxPatterns;
       final currentExchanges = mx
           .where((record) => record.value != '.')
           .map((record) => record.value)
@@ -254,7 +241,7 @@ class EmailPostureService {
         summary: summary,
         facts: <MailFact>[
           MailFact(label: 'Policy id', value: id),
-          MailFact(label: 'Mode', value: mode!),
+          MailFact(label: 'Mode', value: mode),
           MailFact(label: 'Maximum age', value: '$maxAge seconds'),
           MailFact(label: 'MX patterns', value: mxPatterns.join(', ')),
         ],
@@ -278,18 +265,26 @@ class EmailPostureService {
 
   /// Fetches a bounded text policy with one total body deadline and no redirects.
   Future<String> _fetchText(Uri uri) async {
-    final request = await _client.getUrl(uri).timeout(_policyReader.timeout);
+    final request = await openHttpGetRequest(
+      _client,
+      uri,
+      timeout: _policyReader.timeout,
+    );
     request
       ..followRedirects = false
       ..headers.set(HttpHeaders.acceptHeader, 'text/plain')
       ..headers.set(HttpHeaders.userAgentHeader, 'Akshi/1.0');
-    final response = await request.close().timeout(_policyReader.timeout);
+    final response = await sendHttpRequest(
+      request,
+      timeout: _policyReader.timeout,
+    );
     if (response.statusCode != HttpStatus.ok) {
       await cancelResponseBody(response);
       throw HttpException('HTTP ${response.statusCode}', uri: uri);
     }
     return _policyReader.read(
       response,
+      contentType: response.headers.value(HttpHeaders.contentTypeHeader),
       contentLength: expectedResponseBodyLength(response),
     );
   }
@@ -318,8 +313,15 @@ class MtaStsPolicyReader {
   /// Returns strict UTF-8 policy text or throws when a boundary is exceeded.
   Future<String> read(
     Stream<List<int>> body, {
+    required String? contentType,
     required int? contentLength,
   }) async {
+    if (!_isPlainText(contentType)) {
+      await cancelResponseBody(body);
+      throw const FormatException(
+        'MTA-STS policy response must use the text/plain media type.',
+      );
+    }
     final bytes = await readBoundedResponseBody(
       body,
       maximumBytes: maxBytes,
@@ -327,6 +329,17 @@ class MtaStsPolicyReader {
       contentLength: contentLength,
     );
     return utf8.decode(bytes);
+  }
+
+  bool _isPlainText(String? value) {
+    if (value == null) return false;
+    try {
+      final parsed = ContentType.parse(value);
+      return parsed.primaryType.toLowerCase() == 'text' &&
+          parsed.subType.toLowerCase() == 'plain';
+    } on FormatException {
+      return false;
+    }
   }
 }
 
@@ -549,19 +562,6 @@ Map<String, String> _tagValues(String record) {
     result[part.substring(0, separator).trim().toLowerCase()] = part
         .substring(separator + 1)
         .trim();
-  }
-  return result;
-}
-
-Map<String, String> _lineValues(String policy) {
-  final result = <String, String>{};
-  for (final line in policy.split(RegExp(r'\r?\n'))) {
-    final separator = line.indexOf(':');
-    if (separator < 1) continue;
-    result[line.substring(0, separator).trim().toLowerCase()] = line
-        .substring(separator + 1)
-        .trim()
-        .toLowerCase();
   }
   return result;
 }

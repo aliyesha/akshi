@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/database/app_database.dart';
@@ -396,6 +397,8 @@ class _MemoryMonitorRepository extends MonitorRepository {
 }
 
 class _ControlledRdapService extends RdapService {
+  _ControlledRdapService() : super(_UnusedHttpClient());
+
   final _result = Completer<DomainCheckResult?>();
   int checks = 0;
 
@@ -450,4 +453,9 @@ class _RecordingReminderController extends ReminderController {
     reconciliations++;
     return state;
   }
+}
+
+final class _UnusedHttpClient implements HttpClient {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -30,7 +30,7 @@ void main() {
       });
       final response = _FakeHttpClientResponse(body.stream);
       final service = SiteIconService(
-        client: _FakeHttpClient(response),
+        _FakeHttpClient(response),
         requestTimeout: const Duration(seconds: 5),
         operationTimeout: const Duration(seconds: 1),
       );

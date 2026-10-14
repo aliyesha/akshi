@@ -15,12 +15,11 @@ import 'package:xml/xml.dart';
 /// HTML declarations are preferred, `/favicon.ico` is the fallback, and every
 /// candidate is bounded by size, timeout, redirect, and decode checks.
 class SiteIconService {
-  SiteIconService({
-    HttpClient? client,
+  SiteIconService(
+    this._client, {
     Duration requestTimeout = _defaultRequestTimeout,
     Duration operationTimeout = _defaultOperationTimeout,
-  }) : _client = client ?? HttpClient(),
-       _requestTimeout = requestTimeout,
+  }) : _requestTimeout = requestTimeout,
        _operationTimeout = operationTimeout {
     if (requestTimeout.inMicroseconds <= 0) {
       throw ArgumentError.value(
@@ -170,12 +169,19 @@ class SiteIconService {
       if (uri.scheme != 'https') {
         throw const FormatException('Only HTTPS resources are allowed');
       }
-      final request = await _client.getUrl(uri).timeout(_remaining(elapsed));
+      final request = await openHttpGetRequest(
+        _client,
+        uri,
+        timeout: _remaining(elapsed),
+      );
       request
         ..followRedirects = false
         ..headers.set(HttpHeaders.acceptHeader, 'image/*,text/html;q=0.8')
         ..headers.set(HttpHeaders.userAgentHeader, 'Akshi/1.0');
-      final response = await request.close().timeout(_remaining(elapsed));
+      final response = await sendHttpRequest(
+        request,
+        timeout: _remaining(elapsed),
+      );
       if (response.isRedirect) {
         final location = response.headers.value(HttpHeaders.locationHeader);
         await cancelResponseBody(response);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:akshi/core/crash/crash_log.dart';
 import 'package:akshi/core/crash/crash_log_store.dart';
@@ -86,10 +87,19 @@ final tlsCheckServiceProvider = Provider<TlsCheckService>(
   (ref) => const TlsCheckService(),
 );
 
-final rdapServiceProvider = Provider<RdapService>((ref) => RdapService());
+/// Reusable HTTP connection pool owned by the application provider scope.
+final httpClientProvider = Provider<HttpClient>((ref) {
+  final client = HttpClient();
+  ref.onDispose(() => client.close(force: true));
+  return client;
+});
+
+final rdapServiceProvider = Provider<RdapService>(
+  (ref) => RdapService(ref.watch(httpClientProvider)),
+);
 
 final siteIconServiceProvider = Provider<SiteIconService>(
-  (ref) => SiteIconService(),
+  (ref) => SiteIconService(ref.watch(httpClientProvider)),
 );
 
 final checkFailureClassifierProvider = Provider<CheckFailureClassifier>(
@@ -103,7 +113,7 @@ final dnsSnapshotServiceProvider = Provider<DnsSnapshotService>(
 );
 
 final emailPostureServiceProvider = Provider<EmailPostureService>(
-  (ref) => EmailPostureService(),
+  (ref) => EmailPostureService(ref.watch(httpClientProvider)),
 );
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {

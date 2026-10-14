@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,21 +11,32 @@ import 'package:akshi/features/monitors/domain/check_result.dart';
 /// The service keeps the network dependency local to a foreground check and
 /// returns null when a registry has no matching public registration record.
 class RdapService {
-  RdapService({HttpClient? client}) : _client = client ?? HttpClient();
+  RdapService(this._client, {this.operationTimeout = defaultOperationTimeout}) {
+    if (operationTimeout <= Duration.zero) {
+      throw ArgumentError.value(
+        operationTimeout,
+        'operationTimeout',
+        'Must be positive',
+      );
+    }
+  }
 
   static const _bootstrapUri = 'https://data.iana.org/rdap/dns.json';
+  static const defaultOperationTimeout = Duration(seconds: 30);
   final HttpClient _client;
   final _responseReader = const RdapResponseReader();
+  final Duration operationTimeout;
   Map<String, String>? _services;
   Future<Map<String, String>>? _servicesLoading;
 
   /// Resolves the registrable domain and returns normalized registration facts.
   Future<DomainCheckResult?> check(String hostname) async {
+    final deadline = _RdapDeadline(operationTimeout);
     appLogger.info(
       'service.rdap.check.started',
       data: <String, Object?>{'hostname': hostname},
     );
-    final services = await _loadServices();
+    final services = await _loadServices(deadline);
     final labels = hostname.split('.');
     if (labels.length < 2) {
       return null;
@@ -38,6 +50,7 @@ class RdapService {
       final candidate = labels.sublist(start).join('.');
       final response = await _getJson(
         Uri.parse(base).resolve('domain/${Uri.encodeComponent(candidate)}'),
+        deadline: deadline,
         allowNotFound: true,
       );
       if (response == null) {
@@ -64,17 +77,21 @@ class RdapService {
   ///
   /// Concurrent first checks join one in-flight download. A failed download is
   /// not cached, so a later foreground check can retry cleanly.
-  Future<Map<String, String>> _loadServices() {
+  Future<Map<String, String>> _loadServices(_RdapDeadline deadline) {
     final cached = _services;
     if (cached != null) {
       return Future<Map<String, String>>.value(cached);
     }
 
     final active = _servicesLoading;
-    if (active != null) return active;
+    if (active != null) {
+      // The shared download belongs to all waiting checks, so this caller may
+      // stop waiting at its own deadline but must not abort work used by peers.
+      return active.timeout(deadline.remaining());
+    }
 
     late final Future<Map<String, String>> operation;
-    operation = _fetchServices().whenComplete(() {
+    operation = _fetchServices(deadline).whenComplete(() {
       if (identical(_servicesLoading, operation)) {
         _servicesLoading = null;
       }
@@ -83,8 +100,11 @@ class RdapService {
     return operation;
   }
 
-  Future<Map<String, String>> _fetchServices() async {
-    final payload = await _getJson(Uri.parse(_bootstrapUri));
+  Future<Map<String, String>> _fetchServices(_RdapDeadline deadline) async {
+    final payload = await _getJson(
+      Uri.parse(_bootstrapUri),
+      deadline: deadline,
+    );
     if (payload == null) {
       throw const RdapException('RDAP bootstrap unavailable');
     }
@@ -109,15 +129,16 @@ class RdapService {
   /// Performs one bounded RDAP JSON request and handles optional 404 responses.
   Future<Map<String, dynamic>?> _getJson(
     Uri uri, {
+    required _RdapDeadline deadline,
     bool allowNotFound = false,
   }) async {
-    final request = await _client.getUrl(uri).timeout(_responseReader.timeout);
+    final request = await _openRequest(uri, deadline);
     request.headers.set(
       HttpHeaders.acceptHeader,
       'application/rdap+json, application/json',
     );
     request.headers.set(HttpHeaders.userAgentHeader, 'Akshi/0.1');
-    final response = await request.close().timeout(_responseReader.timeout);
+    final response = await _closeRequest(request, deadline);
     if (allowNotFound && response.statusCode == HttpStatus.notFound) {
       await cancelResponseBody(response);
       return null;
@@ -126,11 +147,56 @@ class RdapService {
       await cancelResponseBody(response);
       throw RdapException('Registry returned ${response.statusCode}');
     }
+    late final Duration readTimeout;
+    try {
+      readTimeout = deadline.remaining(maximum: _responseReader.timeout);
+    } on TimeoutException {
+      await cancelResponseBody(response);
+      rethrow;
+    }
     return _responseReader.read(
       response,
       contentType: response.headers.value(HttpHeaders.contentTypeHeader),
       contentLength: expectedResponseBodyLength(response),
+      readTimeout: readTimeout,
     );
+  }
+
+  Future<HttpClientRequest> _openRequest(Uri uri, _RdapDeadline deadline) =>
+      openHttpGetRequest(
+        _client,
+        uri,
+        timeout: deadline.remaining(maximum: _responseReader.timeout),
+      );
+
+  Future<HttpClientResponse> _closeRequest(
+    HttpClientRequest request,
+    _RdapDeadline deadline,
+  ) {
+    late final Duration timeout;
+    try {
+      timeout = deadline.remaining(maximum: _responseReader.timeout);
+    } on TimeoutException catch (error, stackTrace) {
+      request.abort(error, stackTrace);
+      rethrow;
+    }
+    return sendHttpRequest(request, timeout: timeout);
+  }
+}
+
+/// Monotonic time budget shared by every network stage in one RDAP check.
+final class _RdapDeadline {
+  _RdapDeadline(this.limit) : _elapsed = Stopwatch()..start();
+
+  final Duration limit;
+  final Stopwatch _elapsed;
+
+  Duration remaining({Duration? maximum}) {
+    final value = limit - _elapsed.elapsed;
+    if (value <= Duration.zero) {
+      throw TimeoutException('RDAP operation timed out.', limit);
+    }
+    return maximum != null && maximum < value ? maximum : value;
   }
 }
 
@@ -161,6 +227,7 @@ class RdapResponseReader {
     Stream<List<int>> body, {
     required String? contentType,
     required int? contentLength,
+    Duration? readTimeout,
   }) async {
     try {
       _validateContentType(contentType);
@@ -172,7 +239,7 @@ class RdapResponseReader {
     final bytes = await readBoundedResponseBody(
       body,
       maximumBytes: maxBytes,
-      timeout: timeout,
+      timeout: readTimeout ?? timeout,
       contentLength: contentLength,
     );
     final decoded = jsonDecode(utf8.decode(bytes));

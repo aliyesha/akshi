@@ -138,13 +138,35 @@ void main() {
     });
   });
 
+  test('one operation deadline aborts a stalled candidate lookup', () async {
+    final client = _RoutingHttpClient(
+      Stream<List<int>>.value(
+        utf8.encode('{"services": [[ ["test"], ["https://rdap.example/"] ]]}'),
+      ),
+      hangDomainResponse: true,
+    );
+    final service = RdapService(
+      client,
+      operationTimeout: const Duration(milliseconds: 40),
+    );
+
+    await expectLater(
+      service.check('deep.name.test'),
+      throwsA(isA<TimeoutException>()),
+    );
+
+    expect(RdapService.defaultOperationTimeout, const Duration(seconds: 30));
+    expect(client.domainRequests, 1);
+    expect(client.lastDomainRequest?.wasAborted, isTrue);
+  });
+
   test('concurrent checks share one IANA bootstrap download', () async {
     final bootstrapBody = StreamController<List<int>>();
     addTearDown(() {
       if (!bootstrapBody.isClosed) unawaited(bootstrapBody.close());
     });
     final client = _RoutingHttpClient(bootstrapBody.stream);
-    final service = RdapService(client: client);
+    final service = RdapService(client);
 
     final first = service.check('first.test');
     final second = service.check('second.test');
@@ -310,9 +332,11 @@ void main() {
 }
 
 final class _RoutingHttpClient implements HttpClient {
-  _RoutingHttpClient(this._bootstrapBody);
+  _RoutingHttpClient(this._bootstrapBody, {this.hangDomainResponse = false});
 
   final Stream<List<int>> _bootstrapBody;
+  final bool hangDomainResponse;
+  _FakeHttpClientRequest? lastDomainRequest;
   var bootstrapRequests = 0;
   var domainRequests = 0;
 
@@ -329,13 +353,16 @@ final class _RoutingHttpClient implements HttpClient {
       );
     }
     domainRequests++;
-    return _FakeHttpClientRequest(
+    final request = _FakeHttpClientRequest(
       _FakeHttpClientResponse(
         const Stream<List<int>>.empty(),
         statusCode: HttpStatus.notFound,
         contentType: 'application/rdap+json',
       ),
+      waitsForResponse: hangDomainResponse,
     );
+    lastDomainRequest = request;
+    return request;
   }
 
   @override
@@ -343,15 +370,32 @@ final class _RoutingHttpClient implements HttpClient {
 }
 
 final class _FakeHttpClientRequest implements HttpClientRequest {
-  _FakeHttpClientRequest(this._response);
+  _FakeHttpClientRequest(this._response, {bool waitsForResponse = false})
+    : _responseCompleter = waitsForResponse
+          ? Completer<HttpClientResponse>()
+          : null;
 
   final HttpClientResponse _response;
+  final Completer<HttpClientResponse>? _responseCompleter;
+  var wasAborted = false;
 
   @override
   final HttpHeaders headers = _FakeHttpHeaders();
 
   @override
-  Future<HttpClientResponse> close() async => _response;
+  Future<HttpClientResponse> close() =>
+      _responseCompleter?.future ?? Future<HttpClientResponse>.value(_response);
+
+  @override
+  void abort([Object? exception, StackTrace? stackTrace]) {
+    wasAborted = true;
+    final completer = _responseCompleter;
+    if (completer == null || completer.isCompleted) return;
+    completer.completeError(
+      exception ?? const HttpException('Request aborted'),
+      stackTrace ?? StackTrace.empty,
+    );
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
