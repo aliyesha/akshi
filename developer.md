@@ -377,18 +377,24 @@ portfolio refresh collects every result before one batch transaction.
    registrar, registrant, and nameservers where available. Every successful
    bootstrap or registry response passes through `RdapResponseReader`, which
    accepts only `application/rdap+json` or `application/json`, rejects a declared
-   or streamed body above 2 MiB, applies one 12-second limit to the complete body
-   read, requires valid UTF-8 and JSON, and requires a top-level JSON object.
-   Request creation and response headers use the same timeout; non-success
-   response bodies are cancelled without being read. The shared bounded-body
-   reader owns one stream subscription and completes only after that
-   subscription has been cancelled on timeout, overflow, error, or completion.
+   or streamed body above 2 MiB, requires valid UTF-8 and JSON, and requires a
+   top-level JSON object. A monotonic 30-second deadline belongs to the complete
+   check: bootstrap discovery, every registrable-domain candidate, connection,
+   response headers, and body. Each individual request/body phase may use at
+   most 12 seconds and always receives the smaller of that phase cap and the
+   operation time remaining. No later candidate starts after the total budget
+   expires. Non-success response bodies are cancelled without being read. The
+   shared bounded-body reader owns one stream subscription and completes only
+   after that subscription has been cancelled on timeout, overflow, error, or
+   completion.
 
    The process-lifetime service caches the completed IANA bootstrap map. While
    the first bootstrap download is still active, concurrent monitor checks join
    its single in-flight `Future` instead of issuing duplicate requests. The
    temporary reference is cleared after success or failure: a successful map
-   remains cached, while a failed load can be retried by a later check.
+   remains cached, while a failed load can be retried by a later check. A caller
+   that joins shared bootstrap work retains its own operation deadline; it may
+   stop waiting without aborting the shared download that another caller owns.
 3. `SiteIconService` discovers and caches a declared HTTPS site icon when the
    cache is absent or stale. Page responses are limited to 512 KiB and icon
    responses to 1 MiB by both declared and streamed length. Each request has a
@@ -419,7 +425,14 @@ portfolio refresh collects every result before one batch transaction.
    policy only when the corresponding DNS record exists. The response is
    limited to 128 KiB by declared and streamed length, uses one ten-second
    deadline for the complete body, requires strict UTF-8, and cancels
-   non-successful, oversized, or timed-out bodies.
+   non-successful, oversized, or timed-out bodies. `MtaStsPolicy` then validates
+   the RFC 8461 field grammar: exact `STSv1`; mode `enforce`, `testing`, or
+   `none`; `max_age` as 1–10 unsigned decimal digits no greater than 31,557,600;
+   and valid MX domain patterns, with at least one MX except in `none` mode.
+   Every `mx` line is retained. Unknown extension fields are accepted, and the
+   first occurrence of any other repeated field wins, as RFC 8461 requires.
+   The current MX RRset is compared with the validated patterns only after all
+   those transport and syntax checks pass.
 6. After every admitted run finishes, the controller advances `lastAttemptedAt`.
    It advances `lastVerifiedAt` only when Domain and every enabled TLS or Email
    activity completed in that same run, every requested DNS query was answered
@@ -431,6 +444,43 @@ portfolio refresh collects every result before one batch transaction.
    and never blocks verification.
 7. The caller persists observation fields only, reloads Riverpod state at its
    transaction boundary, and rebuilds scheduled expiry reminders once.
+
+### HTTP response ownership and early cancellation
+
+`dart:io` represents `HttpClientResponse` as a single-subscription
+`Stream<List<int>>`. Obtaining status and headers does not consume that stream.
+Every response therefore has exactly one explicit body policy: bounded read,
+small bounded diagnostic read, or immediate cancellation. Leaving it unread can
+retain transport resources; draining it can download an arbitrary error page.
+Akshi cancels bodies whose status or media type makes their content irrelevant,
+and awaits `StreamSubscription.cancel()` so cleanup completes before the method
+returns.
+
+The shared bounded reader uses a `Timer`, a `Completer`, and one subscription.
+Stream completion, stream error, overflow, and the timer race to settle the
+single completer. Its `finally` block cancels both timer and subscription on
+every exit path. This is deliberate source ownership, not a replacement for
+Dart's asynchronous APIs.
+
+`Future.timeout` limits how long its caller waits; it does not cancel the source
+future. Akshi therefore routes RDAP, site-icon, and MTA-STS requests through the
+same request lifecycle helpers. If `getUrl()` produces a request only after the
+timeout, its late completion handler aborts that request immediately. If
+response headers miss their deadline, the helper aborts the active request. The
+bounded reader separately cancels the response-body subscription.
+
+One app-scoped `HttpClient` supplies pooled HTTPS connections to all three
+services. Riverpod owns that client and force-closes it when the provider
+container is disposed. A waiter on shared RDAP bootstrap work is the exception:
+it times out its own wait without cancelling work still used by peers.
+
+These are current, supported Dart APIs. `HttpClient`, `HttpClientResponse`,
+`StreamSubscription.cancel()`, `HttpClientRequest.abort()`, and `Timer` are not
+deprecated. Dart generally recommends a higher-level HTTP package for ordinary
+requests, but Akshi intentionally uses `dart:io` at this narrow boundary because
+it needs direct streamed-byte limits, header-first decisions, and explicit
+request/body cancellation. A higher-level client would not remove those
+resource-ownership requirements.
 
 Each external operation is isolated with `try/catch`. TLS ports are validated
 only as the protocol-neutral range 1 through 65535. The TLS service performs one
@@ -534,6 +584,20 @@ is healthy as an observed routing fact. A covered MTA-STS `enforce` policy is
 healthy; covered `testing` and `none` policies are informational. Uncovered
 `testing` or `enforce` policies are warnings. Duplicate, malformed, or
 explicitly requested but absent configuration remains actionable.
+
+MTA-STS has two deliberately separate protocol layers. The ordinary TXT RRset
+at `_mta-sts.<domain>` advertises `v=STSv1` and a policy `id`; it is observed and
+reconciled like every other TXT RRset. A valid marker permits an HTTPS GET of
+`https://mta-sts.<domain>/.well-known/mta-sts.txt` with redirects disabled,
+normal platform certificate validation, and a required `text/plain` response
+media type. The line-oriented policy parser keeps
+repeated `mx` fields but uses the first value of non-repeatable fields, ignores
+valid unknown extensions, and rejects malformed required fields. `max_age` is
+metadata published for sending MTA caches; Akshi reports it but does not pretend
+to be a mail sender or cache delivery policy. Finally, the Email layer compares
+the domain's current MX hosts with exact or `*.` policy patterns. A DNS failure,
+HTTPS failure, malformed policy, and uncovered MX are different evidence and
+remain different finding states.
 
 TTL is shown as context but is excluded from semantic change detection. Answer
 ordering is canonicalized. Repeated values are retained and compared as a
@@ -669,7 +733,9 @@ snapshots:
 | `dns_snapshot_test.dart` | repeated values, JSON round-trip, TTL/order-insensitive change detection, failed refreshes |
 | `system_dns_service_test.dart` | native decoding for TXT/MX wire data and safe failure mapping |
 | `email_posture_service_test.dart` | role-specific mail facts, query isolation, and bounded MTA-STS policy reads |
-| `rdap_service_test.dart` | media types, byte/time bounds, JSON shape, registry parsing, and missing fields |
+| `mta_sts_policy_test.dart` | RFC 8461 required fields, repeat rules, MX syntax, and maximum-age limits |
+| `http_request_lifecycle_test.dart` | late connection cleanup and active request abortion at header timeout |
+| `rdap_service_test.dart` | media types, byte/time bounds, whole-operation deadline, request abortion, JSON shape, registry parsing, and missing fields |
 | `site_icon_service_test.dart` | byte-exact image handling, safety/decode bounds, and operation-deadline cancellation |
 | `certificate_*_test.dart` | human-readable subject and algorithm formatting |
 | `tls_endpoint_test.dart` | protocol-neutral port bounds and DNS/reachability/handshake failures |
