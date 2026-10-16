@@ -177,7 +177,7 @@ class MonitorEntry {
       now: now,
     );
     if (domainError != null && !domainConnectionInterrupted) {
-      domain = MonitorStatus.unavailable;
+      domain = moreUrgentMonitorStatus(domain, MonitorStatus.unavailable);
     }
 
     var certificate = MonitorStatus.unknown;
@@ -189,7 +189,10 @@ class MonitorEntry {
         now: now,
       );
       if (certificateError != null && !certificateConnectionInterrupted) {
-        certificate = MonitorStatus.unavailable;
+        certificate = moreUrgentMonitorStatus(
+          certificate,
+          MonitorStatus.unavailable,
+        );
       }
       if (tlsTrusted == false || certificateHostnameMatches == false) {
         certificate = MonitorStatus.critical;
@@ -208,19 +211,10 @@ class MonitorEntry {
           ? MonitorStatus.incomplete
           : MonitorStatus.healthy;
     }
-    const severity = <MonitorStatus, int>{
-      MonitorStatus.unknown: 0,
-      MonitorStatus.healthy: 1,
-      MonitorStatus.incomplete: 2,
-      MonitorStatus.unavailable: 3,
-      MonitorStatus.warning: 4,
-      MonitorStatus.failed: 5,
-      MonitorStatus.critical: 6,
-      MonitorStatus.expired: 7,
-    };
-    final states = <MonitorStatus>[domain, certificate, email];
-    states.sort((left, right) => severity[right]!.compareTo(severity[left]!));
-    return states.first;
+    return <MonitorStatus>[
+      certificate,
+      email,
+    ].fold(domain, moreUrgentMonitorStatus);
   }
 
   /// Creates a changed immutable copy while allowing nullable fields to be

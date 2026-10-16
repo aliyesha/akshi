@@ -38,3 +38,22 @@ MonitorStatus statusForExpiry(
   if (remaining <= Duration(days: warningDays)) return MonitorStatus.warning;
   return MonitorStatus.healthy;
 }
+
+/// Returns the status that needs the user's attention first.
+MonitorStatus moreUrgentMonitorStatus(
+  MonitorStatus first,
+  MonitorStatus second,
+) {
+  int urgency(MonitorStatus status) => switch (status) {
+    MonitorStatus.unknown => 0,
+    MonitorStatus.healthy => 1,
+    MonitorStatus.incomplete => 2,
+    MonitorStatus.unavailable => 3,
+    MonitorStatus.warning => 4,
+    MonitorStatus.failed => 5,
+    MonitorStatus.critical => 6,
+    MonitorStatus.expired => 7,
+  };
+
+  return urgency(first) >= urgency(second) ? first : second;
+}

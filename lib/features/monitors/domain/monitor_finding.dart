@@ -76,10 +76,16 @@ List<MonitorFinding> findingsForMonitor(
   final emailUnavailable =
       emailFailure != null && !emailFailure.isConnectivityInterruption;
   if (domainUnavailable) {
-    domainStatus = MonitorStatus.unavailable;
+    domainStatus = moreUrgentMonitorStatus(
+      domainStatus,
+      MonitorStatus.unavailable,
+    );
   }
   if (certificateUnavailable) {
-    certificateStatus = MonitorStatus.unavailable;
+    certificateStatus = moreUrgentMonitorStatus(
+      certificateStatus,
+      MonitorStatus.unavailable,
+    );
   }
   if (monitor.tlsTrusted == false) certificateStatus = MonitorStatus.critical;
   if (monitor.certificateHostnameMatches == false) {
@@ -90,9 +96,14 @@ List<MonitorFinding> findingsForMonitor(
     MonitorFinding(
       kind: MonitorCheckKind.domainRegistration,
       status: domainStatus,
-      summary: domainUnavailable
-          ? _unavailableSummary('Domain registration', monitor.domainError)
-          : _summary(domainStatus, monitor.domainExpiresAt, referenceTime),
+      summary: _summaryWithAvailability(
+        label: 'Domain registration',
+        status: domainStatus,
+        expiry: monitor.domainExpiresAt,
+        now: referenceTime,
+        unavailable: domainUnavailable,
+        detail: monitor.domainError,
+      ),
       expiresAt: monitor.domainExpiresAt,
     ),
     if (monitor.checksCertificate)
@@ -103,12 +114,13 @@ List<MonitorFinding> findingsForMonitor(
             ? 'Certificate trust could not be verified'
             : monitor.certificateHostnameMatches == false
             ? 'Certificate does not match the TLS hostname'
-            : certificateUnavailable
-            ? _unavailableSummary('TLS certificate', monitor.certificateError)
-            : _summary(
-                certificateStatus,
-                monitor.certificateExpiresAt,
-                referenceTime,
+            : _summaryWithAvailability(
+                label: 'TLS certificate',
+                status: certificateStatus,
+                expiry: monitor.certificateExpiresAt,
+                now: referenceTime,
+                unavailable: certificateUnavailable,
+                detail: monitor.certificateError,
               ),
         expiresAt: monitor.certificateExpiresAt,
       ),
@@ -132,12 +144,33 @@ List<MonitorFinding> findingsForMonitor(
             : monitor.emailPosture == null
             ? 'Email configuration not checked yet'
             : monitor.emailPosture!.needsAttention
-            ? 'Published Email configuration needs review'
+            ? 'Published email configuration needs review'
             : monitor.emailPosture!.hasUnavailable
             ? 'Email configuration check incomplete'
-            : 'Published Email configuration looks consistent',
+            : 'Published email configuration looks consistent',
       ),
   ];
+}
+
+String _summaryWithAvailability({
+  required String label,
+  required MonitorStatus status,
+  required DateTime? expiry,
+  required DateTime now,
+  required bool unavailable,
+  required String? detail,
+}) {
+  if (!unavailable) return _summary(status, expiry, now);
+  if (status != MonitorStatus.warning &&
+      status != MonitorStatus.critical &&
+      status != MonitorStatus.expired) {
+    return _unavailableSummary(label, detail);
+  }
+  final base = _summary(status, expiry, now);
+  final message = detail?.trim();
+  return message == null || message.isEmpty
+      ? '$base · Latest check unavailable'
+      : '$base · Latest check unavailable — $message';
 }
 
 String _unavailableSummary(String label, String? detail) {

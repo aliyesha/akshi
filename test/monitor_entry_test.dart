@@ -130,6 +130,32 @@ void main() {
     expect(monitor.overallStatus(now: now), MonitorStatus.critical);
   });
 
+  test('a later source failure cannot hide a retained urgent expiry', () {
+    final attemptedAt = now.add(const Duration(minutes: 1));
+    final verifiedAt = now.subtract(const Duration(days: 1));
+    final failure = CheckFailure(
+      kind: CheckFailureKind.sourceUnavailable,
+      message: 'Registry temporarily unavailable',
+      occurredAt: attemptedAt,
+    );
+    final monitor =
+        entry(
+          domainExpiresAt: now.subtract(const Duration(days: 1)),
+          certificateExpiresAt: now.add(const Duration(days: 90)),
+        ).copyWith(
+          lastAttemptedAt: attemptedAt,
+          lastVerifiedAt: verifiedAt,
+          domainError: failure.message,
+          domainActivity: CheckActivity(
+            lastAttemptedAt: attemptedAt,
+            lastVerifiedAt: verifiedAt,
+            failure: failure,
+          ),
+        );
+
+    expect(monitor.overallStatus(now: now), MonitorStatus.expired);
+  });
+
   test('DNS inventory never changes expiry or TLS health', () {
     final monitor =
         entry(

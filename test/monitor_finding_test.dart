@@ -54,6 +54,24 @@ void main() {
     expect(findings[1].status, MonitorStatus.critical);
   });
 
+  test('urgent expiry remains visible when the latest source check fails', () {
+    final findings = findingsForMonitor(
+      monitor(
+        domainExpiry: now.add(const Duration(days: 3)),
+        certificateExpiry: now.add(const Duration(days: 90)),
+        domainError: 'Registry temporarily unavailable',
+      ),
+      now: now,
+    );
+
+    expect(findings.first.status, MonitorStatus.critical);
+    expect(
+      findings.first.summary,
+      'Expires in 3 days · Latest check unavailable — '
+      'Registry temporarily unavailable',
+    );
+  });
+
   test('offline refresh does not create attention findings', () {
     final failure = CheckFailure(
       kind: CheckFailureKind.offline,
