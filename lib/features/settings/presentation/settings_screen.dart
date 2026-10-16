@@ -5,6 +5,7 @@ import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/system_settings_service.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
@@ -105,6 +106,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     onChanged: (value) => _stageReminderChange(
                       reminder.copyWith(firstWarningDays: value),
                     ),
+                    onMinimumReached: () => showAkshiNotice(
+                      context,
+                      title: 'Warning order preserved',
+                      message:
+                          'The first warning must stay at least one day '
+                          'earlier than the second warning.',
+                      tone: AkshiNoticeTone.warning,
+                    ),
+                    onMaximumReached: () => showAkshiNotice(
+                      context,
+                      title: 'Maximum warning reached',
+                      message:
+                          'The earliest reminder is 90 days before expiry.',
+                      tone: AkshiNoticeTone.warning,
+                    ),
                   ),
                   const Divider(),
                   _DayControl(
@@ -114,6 +130,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     maximum: reminder.firstWarningDays - 1,
                     onChanged: (value) => _stageReminderChange(
                       reminder.copyWith(secondWarningDays: value),
+                    ),
+                    onMinimumReached: () => showAkshiNotice(
+                      context,
+                      title: 'Minimum warning reached',
+                      message:
+                          'The final configurable warning must stay at least '
+                          'two days before expiry.',
+                      tone: AkshiNoticeTone.warning,
+                    ),
+                    onMaximumReached: () => showAkshiNotice(
+                      context,
+                      title: 'Warning order preserved',
+                      message:
+                          'The second warning must stay at least one day '
+                          'later than the first warning.',
+                      tone: AkshiNoticeTone.warning,
                     ),
                   ),
                   const Divider(),
@@ -138,7 +170,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   ),
                 ],
               ),
-              if (reminderChanged) ...<Widget>[
+              if (reminderChanged &&
+                  _secondsUntilReminderPrompt > 0) ...<Widget>[
                 const SizedBox(height: 12),
                 _ReminderDraftActions(
                   secondsUntilPrompt: _secondsUntilReminderPrompt,
@@ -407,7 +440,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
     _reminderDebounce?.cancel();
     _reminderDebounce = null;
-    _reminderDialogOpen = true;
+    setState(() {
+      _secondsUntilReminderPrompt = 0;
+      _reminderDialogOpen = true;
+    });
     try {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -416,10 +452,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           icon: const PhosphorIcon(PhosphorIconsDuotone.bellRinging, size: 34),
           title: const Text('Update expiry reminders?'),
           content: Text(
-            'Akshi will reconcile expiry alarms using '
-            '${candidate.firstWarningDays}-day and '
-            '${candidate.secondWarningDays}-day warnings at '
-            '$reminderTime.',
+            'Akshi will schedule reminders ${candidate.firstWarningDays} '
+            'days, ${candidate.secondWarningDays} days, and 1 day before '
+            'each saved expiry, around $reminderTime.',
           ),
           actions: <Widget>[
             TextButton(
@@ -451,24 +486,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           _reminderDraft = null;
           _secondsUntilReminderPrompt = 0;
         });
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('Expiry reminders were updated.')),
-          );
+        showAkshiNotice(
+          context,
+          title: 'Reminders updated',
+          message: 'Your new expiry warning schedule is active.',
+          tone: AkshiNoticeTone.success,
+        );
       } catch (_) {
         if (!mounted) return;
         setState(() {
           _reminderDraft = null;
           _secondsUntilReminderPrompt = 0;
         });
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(
-              content: Text('Reminder settings could not be saved.'),
-            ),
-          );
+        showAkshiNotice(
+          context,
+          title: 'Could not update reminders',
+          message: 'Your previous warning schedule is unchanged.',
+          tone: AkshiNoticeTone.error,
+        );
       } finally {
         if (mounted) setState(() => _committingReminder = false);
       }
@@ -550,11 +585,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               ref.read(reminderControllerProvider.notifier).repair(),
         );
         if (!context.mounted) return;
+        final ready = repaired.kind == ReminderHealthKind.ready;
         _showReminderResult(
           context,
-          repaired.kind == ReminderHealthKind.ready
+          title: ready ? 'Reminders ready' : 'Reminders need attention',
+          message: ready
               ? 'Expiry reminders are ready.'
-              : 'Reminders still need attention. See the Reminder Ledger.',
+              : 'See the Reminder Ledger for details.',
+          tone: ready ? AkshiNoticeTone.success : AkshiNoticeTone.warning,
         );
         return;
       }
@@ -563,7 +601,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     } catch (error, stackTrace) {
       appLogger.error('ui.settings.reminders.action.failed', error, stackTrace);
       if (!context.mounted) return;
-      _showReminderResult(context, 'The reminder action could not finish.');
+      _showReminderResult(
+        context,
+        title: 'Reminder action failed',
+        message: 'The reminder action could not finish.',
+        tone: AkshiNoticeTone.error,
+      );
     } finally {
       _notificationRequestOpen = false;
     }
@@ -575,11 +618,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   ) async {
     if (permission == NotificationPermissionStatus.allowed) {
       final health = ref.read(reminderControllerProvider);
+      final ready = health.kind == ReminderHealthKind.ready;
       _showReminderResult(
         context,
-        health.kind == ReminderHealthKind.ready
+        title: ready ? 'Reminders enabled' : 'Reminders need attention',
+        message: ready
             ? 'Expiry reminders are enabled.'
-            : 'Reminders are enabled but still need attention.',
+            : 'Reminders are enabled, but verification needs attention.',
+        tone: ready ? AkshiNoticeTone.success : AkshiNoticeTone.warning,
       );
       return;
     }
@@ -597,13 +643,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       );
       if (!context.mounted) return;
       if (granted && result.kind == ReminderHealthKind.ready) {
-        _showReminderResult(context, 'Expiry reminders are ready.');
+        _showReminderResult(
+          context,
+          title: 'Reminders ready',
+          message: 'Expiry reminders are ready.',
+          tone: AkshiNoticeTone.success,
+        );
         return;
       }
       if (granted) {
         _showReminderResult(
           context,
-          'Notification access is allowed, but reminders still need attention.',
+          title: 'Reminders need attention',
+          message:
+              'Notification access is allowed, but verification is incomplete.',
+          tone: AkshiNoticeTone.warning,
         );
         return;
       }
@@ -640,10 +694,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
-  void _showReminderResult(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+  void _showReminderResult(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required AkshiNoticeTone tone,
+  }) {
+    showAkshiNotice(context, title: title, message: message, tone: tone);
   }
 
   Future<void> _turnOffReminders(
@@ -656,18 +713,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       operation: () => _save(settings.copyWith(remindersEnabled: false)),
     );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('Akshi reminders are off.')));
+    showAkshiNotice(
+      context,
+      title: 'Reminders are off',
+      message: 'Akshi removed its scheduled expiry alerts.',
+      tone: AkshiNoticeTone.success,
+    );
   }
 
   Future<void> _openNotificationSettings(BuildContext context) async {
     final opened = await SystemSettingsService.openNotificationSettings();
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not open system notification settings.'),
-        ),
+      showAkshiNotice(
+        context,
+        title: 'Could not open settings',
+        message: 'Open notification settings manually from your device.',
+        tone: AkshiNoticeTone.error,
       );
     }
   }
@@ -863,12 +924,16 @@ class _DayControl extends StatelessWidget {
     required this.minimum,
     required this.maximum,
     required this.onChanged,
+    required this.onMinimumReached,
+    required this.onMaximumReached,
   });
   final String title;
   final int value;
   final int minimum;
   final int maximum;
   final ValueChanged<int> onChanged;
+  final VoidCallback onMinimumReached;
+  final VoidCallback onMaximumReached;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -886,12 +951,22 @@ class _DayControl extends StatelessWidget {
           ),
         ),
         IconButton.filledTonal(
-          onPressed: value > minimum ? () => onChanged(value - 1) : null,
+          key: ValueKey<String>('day-control-$title-decrease'),
+          tooltip: value > minimum
+              ? 'Move one day later'
+              : 'Why this cannot go later',
+          onPressed: () =>
+              value > minimum ? onChanged(value - 1) : onMinimumReached(),
           icon: const PhosphorIcon(PhosphorIconsRegular.minus, size: 17),
         ),
         const SizedBox(width: 7),
         IconButton.filledTonal(
-          onPressed: value < maximum ? () => onChanged(value + 1) : null,
+          key: ValueKey<String>('day-control-$title-increase'),
+          tooltip: value < maximum
+              ? 'Move one day earlier'
+              : 'Why this cannot go earlier',
+          onPressed: () =>
+              value < maximum ? onChanged(value + 1) : onMaximumReached(),
           icon: const PhosphorIcon(PhosphorIconsRegular.plus, size: 17),
         ),
       ],

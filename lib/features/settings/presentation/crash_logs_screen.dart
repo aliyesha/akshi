@@ -1,6 +1,7 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/crash/crash_log.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -105,8 +106,11 @@ class _CrashLogTile extends StatelessWidget {
               onPressed: () async {
                 await Clipboard.setData(ClipboardData(text: log.report));
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Crash report copied')),
+                  showAkshiNotice(
+                    context,
+                    title: 'Report copied',
+                    message: 'The crash report is on your clipboard.',
+                    tone: AkshiNoticeTone.success,
                   );
                 }
               },

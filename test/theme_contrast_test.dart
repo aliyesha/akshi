@@ -10,23 +10,30 @@ void main() {
     ];
 
     for (final scheme in schemes) {
-      final info = AkshiTheme.infoSurface(scheme);
+      final semanticSurfaces = <String, AkshiSurfaceColors>{
+        'information': AkshiTheme.infoSurface(scheme),
+        'success': AkshiTheme.successSurface(scheme),
+        'warning': AkshiTheme.warningSurface(scheme),
+        'error': AkshiTheme.errorSurface(scheme),
+      };
       final progress = AkshiTheme.progressSurface(scheme);
 
-      expect(
-        _contrast(info.background, info.foreground),
-        greaterThanOrEqualTo(7),
-        reason: '${scheme.brightness.name} information surface',
-      );
+      for (final entry in semanticSurfaces.entries) {
+        expect(
+          _contrast(entry.value.background, entry.value.foreground),
+          greaterThanOrEqualTo(7),
+          reason: '${scheme.brightness.name} ${entry.key} surface',
+        );
+        expect(
+          _contrast(entry.value.background, entry.value.accent),
+          greaterThanOrEqualTo(3),
+          reason: '${scheme.brightness.name} ${entry.key} icon',
+        );
+      }
       expect(
         _contrast(progress.background, progress.foreground),
         greaterThanOrEqualTo(7),
         reason: '${scheme.brightness.name} progress surface',
-      );
-      expect(
-        _contrast(info.background, info.accent),
-        greaterThanOrEqualTo(3),
-        reason: '${scheme.brightness.name} information icon',
       );
       expect(
         _contrast(progress.background, progress.accent),

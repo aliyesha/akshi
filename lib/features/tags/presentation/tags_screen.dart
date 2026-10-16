@@ -1,4 +1,5 @@
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
@@ -206,8 +207,12 @@ class TagsScreen extends ConsumerWidget {
         'A tag with that name already exists.',
       _ => 'Akshi could not update tags on this device. Please try again.',
     };
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    showAkshiNotice(
+      context,
+      title: 'Could not update tags',
+      message: message,
+      tone: AkshiNoticeTone.error,
+    );
   }
 }
 

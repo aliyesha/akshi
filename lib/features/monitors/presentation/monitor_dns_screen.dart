@@ -3,6 +3,7 @@ import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
@@ -171,11 +172,12 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(content: Text('Check complete. Results updated.')),
-        );
+      showAkshiNotice(
+        context,
+        title: 'Check complete',
+        message: 'Latest results are saved.',
+        tone: AkshiNoticeTone.success,
+      );
     } on MonitorOfflineException {
       if (mounted) {
         showOfflineMessage(context);
@@ -188,9 +190,12 @@ class _MonitorDnsScreenState extends ConsumerState<MonitorDnsScreen> {
         data: <String, Object?>{'monitorId': monitor.id},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Check failed',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }
@@ -471,8 +476,11 @@ class _RecordRow extends StatelessWidget {
                   ClipboardData(text: record.displayValue),
                 );
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('DNS value copied')),
+                  showAkshiNotice(
+                    context,
+                    title: 'DNS value copied',
+                    message: 'The record value is on your clipboard.',
+                    tone: AkshiNoticeTone.success,
                   );
                 }
               },

@@ -2,6 +2,7 @@ import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
 import 'package:akshi/features/monitors/domain/hostname.dart';
@@ -471,8 +472,12 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
           'A tag with that name already exists.',
         _ => userFacingError(error),
       };
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showAkshiNotice(
+        context,
+        title: 'Could not create tag',
+        message: message,
+        tone: AkshiNoticeTone.error,
+      );
     }
   }
 
@@ -489,12 +494,12 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       return;
     }
     if (_checksEmail && !_mailSends && !_mailReceives) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
+      showAkshiNotice(
+        context,
+        title: 'Email role required',
+        message:
             'Choose whether this domain sends email, receives email, or both.',
-          ),
-        ),
+        tone: AkshiNoticeTone.warning,
       );
       return;
     }
@@ -565,8 +570,12 @@ class _MonitorFormScreenState extends ConsumerState<MonitorFormScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      showAkshiNotice(
+        context,
+        title: 'Could not save monitor',
+        message: _friendlyError(error),
+        tone: AkshiNoticeTone.error,
+      );
       setState(() => _saving = false);
     }
   }

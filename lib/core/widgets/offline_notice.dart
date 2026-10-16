@@ -1,3 +1,4 @@
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
@@ -57,10 +58,10 @@ class OfflineNotice extends StatelessWidget {
 
 /// Gives one concise response to a user-initiated action that needs a network.
 void showOfflineMessage(BuildContext context) {
-  final messenger = ScaffoldMessenger.of(context);
-  messenger
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(content: const Text('Device offline. Please connect.')),
-    );
+  showAkshiNotice(
+    context,
+    title: 'Device offline',
+    message: 'Connect to the internet and try again.',
+    tone: AkshiNoticeTone.warning,
+  );
 }

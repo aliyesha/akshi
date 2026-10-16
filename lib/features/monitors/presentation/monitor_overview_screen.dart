@@ -3,6 +3,7 @@ import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
@@ -265,11 +266,12 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(content: Text('Check complete. Results updated.')),
-          );
+        showAkshiNotice(
+          context,
+          title: 'Check complete',
+          message: 'Latest results are saved.',
+          tone: AkshiNoticeTone.success,
+        );
       }
     } on MonitorOfflineException {
       if (mounted) {
@@ -283,9 +285,12 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         data: <String, Object?>{'monitorId': monitor.id},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Check failed',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }
@@ -327,9 +332,12 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         data: <String, Object?>{'monitorId': monitor.id},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Could not delete monitor',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }

@@ -71,6 +71,8 @@ void main() {
 
       await tester.pump(const Duration(seconds: 1));
       expect(find.text('Update expiry reminders?'), findsOneWidget);
+      expect(find.text('Reminder changes ready'), findsNothing);
+      expect(find.textContaining('confirmation opens in'), findsNothing);
 
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();

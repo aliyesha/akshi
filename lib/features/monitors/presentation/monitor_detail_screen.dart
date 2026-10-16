@@ -8,6 +8,7 @@ import 'package:akshi/core/formatters/certificate_algorithm_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
 import 'package:akshi/features/monitors/application/monitor_controller.dart';
@@ -514,7 +515,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
                   Text(
                     monitor.emailPosture!.hasUnavailable
                         ? 'Latest analysis attempted ${_formatDateTime(monitor.emailPosture!.checkedAt)} · saved findings retained'
-                        : 'Email configuration verified ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
+                        : 'Published email configuration checked ${_formatDateTime(monitor.emailPosture!.checkedAt)}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -709,11 +710,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
     try {
       await ref.read(monitorControllerProvider.notifier).check(monitor.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(content: Text('Check complete. Results updated.')),
-        );
+      showAkshiNotice(
+        context,
+        title: 'Check complete',
+        message: 'Latest results are saved.',
+        tone: AkshiNoticeTone.success,
+      );
     } on MonitorOfflineException {
       if (mounted) {
         showOfflineMessage(context);
@@ -726,9 +728,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         data: <String, Object?>{'monitorId': monitor.id},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Check failed',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }
@@ -774,9 +779,12 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         data: <String, Object?>{'monitorId': monitor.id},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Could not delete monitor',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }

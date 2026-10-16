@@ -1,6 +1,7 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/services/system_settings_service.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/reminders/domain/alarm_audit.dart';
 import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
@@ -241,17 +242,15 @@ class _ReminderLedgerScreenState extends ConsumerState<ReminderLedgerScreen> {
 
     final result = await ref.read(reminderControllerProvider.notifier).repair();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            result.kind == ReminderHealthKind.ready
-                ? 'Reminder verification passed.'
-                : 'Reminders still need attention.',
-          ),
-        ),
-      );
+    final ready = result.kind == ReminderHealthKind.ready;
+    showAkshiNotice(
+      context,
+      title: ready ? 'Reminders verified' : 'Reminders need attention',
+      message: ready
+          ? 'Scheduled expiry reminders are ready.'
+          : 'Review the ledger details or repair the reminders again.',
+      tone: ready ? AkshiNoticeTone.success : AkshiNoticeTone.warning,
+    );
   }
 
   String? _latestPlatform(List<AlarmAuditDay>? days) =>
@@ -455,8 +454,12 @@ class ReminderLedgerDetailScreen extends ConsumerWidget {
     ].join('\n');
     await Clipboard.setData(ClipboardData(text: receipt));
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Proof receipt copied.')));
+    showAkshiNotice(
+      context,
+      title: 'Receipt copied',
+      message: 'The reminder proof receipt is on your clipboard.',
+      tone: AkshiNoticeTone.success,
+    );
   }
 }
 

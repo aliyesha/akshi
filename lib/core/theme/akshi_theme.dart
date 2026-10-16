@@ -51,6 +51,54 @@ abstract final class AkshiTheme {
           border: const Color(0xFFA6CFDD),
         );
 
+  /// Semantic green surface for completed actions.
+  static AkshiSurfaceColors successSurface(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? (
+          background: const Color(0xFF123324),
+          foreground: const Color(0xFFE8FFF0),
+          accent: const Color(0xFF75D69B),
+          border: const Color(0xFF3C7454),
+        )
+      : (
+          background: const Color(0xFFE7F6ED),
+          foreground: const Color(0xFF123D27),
+          accent: const Color(0xFF1E7A45),
+          border: const Color(0xFFA4D6B8),
+        );
+
+  /// Semantic amber surface for actions that need attention.
+  static AkshiSurfaceColors warningSurface(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? (
+          background: const Color(0xFF352A0F),
+          foreground: const Color(0xFFFFF4D6),
+          accent: const Color(0xFFF3C75F),
+          border: const Color(0xFF7A642E),
+        )
+      : (
+          background: const Color(0xFFFFF4D8),
+          foreground: const Color(0xFF4A3400),
+          accent: const Color(0xFF9A6700),
+          border: const Color(0xFFE0C276),
+        );
+
+  /// Semantic red surface for actions that could not be completed.
+  static AkshiSurfaceColors errorSurface(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark
+      ? (
+          background: const Color(0xFF3B1717),
+          foreground: const Color(0xFFFFEDEA),
+          accent: const Color(0xFFFFB4AB),
+          border: const Color(0xFF84504C),
+        )
+      : (
+          background: const Color(0xFFFCEBEA),
+          foreground: const Color(0xFF551714),
+          accent: const Color(0xFFB3261E),
+          border: const Color(0xFFE3AAA6),
+        );
+
   /// Brand-aligned surface whose text remains readable during long saves.
   static AkshiSurfaceColors progressSurface(ColorScheme scheme) =>
       scheme.brightness == Brightness.dark

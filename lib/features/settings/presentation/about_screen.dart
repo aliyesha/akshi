@@ -1,6 +1,7 @@
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/external_link_service.dart';
 import 'package:akshi/core/widgets/akshi_mark.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -121,10 +122,11 @@ Future<void> _openAliyeshaWebsite(BuildContext context) async {
   } catch (error, stackTrace) {
     appLogger.error('ui.about.external_link.failed', error, stackTrace);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Could not open aliyesha.com on this device.'),
-      ),
+    showAkshiNotice(
+      context,
+      title: 'Could not open website',
+      message: 'Open aliyesha.com manually in your browser.',
+      tone: AkshiNoticeTone.error,
     );
   }
 }

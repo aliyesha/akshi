@@ -2,6 +2,7 @@ import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/akshi_mark.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/core/widgets/expiry_metric.dart';
@@ -287,9 +288,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _refreshAll({bool announce = true}) async {
     final controller = ref.read(monitorControllerProvider.notifier);
-    final enabledCount =
+    final monitorCount =
         (ref.read(monitorControllerProvider).value ?? const <MonitorEntry>[])
-            .where((monitor) => monitor.enabled)
             .length;
     try {
       final outcome = await controller.refreshAll();
@@ -307,26 +307,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         MonitorRefreshOutcome.skippedRecent =>
           'The monitor list was checked recently.',
         MonitorRefreshOutcome.completed =>
-          enabledCount == 0
-              ? 'No enabled monitors to check.'
-              : enabledCount == 1
+          monitorCount == 0
+              ? 'No monitors to check.'
+              : monitorCount == 1
               ? '1 monitor checked.'
-              : '$enabledCount monitors checked.',
+              : '$monitorCount monitors checked.',
       };
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+      final recentlyChecked = outcome == MonitorRefreshOutcome.skippedRecent;
+      showAkshiNotice(
+        context,
+        title: recentlyChecked ? 'Already up to date' : 'Checks complete',
+        message: message,
+        tone: recentlyChecked ? AkshiNoticeTone.info : AkshiNoticeTone.success,
+      );
     } catch (error, stackTrace) {
       appLogger.error(
         'ui.home.refresh.failed',
         error,
         stackTrace,
-        data: <String, Object?>{'enabledCount': enabledCount},
+        data: <String, Object?>{'monitorCount': monitorCount},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Refresh failed',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }
@@ -544,8 +551,12 @@ class _SwipeableMonitorCard extends ConsumerWidget {
     } catch (error, stackTrace) {
       appLogger.error('ui.home.delete.failed', error, stackTrace);
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Could not delete monitor',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
     return false;

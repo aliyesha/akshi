@@ -62,6 +62,55 @@ void main() {
     expect(find.text('Enable reminders'), findsOneWidget);
   });
 
+  testWidgets('dependent day boundaries explain why values cannot cross', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(
+              AppSettings(firstWarningDays: 3, secondWarningDays: 2),
+            ),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.ready,
+                permission: NotificationPermissionStatus.allowed,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('day-control-First warning-decrease')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Warning order preserved'), findsOneWidget);
+    expect(
+      find.textContaining('earlier than the second warning'),
+      findsOneWidget,
+    );
+    expect(find.text('3 days before expiry'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('day-control-Second warning-increase')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Warning order preserved'), findsOneWidget);
+    expect(find.textContaining('later than the first warning'), findsOneWidget);
+    expect(find.text('2 days before expiry'), findsOneWidget);
+  });
+
   testWidgets('ready state offers a visible turn-off action', (tester) async {
     await tester.pumpWidget(
       ProviderScope(

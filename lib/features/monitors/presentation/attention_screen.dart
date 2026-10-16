@@ -1,6 +1,7 @@
 import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/logging/app_logger.dart';
+import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/core/widgets/status_pill.dart';
@@ -128,18 +129,24 @@ class AttentionScreen extends ConsumerWidget {
         return;
       }
       if (!announce) return;
-      final message = outcome == MonitorRefreshOutcome.skippedRecent
-          ? 'The monitor list was checked recently.'
-          : 'Monitors checked.';
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+      final recentlyChecked = outcome == MonitorRefreshOutcome.skippedRecent;
+      showAkshiNotice(
+        context,
+        title: recentlyChecked ? 'Already up to date' : 'Checks complete',
+        message: recentlyChecked
+            ? 'The monitor list was checked recently.'
+            : 'Latest monitor results are saved.',
+        tone: recentlyChecked ? AkshiNoticeTone.info : AkshiNoticeTone.success,
+      );
     } catch (error, stackTrace) {
       appLogger.error('ui.attention.refresh.failed', error, stackTrace);
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(checkUserFacingError(error))));
+        showAkshiNotice(
+          context,
+          title: 'Refresh failed',
+          message: checkUserFacingError(error),
+          tone: AkshiNoticeTone.error,
+        );
       }
     }
   }
