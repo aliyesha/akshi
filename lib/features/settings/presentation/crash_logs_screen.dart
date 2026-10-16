@@ -44,6 +44,7 @@ class CrashLogsScreen extends ConsumerWidget {
                     await ref
                         .read(crashLogStoreProvider)
                         .delete(entries[index].id);
+                    if (!context.mounted) return;
                     ref.invalidate(crashLogsProvider);
                   },
                 ),
@@ -72,8 +73,9 @@ class CrashLogsScreen extends ConsumerWidget {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !context.mounted) return;
     await ref.read(crashLogStoreProvider).clear();
+    if (!context.mounted) return;
     ref.invalidate(crashLogsProvider);
   }
 }

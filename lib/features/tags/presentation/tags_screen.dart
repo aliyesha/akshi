@@ -188,7 +188,7 @@ class TagsScreen extends ConsumerWidget {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !context.mounted) return;
     try {
       await ref.read(tagControllerProvider.notifier).delete(tag.id);
     } catch (error, stackTrace) {

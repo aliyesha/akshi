@@ -763,7 +763,7 @@ class _MonitorDetailScreenState extends ConsumerState<MonitorDetailScreen> {
         ],
       ),
     );
-    if (confirmed != true) {
+    if (confirmed != true || !mounted) {
       return;
     }
     try {

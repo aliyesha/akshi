@@ -320,7 +320,7 @@ class _MonitorOverviewScreenState extends ConsumerState<MonitorOverviewScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     try {
       await ref.read(monitorControllerProvider.notifier).delete(monitor.id);
       if (mounted) context.go('/');
