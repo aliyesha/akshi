@@ -189,8 +189,8 @@ class _MonitorDestinations extends StatelessWidget {
           : PhosphorIconsDuotone.globeHemisphereWest,
       title: monitor.displayName,
       description: monitor.enabled
-          ? 'Saved monitor. Used during active checks.'
-          : 'Saved monitor. Network checks are currently disabled.',
+          ? 'Saved monitor. Checks and expiry reminders are active.'
+          : 'Saved monitor. Checks stay active; expiry reminders are off.',
       destinations: destinations,
     );
   }

@@ -69,6 +69,11 @@ class MonitorEntry {
   final bool checksCertificate;
   final bool checksEmail;
   final String? label;
+
+  /// Whether this monitor participates in local expiry reminders.
+  ///
+  /// The persisted field retains its original name for database compatibility;
+  /// it does not disable network checks.
   final bool enabled;
   final List<MonitorTag> tags;
   final DateTime createdAt;

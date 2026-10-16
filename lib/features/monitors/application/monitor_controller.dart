@@ -574,7 +574,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     flow.info('completed');
   }
 
-  /// Refreshes enabled monitors as one coalesced foreground operation.
+  /// Refreshes all saved monitors as one coalesced foreground operation.
   ///
   /// Lifecycle callers can skip a recently completed refresh. Explicit user
   /// actions use the default forced behavior.
@@ -599,7 +599,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
     return operation;
   }
 
-  /// Prepares every enabled monitor, then publishes one committed snapshot.
+  /// Prepares every saved monitor, then publishes one committed snapshot.
   Future<MonitorRefreshOutcome> _runRefreshAll() async {
     final flow = appLogger.start('monitor.refresh_all');
     if (!await _hasNetworkTransport()) {
@@ -607,24 +607,20 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       return MonitorRefreshOutcome.skippedOffline;
     }
     final refresh = ref.read(monitorRefreshProvider.notifier);
-    final knownTotal =
-        state.value?.where((monitor) => monitor.enabled).length ?? 0;
+    final knownTotal = state.value?.length ?? 0;
     refresh.start(total: knownTotal);
     var succeeded = false;
     try {
       await refresh.waitForMutations();
       final repository = ref.read(monitorRepositoryProvider);
       final monitors = await repository.all();
-      final enabled = monitors
-          .where((monitor) => monitor.enabled)
-          .toList(growable: false);
-      refresh.setTotal(enabled.length);
+      refresh.setTotal(monitors.length);
       flow.info(
         'checks.started',
-        data: <String, Object?>{'count': enabled.length},
+        data: <String, Object?>{'count': monitors.length},
       );
       final observations = await Future.wait(
-        enabled.map((monitor) async {
+        monitors.map((monitor) async {
           final updated = await _runCheck(monitor, flow: flow);
           refresh.advance();
           return updated;
@@ -634,7 +630,7 @@ class MonitorController extends AsyncNotifier<List<MonitorEntry>> {
       await _reload();
       await _rescheduleReminders(flow: flow);
       succeeded = true;
-      flow.info('completed', data: <String, Object?>{'count': enabled.length});
+      flow.info('completed', data: <String, Object?>{'count': monitors.length});
       return MonitorRefreshOutcome.completed;
     } catch (error, stackTrace) {
       flow.error('failed', error, stackTrace);

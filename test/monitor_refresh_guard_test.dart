@@ -273,6 +273,45 @@ void main() {
   });
 
   test(
+    'turning off reminders does not remove a monitor from portfolio checks',
+    () async {
+      final monitor = MonitorEntry(
+        id: 'reminders-off',
+        hostname: 'example.com',
+        tlsHostname: 'example.com',
+        tlsPort: 443,
+        enabled: false,
+        createdAt: DateTime.utc(2026, 2, 14, 9),
+        updatedAt: DateTime.utc(2026, 6, 14, 9),
+      );
+      final repository = _MemoryMonitorRepository(monitor: monitor);
+      final rdap = _ControlledRdapService()..complete();
+      final dns = _StaticDnsSnapshotService();
+      final reminders = _RecordingReminderController();
+      final container = ProviderContainer(
+        overrides: [
+          monitorRepositoryProvider.overrideWithValue(repository),
+          connectivitySourceProvider.overrideWithValue(_onlineConnectivity),
+          rdapServiceProvider.overrideWithValue(rdap),
+          dnsSnapshotServiceProvider.overrideWithValue(dns),
+          reminderControllerProvider.overrideWith(() => reminders),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(monitorControllerProvider.future);
+
+      final outcome = await container
+          .read(monitorControllerProvider.notifier)
+          .refreshAll();
+
+      expect(outcome, MonitorRefreshOutcome.completed);
+      expect(rdap.checks, 1);
+      expect(dns.checks, 1);
+      expect(repository.portfolioWrites, 1);
+    },
+  );
+
+  test(
     'metadata-only edit retains observations and skips external checks',
     () async {
       final monitor = MonitorEntry(
