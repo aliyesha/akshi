@@ -156,6 +156,27 @@ The incremental reconciler verifies pending requests. A local Reminder Ledger
 records computed, platform-accepted, and pending-verified proof without claiming
 operating-system delivery.
 
+## Development process
+
+Akshi began with a human-designed product concept and human-written initial
+implementation. Its current form is the result of substantial human–AI
+collaboration.
+
+The product direction, privacy boundaries, feature decisions, and release
+decisions remain human-led. AI tools have contributed substantially to
+interface design and implementation, code refactoring, algorithmic
+implementation and review, test coverage, and documentation. Architecture and
+design ideas have developed through collaboration between the maintainer and AI
+tools.
+
+AI-produced material is treated as proposed work rather than independent
+authority. The maintainer decides what is accepted, revises it where necessary,
+and remains responsible for the application's behavior, security, licensing,
+and releases.
+
+AI tooling is used during development only. Akshi does not embed an AI model,
+expose user data to an AI service, or require an AI service to operate.
+
 ## Reminder policy
 
 The user selects two early-warning offsets; a final one-day offset is always
