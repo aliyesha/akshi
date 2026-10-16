@@ -253,6 +253,38 @@ void main() {
     expect(result.nameServers, <String>['ns1.example.net', 'ns2.example.net']);
   });
 
+  test('uses declared RDAP event priority instead of server order', () {
+    final result = parseRdapDomain(
+      <String, dynamic>{
+        'objectClassName': 'domain',
+        'ldhName': 'example.com',
+        'events': <Object?>[
+          <String, Object?>{
+            'eventAction': 'expiration',
+            'eventDate': '2026-08-31T23:59:59Z',
+          },
+          <String, Object?>{
+            'eventAction': 'registrar expiration',
+            'eventDate': '2026-09-15T08:30:00Z',
+          },
+          <String, Object?>{
+            'eventAction': 'last update of RDAP database',
+            'eventDate': '2026-07-20T12:00:00Z',
+          },
+          <String, Object?>{
+            'eventAction': 'last changed',
+            'eventDate': '2026-06-14T10:30:00Z',
+          },
+        ],
+      },
+      source: 'rdap.example',
+      registeredDomain: 'example.com',
+    );
+
+    expect(result.expiresAt?.toUtc(), DateTime.utc(2026, 9, 15, 8, 30));
+    expect(result.updatedAt?.toUtc(), DateTime.utc(2026, 6, 14, 10, 30));
+  });
+
   test('keeps a valid RDAP result when expiry is not published', () {
     final result = parseRdapDomain(
       <String, dynamic>{

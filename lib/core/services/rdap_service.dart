@@ -359,6 +359,7 @@ String _nameServerIdentity(Map<String, dynamic> value) {
 
 DateTime? _eventDate(Map<String, dynamic> payload, List<String> priorities) {
   final events = _rdapMaps(payload['events'], field: 'events');
+  final parsed = <({String action, DateTime date})>[];
   for (final event in events) {
     final action = event['eventAction'];
     final rawDate = event['eventDate'];
@@ -369,7 +370,12 @@ DateTime? _eventDate(Map<String, dynamic> payload, List<String> priorities) {
     if (date == null) {
       throw const FormatException('RDAP event date is invalid.');
     }
-    if (priorities.contains(action.toLowerCase())) return date.toLocal();
+    parsed.add((action: action.toLowerCase(), date: date.toLocal()));
+  }
+  for (final priority in priorities) {
+    for (final event in parsed) {
+      if (event.action == priority.toLowerCase()) return event.date;
+    }
   }
   return null;
 }
