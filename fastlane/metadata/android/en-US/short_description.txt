@@ -1,1 +1,1 @@
-Local-first domain, TLS certificate, and email DNS monitor
+Private domain portfolio for expiry, TLS, DNS, and email configuration

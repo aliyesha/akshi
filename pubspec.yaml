@@ -1,5 +1,5 @@
 name: akshi
-description: A private, local-first domain, X.509, and email configuration monitor.
+description: A private domain portfolio companion for registration, TLS, DNS, and email configuration.
 publish_to: "none"
 version: 1.0.0+1
 

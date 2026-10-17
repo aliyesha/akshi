@@ -1,4 +1,5 @@
-Initial release with local-first domain registration, TLS certificate, DNS,
-and email-configuration checks. Includes consolidated expiry reminders,
-focused attention navigation, tags, website icons, local diagnostics, and
-light and dark themes. No account, analytics, advertising, or Akshi server.
+Initial release of Akshi, a private domain portfolio companion. Review RDAP
+registration and expiry information, TLS certificates, DNS records, and
+published email configuration. Includes configurable on-device expiry
+reminders, tags, local diagnostics, and light and dark themes. No account,
+advertising, analytics, tracking, or Akshi server.

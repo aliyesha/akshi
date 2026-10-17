@@ -7,7 +7,7 @@ semantic versioning for public releases.
 
 ### Added
 
-- Local-first monitoring for domain registration and X.509 certificates.
+- Private domain portfolio for registration and X.509 certificate review.
 - DNS snapshots and factual email-domain checks for MX, SPF, DMARC, MTA-STS,
   TLS-RPT, and explicit DKIM selectors.
 - Consolidated local Domain/TLS expiry reminders with one alarm per calendar
