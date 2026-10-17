@@ -5,7 +5,7 @@ import 'package:phosphor_icons/phosphor_icons.dart';
 /// A quiet page-level explanation shown while remote checks are unavailable.
 ///
 /// The notice describes the device environment only. It deliberately does not
-/// imply that any saved monitor observation has failed or changed.
+/// imply that any saved domain observation has failed or changed.
 class OfflineNotice extends StatelessWidget {
   const OfflineNotice({
     this.message = 'Saved results are unchanged. Checks are available when a connection returns.',

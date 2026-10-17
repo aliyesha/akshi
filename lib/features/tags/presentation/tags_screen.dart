@@ -1,10 +1,10 @@
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
-import 'package:akshi/features/monitors/application/monitor_controller.dart';
-import 'package:akshi/features/monitors/presentation/widgets/monitor_refresh_banner.dart';
+import 'package:akshi/features/domains/application/domain_controller.dart';
+import 'package:akshi/features/domains/presentation/widgets/domain_refresh_banner.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
-import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/domain_tag.dart';
 import 'package:akshi/features/tags/domain/tag_policy.dart';
 import 'package:akshi/features/tags/presentation/tag_editor_sheet.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
@@ -18,7 +18,7 @@ class TagsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tags = ref.watch(tagControllerProvider);
-    final refresh = ref.watch(monitorRefreshProvider);
+    final refresh = ref.watch(domainRefreshProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Tags')),
       floatingActionButton:
@@ -44,7 +44,7 @@ class TagsScreen extends ConsumerWidget {
             if (refresh.shouldShowStatus)
               const Padding(
                 padding: EdgeInsets.fromLTRB(18, 8, 18, 0),
-                child: MonitorRefreshBanner(),
+                child: DomainRefreshBanner(),
               ),
             _TagCapacity(count: items.length),
             Expanded(
@@ -145,11 +145,7 @@ class TagsScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _edit(
-    BuildContext context,
-    WidgetRef ref,
-    MonitorTag tag,
-  ) async {
+  Future<void> _edit(BuildContext context, WidgetRef ref, DomainTag tag) async {
     final draft = await showTagEditor(context, tag: tag);
     if (draft == null || !context.mounted) return;
     try {
@@ -167,14 +163,14 @@ class TagsScreen extends ConsumerWidget {
   Future<void> _delete(
     BuildContext context,
     WidgetRef ref,
-    MonitorTag tag,
+    DomainTag tag,
   ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete “${tag.name}”?'),
         content: const Text(
-          'The tag will be removed from every monitor. No monitor will be deleted.',
+          'The tag will be removed from every domain. No domain will be deleted.',
         ),
         actions: <Widget>[
           TextButton(
@@ -199,8 +195,8 @@ class TagsScreen extends ConsumerWidget {
 
   void _showError(BuildContext context, Object error) {
     final message = switch (error) {
-      MonitorRefreshInProgressException() =>
-        'Wait for the monitor refresh to finish.',
+      DomainRefreshInProgressException() =>
+        'Wait for the domain refresh to finish.',
       TagLimitReachedException() =>
         'You already have ${TagPolicy.maxCount} tags. Delete one before creating another.',
       _ when error.toString().contains('UNIQUE constraint failed') =>

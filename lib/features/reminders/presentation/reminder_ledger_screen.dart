@@ -54,7 +54,7 @@ class _ReminderLedgerScreenState extends ConsumerState<ReminderLedgerScreen> {
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    'Daily alarms',
+                    'Expiry reminders',
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                 ),
@@ -400,14 +400,14 @@ class ReminderLedgerDetailScreen extends ConsumerWidget {
               _SnapshotGrid(entry: latest),
               const SizedBox(height: 24),
               Text(
-                'Included monitors',
+                'Included domains',
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 12),
               ...latest.items.map(
                 (item) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
-                  child: _MonitorSnapshot(item: item),
+                  child: _DomainSnapshot(item: item),
                 ),
               ),
               if (values.length > 1) ...<Widget>[
@@ -448,7 +448,7 @@ class ReminderLedgerDetailScreen extends ConsumerWidget {
       'State: ${_stageLabel(entry.stage)}',
       'Platform: ${entry.platform}',
       'OS version: ${entry.osVersion}',
-      'Monitors: ${entry.monitorCount}',
+      'Domains: ${entry.domainCount}',
       'Reasons: ${entry.reasonCount}',
       'Delivery is controlled by the operating system after handoff.',
     ].join('\n');
@@ -505,7 +505,7 @@ class _HealthHero extends StatelessWidget {
                 if (enabled && health.nextAlarmDate != null) ...<Widget>[
                   const SizedBox(height: 9),
                   Text(
-                    'Next daily alarm · '
+                    'Next reminder · '
                     '${_formatAlarmDate(health.nextAlarmDate!)}',
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
@@ -601,7 +601,7 @@ class _AlarmDayCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       'Around ${entry.requestedTime} · '
-                      '${entry.monitorCount} ${entry.monitorCount == 1 ? 'monitor' : 'monitors'} · '
+                      '${entry.domainCount} ${entry.domainCount == 1 ? 'domain' : 'domains'} · '
                       '${entry.reasonCount} ${entry.reasonCount == 1 ? 'reason' : 'reasons'}',
                       style: TextStyle(color: scheme.onSurfaceVariant),
                     ),
@@ -865,8 +865,8 @@ class _SnapshotValue extends StatelessWidget {
   }
 }
 
-class _MonitorSnapshot extends StatelessWidget {
-  const _MonitorSnapshot({required this.item});
+class _DomainSnapshot extends StatelessWidget {
+  const _DomainSnapshot({required this.item});
 
   final ExpiryAlarmItem item;
 
@@ -1163,7 +1163,7 @@ _Visual _healthVisual(ReminderHealth health) => switch (health.kind) {
     label: 'Ready',
     title: 'Reminder plan verified',
     message:
-        '${health.pendingCount} daily alarms match the current expiry plan.',
+        '${health.pendingCount} scheduled reminders match the current expiry plan.',
     color: (scheme) => scheme.primary,
   ),
   ReminderHealthKind.needsAttention => _Visual(

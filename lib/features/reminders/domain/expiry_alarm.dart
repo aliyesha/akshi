@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:akshi/core/services/notification_destination.dart';
-import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/domains/domain/domain_entry.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:crypto/crypto.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -27,7 +27,7 @@ enum ExpiryAlarmKind {
 /// A local calendar date with no accidental clock or time-zone semantics.
 ///
 /// One [AlarmDate] is one OS notification. This is the core identity rule:
-/// every monitor and every expiry reason landing on the same local date is
+/// every domain and every expiry reason landing on the same local date is
 /// merged into that single notification.
 class AlarmDate implements Comparable<AlarmDate> {
   const AlarmDate(this.year, this.month, this.day);
@@ -88,7 +88,7 @@ class AlarmDate implements Comparable<AlarmDate> {
   String toString() => toIso8601String();
 }
 
-/// Why one monitor participates in a date's notification.
+/// Why one domain participates in a date's notification.
 class ExpiryAlarmReason {
   const ExpiryAlarmReason({
     required this.kind,
@@ -124,20 +124,20 @@ class ExpiryAlarmReason {
       '${kind.code}:${expiryDate.toIso8601String()}:$warningDays';
 }
 
-/// One monitor inside a daily notification.
+/// One domain inside a date-based notification.
 class ExpiryAlarmItem {
   const ExpiryAlarmItem({
-    required this.monitorId,
+    required this.domainId,
     required this.hostname,
     required this.reasons,
   });
 
-  final String monitorId;
+  final String domainId;
   final String hostname;
   final List<ExpiryAlarmReason> reasons;
 
   Map<String, Object> toJson() => <String, Object>{
-    'id': monitorId,
+    'id': domainId,
     'hostname': hostname,
     'reasons': reasons.map((reason) => reason.toJson()).toList(growable: false),
   };
@@ -161,7 +161,7 @@ class ExpiryAlarmItem {
           ),
         )
         .toList(growable: false);
-    return ExpiryAlarmItem(monitorId: id, hostname: hostname, reasons: reasons);
+    return ExpiryAlarmItem(domainId: id, hostname: hostname, reasons: reasons);
   }
 }
 
@@ -189,8 +189,8 @@ class ExpiryAlarmSpec {
   String get revision =>
       sha256.convert(utf8.encode(jsonEncode(_canonicalContent))).toString();
 
-  List<String> get monitorIds =>
-      items.map((item) => item.monitorId).toList(growable: false);
+  List<String> get domainIds =>
+      items.map((item) => item.domainId).toList(growable: false);
 
   String get title => items.length == 1
       ? 'Expiry reminder for ${items.single.hostname}'
@@ -246,7 +246,7 @@ class ObservedExpiryAlarm {
     required this.title,
     required this.body,
     required this.payload,
-    required this.monitorIds,
+    required this.domainIds,
   });
 
   final int id;
@@ -254,7 +254,7 @@ class ObservedExpiryAlarm {
   final String? title;
   final String? body;
   final String payload;
-  final List<String> monitorIds;
+  final List<String> domainIds;
 
   bool matches(ExpiryAlarmSpec desired) =>
       id == desired.notificationId &&
@@ -323,7 +323,7 @@ class ObservedExpiryAlarm {
         title: title,
         body: body,
         payload: payload,
-        monitorIds: items.map((item) => item.monitorId).toList(growable: false),
+        domainIds: items.map((item) => item.domainId).toList(growable: false),
       );
     } on Object {
       return null;
@@ -333,7 +333,7 @@ class ObservedExpiryAlarm {
 
 /// Pure planner for the complete alarm schedule.
 ///
-/// Example: if a monitor's domain and TLS certificate both expire on
+/// Example: if a domain's registration and TLS certificate both expire on
 /// 2026-05-24 with 10-day, 5-day, and 1-day warnings, this returns only three
 /// alarms: 2026-05-14, 2026-05-19, and 2026-05-23. Each alarm contains both
 /// reasons; it never creates two notifications for the same date.
@@ -341,7 +341,7 @@ class ExpiryAlarmPlanner {
   const ExpiryAlarmPlanner();
 
   Map<AlarmDate, ExpiryAlarmSpec> build({
-    required Iterable<MonitorEntry> monitors,
+    required Iterable<DomainEntry> domains,
     required AppSettings settings,
     required DateTime now,
     required tz.Location location,
@@ -355,11 +355,11 @@ class ExpiryAlarmPlanner {
     }.toList()..sort((left, right) => right.compareTo(left));
     final grouped = <AlarmDate, Map<String, _MutableAlarmItem>>{};
 
-    for (final monitor in monitors.where((monitor) => monitor.enabled)) {
+    for (final domain in domains.where((domain) => domain.remindersEnabled)) {
       final expiries = <(DateTime?, ExpiryAlarmKind)>[
-        (monitor.domainExpiresAt, ExpiryAlarmKind.domainRegistration),
-        if (monitor.checksCertificate)
-          (monitor.certificateExpiresAt, ExpiryAlarmKind.tlsCertificate),
+        (domain.domainExpiresAt, ExpiryAlarmKind.domainRegistration),
+        if (domain.checksCertificate)
+          (domain.certificateExpiresAt, ExpiryAlarmKind.tlsCertificate),
       ];
       for (final (expiry, kind) in expiries) {
         if (expiry == null) continue;
@@ -374,13 +374,13 @@ class ExpiryAlarmPlanner {
             settings.notificationMinute,
           );
           if (!scheduledAt.isAfter(nowAtLocation)) continue;
-          final byMonitor = grouped.putIfAbsent(
+          final byDomain = grouped.putIfAbsent(
             alarmDate,
             () => <String, _MutableAlarmItem>{},
           );
-          final item = byMonitor.putIfAbsent(
-            monitor.id,
-            () => _MutableAlarmItem(monitor.id, monitor.hostname),
+          final item = byDomain.putIfAbsent(
+            domain.id,
+            () => _MutableAlarmItem(domain.id, domain.hostname),
           );
           final reason = ExpiryAlarmReason(
             kind: kind,
@@ -402,7 +402,7 @@ class ExpiryAlarmPlanner {
           );
           return hostname != 0
               ? hostname
-              : left.monitorId.compareTo(right.monitorId);
+              : left.domainId.compareTo(right.domainId);
         });
       result[date] = ExpiryAlarmSpec(
         date: date,
@@ -465,9 +465,9 @@ List<AlarmComparison> compareAlarmPlans({
 }
 
 class _MutableAlarmItem {
-  _MutableAlarmItem(this.monitorId, this.hostname);
+  _MutableAlarmItem(this.domainId, this.hostname);
 
-  final String monitorId;
+  final String domainId;
   final String hostname;
   final Map<String, ExpiryAlarmReason> reasons = <String, ExpiryAlarmReason>{};
 
@@ -482,7 +482,7 @@ class _MutableAlarmItem {
             : left.warningDays.compareTo(right.warningDays);
       });
     return ExpiryAlarmItem(
-      monitorId: monitorId,
+      domainId: domainId,
       hostname: hostname,
       reasons: List<ExpiryAlarmReason>.unmodifiable(sorted),
     );

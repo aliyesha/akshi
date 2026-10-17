@@ -1,4 +1,4 @@
-/// Product-wide constraints for reusable monitor tags.
+/// Product-wide constraints for reusable domain tags.
 ///
 /// Keeping the limit in the domain layer lets persistence, controllers, and
 /// presentation share one rule instead of duplicating a UI-only constant.

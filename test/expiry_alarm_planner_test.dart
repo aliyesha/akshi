@@ -1,4 +1,4 @@
-import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/domains/domain/domain_entry.dart';
 import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,41 +13,41 @@ void main() {
     utc = tz.UTC;
   });
 
-  MonitorEntry monitor({
+  DomainEntry domain({
     required String id,
     required String hostname,
     DateTime? domainExpiry,
     DateTime? tlsExpiry,
     bool checksCertificate = true,
-    bool enabled = true,
-  }) => MonitorEntry(
+    bool remindersEnabled = true,
+  }) => DomainEntry(
     id: id,
     hostname: hostname,
     tlsHostname: hostname,
     tlsPort: 443,
     checksCertificate: checksCertificate,
-    enabled: enabled,
+    remindersEnabled: remindersEnabled,
     createdAt: DateTime.utc(2026, 2, 1),
     updatedAt: DateTime.utc(2026, 2, 1),
     domainExpiresAt: domainExpiry,
     certificateExpiresAt: tlsExpiry,
   );
 
-  final enabled = AppSettings(remindersEnabled: true);
+  final enabledSettings = AppSettings(remindersEnabled: true);
 
   test(
     'one domain and TLS expiry creates one alarm per date, not per reason',
     () {
       final plan = const ExpiryAlarmPlanner().build(
-        monitors: <MonitorEntry>[
-          monitor(
+        domains: <DomainEntry>[
+          domain(
             id: 'one',
             hostname: 'one.example',
             domainExpiry: DateTime.utc(2026, 5, 24, 18),
             tlsExpiry: DateTime.utc(2026, 5, 24, 18),
           ),
         ],
-        settings: enabled,
+        settings: enabledSettings,
         now: DateTime.utc(2026, 5, 10),
         location: utc,
       );
@@ -73,30 +73,30 @@ void main() {
 
   test('multiple domains and offsets colliding on one day make one alarm', () {
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: <MonitorEntry>[
-        monitor(
+      domains: <DomainEntry>[
+        domain(
           id: 'alpha',
           hostname: 'alpha.example',
           tlsExpiry: DateTime.utc(2026, 5, 24),
         ),
-        monitor(
+        domain(
           id: 'beta',
           hostname: 'beta.example',
           domainExpiry: DateTime.utc(2026, 5, 19),
         ),
-        monitor(
+        domain(
           id: 'gamma',
           hostname: 'gamma.example',
           tlsExpiry: DateTime.utc(2026, 5, 15),
         ),
       ],
-      settings: enabled,
+      settings: enabledSettings,
       now: DateTime.utc(2026, 5, 10),
       location: utc,
     );
 
     final alarm = plan[const AlarmDate(2026, 5, 14)]!;
-    expect(alarm.items.map((item) => item.monitorId), <String>[
+    expect(alarm.items.map((item) => item.domainId), <String>[
       'alpha',
       'beta',
       'gamma',
@@ -106,8 +106,8 @@ void main() {
 
   test('disabled reminders produce an empty authoritative plan', () {
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: <MonitorEntry>[
-        monitor(
+      domains: <DomainEntry>[
+        domain(
           id: 'one',
           hostname: 'one.example',
           domainExpiry: DateTime.utc(2026, 5, 24),
@@ -122,30 +122,30 @@ void main() {
   });
 
   test(
-    'disabled monitors, disabled TLS, null and past expiries are excluded',
+    'disabled domains, disabled TLS, null and past expiries are excluded',
     () {
       final plan = const ExpiryAlarmPlanner().build(
-        monitors: <MonitorEntry>[
-          monitor(
+        domains: <DomainEntry>[
+          domain(
             id: 'disabled',
             hostname: 'disabled.example',
             domainExpiry: DateTime.utc(2026, 5, 24),
-            enabled: false,
+            remindersEnabled: false,
           ),
-          monitor(
+          domain(
             id: 'tls-off',
             hostname: 'tls-off.example',
             tlsExpiry: DateTime.utc(2026, 5, 24),
             checksCertificate: false,
           ),
-          monitor(
+          domain(
             id: 'past',
             hostname: 'past.example',
             domainExpiry: DateTime.utc(2026, 5, 11),
           ),
-          monitor(id: 'null', hostname: 'null.example'),
+          domain(id: 'null', hostname: 'null.example'),
         ],
-        settings: enabled,
+        settings: enabledSettings,
         now: DateTime.utc(2026, 5, 10, 12),
         location: utc,
       );
@@ -156,14 +156,14 @@ void main() {
 
   test('alarm at exactly now is excluded while later alarm dates remain', () {
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: <MonitorEntry>[
-        monitor(
+      domains: <DomainEntry>[
+        domain(
           id: 'boundary',
           hostname: 'boundary.example',
           domainExpiry: DateTime.utc(2026, 5, 24),
         ),
       ],
-      settings: enabled,
+      settings: enabledSettings,
       now: DateTime.utc(2026, 5, 14, 9),
       location: utc,
     );
@@ -175,14 +175,14 @@ void main() {
 
   test('calendar subtraction crosses February and March correctly', () {
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: <MonitorEntry>[
-        monitor(
+      domains: <DomainEntry>[
+        domain(
           id: 'month',
           hostname: 'month.example',
           domainExpiry: DateTime.utc(2026, 3, 5, 18),
         ),
       ],
-      settings: enabled,
+      settings: enabledSettings,
       now: DateTime.utc(2026, 2, 1),
       location: utc,
     );
@@ -193,14 +193,14 @@ void main() {
   test('expiry is converted to the explicit local calendar date', () {
     final losAngeles = tz.getLocation('America/Los_Angeles');
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: <MonitorEntry>[
-        monitor(
+      domains: <DomainEntry>[
+        domain(
           id: 'zone',
           hostname: 'zone.example',
           domainExpiry: DateTime.utc(2026, 3, 1, 1),
         ),
       ],
-      settings: enabled,
+      settings: enabledSettings,
       now: DateTime.utc(2026, 2, 1),
       location: losAngeles,
     );
@@ -211,45 +211,45 @@ void main() {
     expect(plan, contains(const AlarmDate(2026, 2, 27)));
   });
 
-  test('same hostname remains two items because monitor ID is identity', () {
+  test('same hostname remains two items because domain ID is identity', () {
     final expiry = DateTime.utc(2026, 6, 20);
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: <MonitorEntry>[
-        monitor(id: 'first', hostname: 'same.example', domainExpiry: expiry),
-        monitor(id: 'second', hostname: 'same.example', domainExpiry: expiry),
+      domains: <DomainEntry>[
+        domain(id: 'first', hostname: 'same.example', domainExpiry: expiry),
+        domain(id: 'second', hostname: 'same.example', domainExpiry: expiry),
       ],
-      settings: enabled,
+      settings: enabledSettings,
       now: DateTime.utc(2026, 6, 1),
       location: utc,
     );
 
-    expect(plan.values.first.items.map((item) => item.monitorId), <String>[
+    expect(plan.values.first.items.map((item) => item.domainId), <String>[
       'first',
       'second',
     ]);
   });
 
   test('input order does not change canonical payload or body', () {
-    final first = monitor(
+    final first = domain(
       id: 'a',
       hostname: 'alpha.example',
       domainExpiry: DateTime.utc(2026, 7, 20),
     );
-    final second = monitor(
+    final second = domain(
       id: 'b',
       hostname: 'beta.example',
       tlsExpiry: DateTime.utc(2026, 7, 20),
     );
-    Map<AlarmDate, ExpiryAlarmSpec> build(List<MonitorEntry> monitors) =>
+    Map<AlarmDate, ExpiryAlarmSpec> build(List<DomainEntry> domains) =>
         const ExpiryAlarmPlanner().build(
-          monitors: monitors,
-          settings: enabled,
+          domains: domains,
+          settings: enabledSettings,
           now: DateTime.utc(2026, 7, 1),
           location: utc,
         );
 
-    final normal = build(<MonitorEntry>[first, second]);
-    final reversed = build(<MonitorEntry>[second, first]);
+    final normal = build(<DomainEntry>[first, second]);
+    final reversed = build(<DomainEntry>[second, first]);
     expect(normal.keys, reversed.keys);
     for (final date in normal.keys) {
       expect(normal[date]!.payload, reversed[date]!.payload);
@@ -258,14 +258,14 @@ void main() {
   });
 
   test('time changes replace content but retain stable date ID', () {
-    final item = monitor(
+    final item = domain(
       id: 'one',
       hostname: 'one.example',
       domainExpiry: DateTime.utc(2026, 8, 20),
     );
     ExpiryAlarmSpec alarmAt(int hour) => const ExpiryAlarmPlanner()
         .build(
-          monitors: <MonitorEntry>[item],
+          domains: <DomainEntry>[item],
           settings: AppSettings(remindersEnabled: true, notificationHour: hour),
           now: DateTime.utc(2026, 8, 1),
           location: utc,
@@ -281,17 +281,17 @@ void main() {
   });
 
   test('only the earliest sixty dates are retained', () {
-    final monitors = List<MonitorEntry>.generate(
+    final domains = List<DomainEntry>.generate(
       80,
-      (index) => monitor(
+      (index) => domain(
         id: 'm$index',
         hostname: 'm$index.example',
         domainExpiry: DateTime.utc(2026, 3, 1).add(Duration(days: index)),
       ),
     );
     final plan = const ExpiryAlarmPlanner().build(
-      monitors: monitors,
-      settings: enabled,
+      domains: domains,
+      settings: enabledSettings,
       now: DateTime.utc(2026, 2, 1),
       location: utc,
     );

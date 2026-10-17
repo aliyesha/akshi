@@ -1,10 +1,10 @@
-import 'package:akshi/features/monitors/domain/monitor_finding.dart';
-import 'package:akshi/features/monitors/presentation/attention_screen.dart';
-import 'package:akshi/features/monitors/presentation/home_screen.dart';
-import 'package:akshi/features/monitors/presentation/monitor_detail_screen.dart';
-import 'package:akshi/features/monitors/presentation/monitor_dns_screen.dart';
-import 'package:akshi/features/monitors/presentation/monitor_overview_screen.dart';
-import 'package:akshi/features/monitors/presentation/monitor_form_screen.dart';
+import 'package:akshi/features/domains/domain/domain_finding.dart';
+import 'package:akshi/features/domains/presentation/attention_screen.dart';
+import 'package:akshi/features/domains/presentation/home_screen.dart';
+import 'package:akshi/features/domains/presentation/domain_detail_screen.dart';
+import 'package:akshi/features/domains/presentation/domain_dns_screen.dart';
+import 'package:akshi/features/domains/presentation/domain_overview_screen.dart';
+import 'package:akshi/features/domains/presentation/domain_form_screen.dart';
 import 'package:akshi/features/reminders/domain/expiry_alarm.dart';
 import 'package:akshi/features/reminders/presentation/reminder_ledger_screen.dart';
 import 'package:akshi/features/settings/presentation/crash_logs_screen.dart';
@@ -15,9 +15,9 @@ import 'package:akshi/features/tags/presentation/tags_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Defines the app's top-level screens and focused monitor child routes.
+/// Defines the app's top-level screens and focused domain child routes.
 ///
-/// A monitor opens at its overview; attention and notification destinations can
+/// A domain opens at its overview; attention and notification destinations can
 /// then route directly to domain, TLS, email, or DNS detail context.
 final appRouter = GoRouter(
   routes: <RouteBase>[
@@ -27,7 +27,7 @@ final appRouter = GoRouter(
       builder: (context, state) => AttentionScreen(
         source: state.uri.queryParameters['source'] ?? 'current',
         alarmDate: state.uri.queryParameters['date'],
-        monitorIds:
+        domainIds:
             state.uri.queryParameters['ids']
                 ?.split(',')
                 .where((id) => id.isNotEmpty)
@@ -36,51 +36,49 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(
-      path: '/monitor/new',
+      path: '/domain/new',
       pageBuilder: (context, state) =>
-          _sheetPage(state: state, child: const MonitorFormScreen.create()),
+          _sheetPage(state: state, child: const DomainFormScreen.create()),
     ),
     GoRoute(
-      path: '/monitor/:id',
+      path: '/domain/:id',
       builder: (context, state) =>
-          MonitorOverviewScreen(monitorId: state.pathParameters['id']!),
+          DomainOverviewScreen(domainId: state.pathParameters['id']!),
       routes: <RouteBase>[
         GoRoute(
-          path: 'domain',
-          builder: (context, state) => MonitorDetailScreen(
-            monitorId: state.pathParameters['id']!,
-            focusKind: MonitorCheckKind.domainRegistration,
+          path: 'registration',
+          builder: (context, state) => DomainDetailScreen(
+            domainId: state.pathParameters['id']!,
+            focusKind: DomainCheckKind.domainRegistration,
             revealAttention: state.uri.queryParameters['attention'] == '1',
           ),
         ),
         GoRoute(
           path: 'tls',
-          builder: (context, state) => MonitorDetailScreen(
-            monitorId: state.pathParameters['id']!,
-            focusKind: MonitorCheckKind.tlsCertificate,
+          builder: (context, state) => DomainDetailScreen(
+            domainId: state.pathParameters['id']!,
+            focusKind: DomainCheckKind.tlsCertificate,
             revealAttention: state.uri.queryParameters['attention'] == '1',
           ),
         ),
         GoRoute(
           path: 'email',
-          builder: (context, state) => MonitorDetailScreen(
-            monitorId: state.pathParameters['id']!,
-            focusKind: MonitorCheckKind.emailConfiguration,
+          builder: (context, state) => DomainDetailScreen(
+            domainId: state.pathParameters['id']!,
+            focusKind: DomainCheckKind.emailConfiguration,
             revealAttention: state.uri.queryParameters['attention'] == '1',
           ),
         ),
         GoRoute(
           path: 'dns',
           builder: (context, state) =>
-              MonitorDnsScreen(monitorId: state.pathParameters['id']!),
+              DomainDnsScreen(domainId: state.pathParameters['id']!),
         ),
         GoRoute(
           path: 'edit',
           pageBuilder: (context, state) => _sheetPage(
             state: state,
-            child: MonitorFormScreen.edit(
-              monitorId: state.pathParameters['id']!,
-            ),
+            child: DomainFormScreen.edit(domainId: state.pathParameters['id']!),
           ),
         ),
       ],

@@ -34,7 +34,7 @@ void main() {
         ],
       },
     ]),
-    'monitor_count': 1,
+    'domain_count': 1,
     'reason_count': 1,
     'domain_reason_count': 1,
     'tls_reason_count': 0,

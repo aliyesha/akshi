@@ -6,7 +6,7 @@ import 'dart:collection';
 /// Operations start immediately while fewer than [maximum] are active. Further
 /// operations wait in FIFO order and receive a slot as soon as one finishes.
 /// The gate never creates work to fill the window; it only caps work requested
-/// by monitor checks.
+/// by domain checks.
 class AsyncConcurrencyGate {
   AsyncConcurrencyGate({required this.maximum}) {
     if (maximum < 1) {

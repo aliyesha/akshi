@@ -14,7 +14,7 @@ void main() {
         timeZoneId: utc.name,
         items: <ExpiryAlarmItem>[
           ExpiryAlarmItem(
-            monitorId: id,
+            domainId: id,
             hostname: '$id.example',
             reasons: <ExpiryAlarmReason>[
               ExpiryAlarmReason(

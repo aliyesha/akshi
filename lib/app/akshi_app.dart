@@ -6,7 +6,7 @@ import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/system_settings_service.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
-import 'package:akshi/features/monitors/application/monitor_controller.dart';
+import 'package:akshi/features/domains/application/domain_controller.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
@@ -65,9 +65,9 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
       reconcileReminders: () async {
         await ref.read(reminderControllerProvider.notifier).reconcile();
       },
-      refreshMonitors: () async {
+      refreshDomains: () async {
         await ref
-            .read(monitorControllerProvider.notifier)
+            .read(domainControllerProvider.notifier)
             .refreshAll(force: false);
       },
       reportError: (event, error, stackTrace) {

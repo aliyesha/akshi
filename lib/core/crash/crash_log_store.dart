@@ -5,7 +5,7 @@ import 'package:akshi/core/crash/crash_log.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
-/// Stores a bounded, private JSON array independently of the monitor database.
+/// Stores a bounded, private JSON array independently of the domain database.
 ///
 /// Writes use a temporary sibling file followed by rename. Every public
 /// operation is best effort so diagnostics can never become a new crash.

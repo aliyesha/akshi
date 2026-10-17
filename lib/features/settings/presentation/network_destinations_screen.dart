@@ -1,7 +1,7 @@
 import 'package:akshi/core/theme/akshi_theme.dart';
-import 'package:akshi/features/monitors/application/monitor_controller.dart';
-import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
-import 'package:akshi/features/monitors/domain/monitor_entry.dart';
+import 'package:akshi/features/domains/application/domain_controller.dart';
+import 'package:akshi/features/domains/domain/dns_snapshot.dart';
+import 'package:akshi/features/domains/domain/domain_entry.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -9,15 +9,15 @@ import 'package:phosphor_icons/phosphor_icons.dart';
 
 /// Disclosure of the destinations Akshi can contact.
 ///
-/// This is intentionally derived from monitor definitions and observations.
+/// This is intentionally derived from domain definitions and observations.
 /// It is not another settings surface and cannot silently diverge from what a
-/// monitor is configured to check.
+/// domain is configured to check.
 class NetworkDestinationsScreen extends ConsumerWidget {
   const NetworkDestinationsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final monitors = ref.watch(monitorControllerProvider);
+    final domains = ref.watch(domainControllerProvider);
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -35,9 +35,9 @@ class NetworkDestinationsScreen extends ConsumerWidget {
             icon: PhosphorIconsDuotone.shieldCheck,
             title: 'Direct from this device',
             description:
-                'Checks connect to the destinations shown below. Monitor data '
+                'Checks connect to the destinations shown below. Domain data '
                 'is not routed through an Akshi account, analytics service, '
-                'or monitoring backend.',
+                'or Akshi backend.',
             destinations: <_DestinationValue>[],
           ),
           const SizedBox(height: 28),
@@ -73,11 +73,11 @@ class NetworkDestinationsScreen extends ConsumerWidget {
           const SizedBox(height: 28),
           const _SectionHeader(
             icon: PhosphorIconsDuotone.globeHemisphereWest,
-            title: 'Destinations from your monitors',
-            description: 'Domain-specific destinations derived from monitors saved on this device.',
+            title: 'Destinations from your domains',
+            description: 'Domain-specific destinations derived from domains saved on this device.',
           ),
           const SizedBox(height: 12),
-          monitors.when(
+          domains.when(
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.all(28),
@@ -86,19 +86,19 @@ class NetworkDestinationsScreen extends ConsumerWidget {
             ),
             error: (_, _) => const _DestinationCard(
               icon: PhosphorIconsDuotone.warningCircle,
-              title: 'Monitor inventory unavailable',
+              title: 'Domain inventory unavailable',
               description:
-                  'Return to this page after the local monitor list loads.',
+                  'Return to this page after the local domain list loads.',
               destinations: <_DestinationValue>[],
             ),
             data: (items) => items.isEmpty
                 ? const _DestinationCard(
                     icon: PhosphorIconsDuotone.globeHemisphereWest,
-                    title: 'No monitored domains yet',
+                    title: 'No saved domains yet',
                     description:
                         'Domain-specific registration, DNS, TLS, website, icon, '
                         'and email-policy destinations will appear here after '
-                        'you add a monitor.',
+                        'you add a domain.',
                     destinations: <_DestinationValue>[],
                   )
                 : Column(
@@ -108,7 +108,7 @@ class NetworkDestinationsScreen extends ConsumerWidget {
                         index < items.length;
                         index++
                       ) ...<Widget>[
-                        _MonitorDestinations(monitor: items[index]),
+                        _DomainDestinations(domain: items[index]),
                         if (index != items.length - 1)
                           const SizedBox(height: 10),
                       ],
@@ -141,56 +141,56 @@ class NetworkDestinationsScreen extends ConsumerWidget {
   }
 }
 
-class _MonitorDestinations extends StatelessWidget {
-  const _MonitorDestinations({required this.monitor});
+class _DomainDestinations extends StatelessWidget {
+  const _DomainDestinations({required this.domain});
 
-  final MonitorEntry monitor;
+  final DomainEntry domain;
 
   @override
   Widget build(BuildContext context) {
     final destinations = <_DestinationValue>[
-      _DestinationValue(label: 'Domain registration', value: monitor.hostname),
+      _DestinationValue(label: 'Domain registration', value: domain.hostname),
       _DestinationValue(
         label: 'Registration service',
         value:
-            monitor.domainSource ?? 'Determined during the first domain check',
+            domain.domainSource ?? 'Determined during the first domain check',
       ),
       _DestinationValue(
         label: 'DNS lookups',
-        value: _dnsRequests(monitor).join('\n'),
+        value: _dnsRequests(domain).join('\n'),
       ),
-      if (monitor.checksCertificate)
+      if (domain.checksCertificate)
         _DestinationValue(
           label: 'TLS endpoint',
-          value: '${monitor.tlsHostname}:${monitor.tlsPort}',
+          value: '${domain.tlsHostname}:${domain.tlsPort}',
         ),
-      if (monitor.checksCertificate)
-        _DestinationValue(label: 'Website', value: _websiteUri(monitor)),
-      if (monitor.checksCertificate)
+      if (domain.checksCertificate)
+        _DestinationValue(label: 'Website', value: _websiteUri(domain)),
+      if (domain.checksCertificate)
         const _DestinationValue(
           label: 'Website discovery',
           value:
               'HTTPS redirects and site-declared icon addresses, when present',
         ),
-      if (monitor.siteIcon != null)
+      if (domain.siteIcon != null)
         _DestinationValue(
           label: 'Last icon source',
-          value: monitor.siteIcon!.sourceUrl,
+          value: domain.siteIcon!.sourceUrl,
         ),
-      if (monitor.checksEmail && monitor.mailReceives)
+      if (domain.checksEmail && domain.mailReceives)
         _DestinationValue(
           label: 'MTA-STS policy',
-          value: 'https://mta-sts.${monitor.hostname}/.well-known/mta-sts.txt',
+          value: 'https://mta-sts.${domain.hostname}/.well-known/mta-sts.txt',
         ),
     ];
     return _DestinationCard(
-      icon: monitor.checksEmail
+      icon: domain.checksEmail
           ? PhosphorIconsDuotone.envelopeSimpleOpen
           : PhosphorIconsDuotone.globeHemisphereWest,
-      title: monitor.displayName,
-      description: monitor.enabled
-          ? 'Saved monitor. Checks and expiry reminders are active.'
-          : 'Saved monitor. Checks stay active; expiry reminders are off.',
+      title: domain.displayName,
+      description: domain.remindersEnabled
+          ? 'Saved domain. Checks and expiry reminders are active.'
+          : 'Saved domain. Checks stay active; expiry reminders are off.',
       destinations: destinations,
     );
   }
@@ -365,25 +365,25 @@ class _DestinationValue {
   final String value;
 }
 
-List<String> _dnsRequests(MonitorEntry monitor) {
+List<String> _dnsRequests(DomainEntry domain) {
   final requests = <String>[
-    '${monitor.hostname} (${DnsRecordType.values.map((type) => type.label).join(', ')})',
-    if (monitor.checksEmail && monitor.mailSends)
-      '_dmarc.${monitor.hostname} (TXT)',
-    if (monitor.checksEmail && monitor.mailSends)
-      for (final selector in monitor.dkimSelectors)
-        '$selector._domainkey.${monitor.hostname} (TXT)',
-    if (monitor.checksEmail && monitor.mailReceives)
-      '_mta-sts.${monitor.hostname} (TXT)',
-    if (monitor.checksEmail && monitor.mailReceives)
-      '_smtp._tls.${monitor.hostname} (TXT)',
+    '${domain.hostname} (${DnsRecordType.values.map((type) => type.label).join(', ')})',
+    if (domain.checksEmail && domain.mailSends)
+      '_dmarc.${domain.hostname} (TXT)',
+    if (domain.checksEmail && domain.mailSends)
+      for (final selector in domain.dkimSelectors)
+        '$selector._domainkey.${domain.hostname} (TXT)',
+    if (domain.checksEmail && domain.mailReceives)
+      '_mta-sts.${domain.hostname} (TXT)',
+    if (domain.checksEmail && domain.mailReceives)
+      '_smtp._tls.${domain.hostname} (TXT)',
   ];
   return requests;
 }
 
-String _websiteUri(MonitorEntry monitor) => Uri(
+String _websiteUri(DomainEntry domain) => Uri(
   scheme: 'https',
-  host: monitor.tlsHostname,
-  port: monitor.tlsPort == 443 ? null : monitor.tlsPort,
+  host: domain.tlsHostname,
+  port: domain.tlsPort == 443 ? null : domain.tlsPort,
   path: '/',
 ).toString();

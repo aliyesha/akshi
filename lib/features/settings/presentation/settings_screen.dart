@@ -61,7 +61,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          tooltip: 'Back to monitors',
+          tooltip: 'Back to domains',
           onPressed: () => context.canPop() ? context.pop() : context.go('/'),
           icon: const PhosphorIcon(PhosphorIconsDuotone.caretLeft),
         ),
@@ -203,7 +203,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     leading: const PhosphorIcon(PhosphorIconsDuotone.tag),
                     title: const Text('Tags'),
                     subtitle: const Text(
-                      'Create reusable colored labels for your monitors',
+                      'Create reusable colored labels for your domains',
                     ),
                     trailing: const PhosphorIcon(
                       PhosphorIconsDuotone.caretRight,
@@ -311,7 +311,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     leading: PhosphorIcon(PhosphorIconsDuotone.wifiHigh),
                     title: Text('Checks happen while active'),
                     subtitle: Text(
-                      'Akshi connects only when opened, resumed, edited, or refreshed.',
+                      'Akshi connects when opened, resumed, manually refreshed, or when check settings change.',
                     ),
                   ),
                   const Divider(),

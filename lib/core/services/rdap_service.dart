@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/bounded_response_reader.dart';
-import 'package:akshi/features/monitors/domain/check_result.dart';
+import 'package:akshi/features/domains/domain/check_result.dart';
 
 /// Reads public RDAP registration data using IANA's TLD bootstrap map.
 ///

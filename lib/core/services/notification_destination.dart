@@ -14,11 +14,11 @@ bool notificationPayloadFits(String value) =>
 /// Navigation-only projection of a validated expiry-alarm payload.
 class NotificationDestination {
   const NotificationDestination({
-    required this.monitorIds,
+    required this.domainIds,
     required this.alarmDate,
   });
 
-  final List<String> monitorIds;
+  final List<String> domainIds;
   final String alarmDate;
 
   String get route => Uri(
@@ -26,7 +26,7 @@ class NotificationDestination {
     queryParameters: <String, String>{
       'source': 'expiry',
       'date': alarmDate,
-      if (monitorIds.isNotEmpty) 'ids': monitorIds.join(','),
+      if (domainIds.isNotEmpty) 'ids': domainIds.join(','),
     },
   ).toString();
 
@@ -54,7 +54,7 @@ class NotificationDestination {
         ids.add(id);
       }
       return NotificationDestination(
-        monitorIds: ids.toList(growable: false),
+        domainIds: ids.toList(growable: false),
         alarmDate: date,
       );
     } on Object {

@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/bounded_response_reader.dart';
-import 'package:akshi/features/monitors/domain/site_icon.dart';
+import 'package:akshi/features/domains/domain/site_icon.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:image/image.dart' as image_codec;
 import 'package:xml/xml.dart';
@@ -47,7 +47,7 @@ class SiteIconService {
   final Duration _operationTimeout;
   final _iconDecoder = const SiteIconDecoder();
 
-  /// Performs best-effort icon discovery without affecting monitor health.
+  /// Performs best-effort icon discovery without affecting domain health.
   ///
   /// A null result leaves the neutral placeholder in place.
   Future<SiteIcon?> discover(String hostname, int port) async {
@@ -122,7 +122,7 @@ class SiteIconService {
           stackTrace,
           data: <String, Object?>{'hostname': hostname, 'port': port},
         );
-        // Try the next declared icon without affecting monitor health.
+        // Try the next declared icon without affecting domain health.
       }
     }
     return null;

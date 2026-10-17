@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:akshi/core/services/site_icon_service.dart';
-import 'package:akshi/features/monitors/domain/site_icon.dart';
+import 'package:akshi/features/domains/domain/site_icon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as image_codec;
 

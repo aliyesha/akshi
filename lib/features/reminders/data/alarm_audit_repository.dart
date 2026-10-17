@@ -9,7 +9,7 @@ import 'package:sqflite/sqflite.dart';
 /// Local proof-of-work ledger for alarm handoff.
 ///
 /// This repository is intentionally not a scheduling source. The planner always
-/// recomputes desired alarms from monitors and settings; these rows only explain
+/// recomputes desired alarms from domains and settings; these rows only explain
 /// what Akshi computed and what the platform adapter accepted and reported back.
 class AlarmAuditRepository implements AlarmAuditTrail {
   AlarmAuditRepository(this._database);
@@ -63,7 +63,7 @@ class AlarmAuditRepository implements AlarmAuditTrail {
           'items_json': jsonEncode(
             alarm.items.map((item) => item.toJson()).toList(growable: false),
           ),
-          'monitor_count': alarm.items.length,
+          'domain_count': alarm.items.length,
           'reason_count': reasons.length,
           'domain_reason_count': reasons
               .where(

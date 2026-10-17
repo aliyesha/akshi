@@ -1,5 +1,5 @@
 import 'package:akshi/core/database/app_database.dart';
-import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/domain_tag.dart';
 import 'package:akshi/features/tags/domain/tag_policy.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -8,17 +8,17 @@ class TagRepository {
 
   final AppDatabase _database;
 
-  Future<List<MonitorTag>> all() async {
+  Future<List<DomainTag>> all() async {
     final database = await _database.instance;
     final rows = await database.query('tags', orderBy: 'name COLLATE NOCASE');
-    return rows.map(MonitorTag.fromMap).toList(growable: false);
+    return rows.map(DomainTag.fromMap).toList(growable: false);
   }
 
   /// Inserts a tag while enforcing the product limit in one transaction.
   ///
   /// The visible count guides the user; this transactional count is the
   /// authoritative boundary when two create intents arrive close together.
-  Future<void> create(MonitorTag tag) async {
+  Future<void> create(DomainTag tag) async {
     final database = await _database.instance;
     await database.transaction((transaction) async {
       final count =
@@ -38,7 +38,7 @@ class TagRepository {
   }
 
   /// Updates an existing tag without consuming another capacity slot.
-  Future<void> update(MonitorTag tag) async {
+  Future<void> update(DomainTag tag) async {
     final database = await _database.instance;
     final changed = await database.update(
       'tags',

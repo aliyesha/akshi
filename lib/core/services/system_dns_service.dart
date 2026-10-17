@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:akshi/core/services/async_concurrency_gate.dart';
 import 'package:akshi/core/logging/app_logger.dart';
-import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
+import 'package:akshi/features/domains/domain/dns_snapshot.dart';
 import 'package:flutter/services.dart';
 
 /// Reads DNS records through the platform resolver exposed by native code.
@@ -112,7 +112,7 @@ class DnsSnapshotService {
   final SystemDnsService _dns;
   final AsyncConcurrencyGate _gate;
 
-  /// Runs the explicit root and role-specific queries for a monitor.
+  /// Runs the explicit root and role-specific queries for a domain.
   ///
   /// Email names are requested only when the corresponding send/receive role
   /// is enabled. The returned snapshot is shared by email posture evaluation

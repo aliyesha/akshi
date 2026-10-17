@@ -1,4 +1,4 @@
-import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/domain_tag.dart';
 import 'package:akshi/features/tags/domain/tag_policy.dart';
 import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:material_ui/material_ui.dart';
@@ -13,7 +13,7 @@ class TagDraft {
 
 Future<TagDraft?> showTagEditor(
   BuildContext context, {
-  MonitorTag? tag,
+  DomainTag? tag,
   int? currentCount,
 }) => showModalBottomSheet<TagDraft>(
   context: context,
@@ -26,7 +26,7 @@ class _TagEditorSheet extends StatefulWidget {
   const _TagEditorSheet({this.tag, this.currentCount});
 
   final int? currentCount;
-  final MonitorTag? tag;
+  final DomainTag? tag;
 
   @override
   State<_TagEditorSheet> createState() => _TagEditorSheetState();
@@ -60,7 +60,7 @@ class _TagEditorSheetState extends State<_TagEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    final preview = MonitorTag(
+    final preview = DomainTag(
       id: 'preview',
       name: _name.text.trim().isEmpty ? 'Tag preview' : _name.text.trim(),
       colorArgb: _colorArgb,

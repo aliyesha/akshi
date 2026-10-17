@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:akshi/core/logging/app_logger.dart';
-import 'package:akshi/features/monitors/domain/check_activity.dart';
+import 'package:akshi/features/domains/domain/check_activity.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/services.dart';
 

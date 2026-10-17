@@ -17,7 +17,7 @@ void main() {
       timeZoneId: utc.name,
       items: const <ExpiryAlarmItem>[
         ExpiryAlarmItem(
-          monitorId: 'first-id',
+          domainId: 'first-id',
           hostname: 'first.example',
           reasons: <ExpiryAlarmReason>[
             ExpiryAlarmReason(
@@ -28,7 +28,7 @@ void main() {
           ],
         ),
         ExpiryAlarmItem(
-          monitorId: 'second-id',
+          domainId: 'second-id',
           hostname: 'second.example',
           reasons: <ExpiryAlarmReason>[
             ExpiryAlarmReason(
@@ -42,11 +42,11 @@ void main() {
     );
   });
 
-  test('versioned alarm payload routes to exact monitors and alarm date', () {
+  test('versioned alarm payload routes to exact domains and alarm date', () {
     final destination = NotificationDestination.fromPayload(alarm.payload);
 
     expect(destination, isNotNull);
-    expect(destination!.monitorIds, <String>['first-id', 'second-id']);
+    expect(destination!.domainIds, <String>['first-id', 'second-id']);
     expect(destination.alarmDate, '2026-05-14');
     final uri = Uri.parse(destination.route);
     expect(uri.path, '/attention');
@@ -100,7 +100,7 @@ void main() {
       timeZoneId: utc.name,
       items: <ExpiryAlarmItem>[
         ExpiryAlarmItem(
-          monitorId: oversized,
+          domainId: oversized,
           hostname: 'example.com',
           reasons: const <ExpiryAlarmReason>[
             ExpiryAlarmReason(
@@ -139,7 +139,7 @@ void main() {
 
     expect(observed, isNotNull);
     expect(observed!.matches(alarm), isTrue);
-    expect(observed.monitorIds, <String>['first-id', 'second-id']);
+    expect(observed.domainIds, <String>['first-id', 'second-id']);
   });
 
   test('alarm dates reject impossible calendar days', () {

@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:akshi/core/services/check_failure_classifier.dart';
-import 'package:akshi/features/monitors/domain/check_activity.dart';
-import 'package:akshi/features/monitors/domain/tls_endpoint.dart';
+import 'package:akshi/features/domains/domain/check_activity.dart';
+import 'package:akshi/features/domains/domain/tls_endpoint.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

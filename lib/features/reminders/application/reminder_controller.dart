@@ -123,9 +123,9 @@ class ReminderController extends Notifier<ReminderHealth> {
 
       final notifications = ref.read(notificationServiceProvider);
       final location = await notifications.localLocation();
-      final monitors = await ref.read(monitorRepositoryProvider).all();
+      final domains = await ref.read(domainRepositoryProvider).all();
       final desired = const ExpiryAlarmPlanner().build(
-        monitors: monitors,
+        domains: domains,
         settings: settings,
         now: DateTime.now(),
         location: location,

@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:akshi/core/services/email_posture_service.dart';
-import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
-import 'package:akshi/features/monitors/domain/email_posture.dart';
+import 'package:akshi/features/domains/domain/dns_snapshot.dart';
+import 'package:akshi/features/domains/domain/email_posture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -4,7 +4,7 @@ import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:akshi/features/settings/presentation/settings_screen.dart';
 import 'package:akshi/features/tags/application/tag_controller.dart';
-import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/domain_tag.dart';
 import 'package:akshi/features/tags/presentation/tags_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,26 +36,26 @@ class _TestTagController extends TagController {
   var _nextId = 0;
 
   @override
-  Future<List<MonitorTag>> build() async => const <MonitorTag>[];
+  Future<List<DomainTag>> build() async => const <DomainTag>[];
 
   @override
-  Future<MonitorTag> create({
+  Future<DomainTag> create({
     required String name,
     required int colorArgb,
   }) async {
-    final tag = MonitorTag(
+    final tag = DomainTag(
       id: 'tag-${_nextId++}',
       name: name,
       colorArgb: colorArgb,
       createdAt: DateTime.utc(2026, 6, 14),
     );
-    state = AsyncData(<MonitorTag>[...state.requireValue, tag]);
+    state = AsyncData(<DomainTag>[...state.requireValue, tag]);
     return tag;
   }
 
   @override
-  Future<void> updateTag(MonitorTag tag) async {
-    state = AsyncData(<MonitorTag>[
+  Future<void> updateTag(DomainTag tag) async {
+    state = AsyncData(<DomainTag>[
       for (final current in state.requireValue)
         if (current.id == tag.id) tag else current,
     ]);
@@ -168,16 +168,16 @@ void main() {
         await tester.pageBack();
         await tester.pumpAndSettle();
         expect(find.text('Settings'), findsOneWidget);
-        expect(find.byTooltip('Back to monitors'), findsOneWidget);
+        expect(find.byTooltip('Back to domains'), findsOneWidget);
 
         router.go('/');
         await tester.pumpAndSettle();
         router.go('/settings');
         await tester.pumpAndSettle();
         expect(router.canPop(), isFalse);
-        expect(find.byTooltip('Back to monitors'), findsOneWidget);
+        expect(find.byTooltip('Back to domains'), findsOneWidget);
 
-        await tester.tap(find.byTooltip('Back to monitors'));
+        await tester.tap(find.byTooltip('Back to domains'));
         await tester.pumpAndSettle();
         expect(find.text('Open settings'), findsOneWidget);
       },

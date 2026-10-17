@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
-import 'package:akshi/features/monitors/domain/check_result.dart';
+import 'package:akshi/features/domains/domain/check_result.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
 

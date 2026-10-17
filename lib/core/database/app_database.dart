@@ -135,7 +135,7 @@ class AppDatabase {
 
   static Future<void> _createSchema(Database database) async {
     await database.execute('''
-      CREATE TABLE monitors (
+      CREATE TABLE domains (
         id TEXT PRIMARY KEY,
         hostname TEXT NOT NULL,
         tls_hostname TEXT NOT NULL,
@@ -143,7 +143,7 @@ class AppDatabase {
         checks_certificate INTEGER NOT NULL DEFAULT 0,
         checks_email INTEGER NOT NULL DEFAULT 0,
         label TEXT,
-        enabled INTEGER NOT NULL DEFAULT 1,
+        reminders_enabled INTEGER NOT NULL DEFAULT 1,
         mail_sends INTEGER NOT NULL DEFAULT 1,
         mail_receives INTEGER NOT NULL DEFAULT 1,
         dkim_selectors_json TEXT NOT NULL,
@@ -185,7 +185,7 @@ class AppDatabase {
       )
     ''');
     await database.execute(
-      'CREATE UNIQUE INDEX monitor_domain ON monitors(hostname)',
+      'CREATE UNIQUE INDEX domains_hostname ON domains(hostname)',
     );
     await database.execute('''
       CREATE TABLE tags (
@@ -196,16 +196,16 @@ class AppDatabase {
       )
     ''');
     await database.execute('''
-      CREATE TABLE monitor_tags (
-        monitor_id TEXT NOT NULL,
+      CREATE TABLE domain_tags (
+        domain_id TEXT NOT NULL,
         tag_id TEXT NOT NULL,
-        PRIMARY KEY (monitor_id, tag_id),
-        FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
+        PRIMARY KEY (domain_id, tag_id),
+        FOREIGN KEY (domain_id) REFERENCES domains(id) ON DELETE CASCADE,
         FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
       )
     ''');
     await database.execute(
-      'CREATE INDEX monitor_tags_tag ON monitor_tags(tag_id)',
+      'CREATE INDEX domain_tags_tag ON domain_tags(tag_id)',
     );
     await database.execute('''
       CREATE TABLE alarm_audit (
@@ -217,7 +217,7 @@ class AppDatabase {
         time_zone_id TEXT NOT NULL,
         requested_time TEXT NOT NULL,
         items_json TEXT NOT NULL,
-        monitor_count INTEGER NOT NULL,
+        domain_count INTEGER NOT NULL,
         reason_count INTEGER NOT NULL,
         domain_reason_count INTEGER NOT NULL,
         tls_reason_count INTEGER NOT NULL,

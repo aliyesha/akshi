@@ -33,27 +33,26 @@ String checkUserFacingError(Object error) {
 /// Converts failures from the transactional add/edit workflow for the UI.
 String userFacingError(Object error) {
   final value = error.toString().toLowerCase();
-  if (value.contains('unique constraint failed') &&
-      value.contains('monitors')) {
+  if (value.contains('unique constraint failed') && value.contains('domains')) {
     return 'This domain is already saved in Akshi.';
   }
   if (error is DatabaseException || value.contains('database')) {
-    return 'Akshi could not save the monitor on this device. Check storage and try again.';
+    return 'Akshi could not save the domain on this device. Check storage and try again.';
   }
   if (error is TimeoutException) {
-    return 'The check took too long. Your monitor was not saved; try again when the connection is stable.';
+    return 'The check took too long. Your domain was not saved; try again when the connection is stable.';
   }
   if (error is SocketException || value.contains('network')) {
-    return 'Akshi could not reach the information source. Your monitor was not saved; try again when online.';
+    return 'Akshi could not reach the information source. Your domain was not saved; try again when online.';
   }
   if (error is PlatformException) {
-    return 'The device could not complete this check. Your monitor was not saved; try again.';
+    return 'The device could not complete this check. Your domain was not saved; try again.';
   }
   if (error is FormatException || error is ArgumentError) {
-    return 'Some monitor details could not be understood. Check the values and try again.';
+    return 'Some domain details could not be understood. Check the values and try again.';
   }
   if (error is StateError) {
     return error.message;
   }
-  return 'Akshi could not finish saving this monitor. Please try again.';
+  return 'Akshi could not finish saving this domain. Please try again.';
 }

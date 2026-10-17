@@ -33,7 +33,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Private, local-first infrastructure awareness',
+            'Private domain portfolio companion',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium
                 ?.copyWith(color: Theme.of(context).colorScheme.primary),
@@ -41,7 +41,7 @@ class AboutScreen extends StatelessWidget {
           const SizedBox(height: 28),
           const _AboutCard(
             icon: PhosphorIconsDuotone.scan,
-            title: 'What Akshi watches',
+            title: 'What Akshi checks',
             body:
                 'Akshi—Sanskrit akṣi (अक्षि), meaning eye—checks domain '
                 'registration, DNS, TLS certificates, and published email '
@@ -53,10 +53,10 @@ class AboutScreen extends StatelessWidget {
             icon: PhosphorIconsDuotone.deviceMobile,
             title: 'Local by design',
             body:
-                'There is no Akshi account or central monitoring server. '
+                'There is no Akshi account or central Akshi server. '
                 'Checks run intentionally while the app is active, results '
                 'remain on this device, and reminders are scheduled locally. '
-                'Akshi does not provide continuous uptime monitoring.',
+                'Akshi does not provide continuous uptime checks.',
           ),
           const SizedBox(height: 12),
           const _AboutCard(
@@ -74,7 +74,7 @@ class AboutScreen extends StatelessWidget {
             body:
                 'Checks contact the device DNS resolver, public registration '
                 'services, and the endpoints being inspected. Akshi does not send '
-                'monitor data or diagnostics to Aliyesha. For privacy or support '
+                'domain data or diagnostics to Aliyesha. For privacy or support '
                 'questions, contact ops@aliyeshamail.com.',
           ),
           const SizedBox(height: 12),

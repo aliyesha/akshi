@@ -12,8 +12,8 @@ void main() {
   ExpiryAlarmSpec alarm(
     int month,
     int day, {
-    String id = 'monitor',
-    String hostname = 'monitor.example',
+    String id = 'domain',
+    String hostname = 'domain.example',
     int hour = 9,
   }) {
     final date = AlarmDate(2026, month, day);
@@ -23,7 +23,7 @@ void main() {
       timeZoneId: utc.name,
       items: <ExpiryAlarmItem>[
         ExpiryAlarmItem(
-          monitorId: id,
+          domainId: id,
           hostname: hostname,
           reasons: <ExpiryAlarmReason>[
             ExpiryAlarmReason(
@@ -146,30 +146,35 @@ void main() {
     expect(platform.requests.single.payload, updated.payload);
   });
 
-  test('multiple-domain update replaces only the shared daily alarm', () async {
-    final date = const AlarmDate(2026, 7, 14);
-    final first = alarm(7, 14, id: 'alpha', hostname: 'alpha.example');
-    final combined = ExpiryAlarmSpec(
-      date: date,
-      scheduledAt: date.at(utc, 9, 0),
-      timeZoneId: utc.name,
-      items: <ExpiryAlarmItem>[
-        ...first.items,
-        alarm(7, 14, id: 'beta', hostname: 'beta.example').items.single,
-      ],
-    );
-    final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[request(first)]);
+  test(
+    'multiple-domain update replaces only the shared date-grouped alarm',
+    () async {
+      final date = const AlarmDate(2026, 7, 14);
+      final first = alarm(7, 14, id: 'alpha', hostname: 'alpha.example');
+      final combined = ExpiryAlarmSpec(
+        date: date,
+        scheduledAt: date.at(utc, 9, 0),
+        timeZoneId: utc.name,
+        items: <ExpiryAlarmItem>[
+          ...first.items,
+          alarm(7, 14, id: 'beta', hostname: 'beta.example').items.single,
+        ],
+      );
+      final platform = _FakeAlarmPlatform(<PlatformAlarmRequest>[
+        request(first),
+      ]);
 
-    final result = await reconciler(platform)
-        .reconcile(plan(<ExpiryAlarmSpec>[combined]));
+      final result = await reconciler(platform)
+          .reconcile(plan(<ExpiryAlarmSpec>[combined]));
 
-    expect(result.healthy, isTrue);
-    expect(result.replaced, 1);
-    expect(platform.operations, <String>[
-      'schedule:${combined.notificationId}',
-    ]);
-    expect(platform.requests, hasLength(1));
-  });
+      expect(result.healthy, isTrue);
+      expect(result.replaced, 1);
+      expect(platform.operations, <String>[
+        'schedule:${combined.notificationId}',
+      ]);
+      expect(platform.requests, hasLength(1));
+    },
+  );
 
   test('malformed owned payload triggers one bounded repair', () async {
     final desired = alarm(7, 20);

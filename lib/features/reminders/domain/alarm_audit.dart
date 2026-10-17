@@ -18,7 +18,7 @@ class AlarmAuditEntry {
     required this.timeZoneId,
     required this.requestedTime,
     required this.items,
-    required this.monitorCount,
+    required this.domainCount,
     required this.reasonCount,
     required this.domainReasonCount,
     required this.tlsReasonCount,
@@ -40,7 +40,7 @@ class AlarmAuditEntry {
   final String timeZoneId;
   final String requestedTime;
   final List<ExpiryAlarmItem> items;
-  final int monitorCount;
+  final int domainCount;
   final int reasonCount;
   final int domainReasonCount;
   final int tlsReasonCount;
@@ -84,7 +84,7 @@ class AlarmAuditEntry {
             ),
           )
           .toList(growable: false),
-      monitorCount: row['monitor_count']! as int,
+      domainCount: row['domain_count']! as int,
       reasonCount: row['reason_count']! as int,
       domainReasonCount: row['domain_reason_count']! as int,
       tlsReasonCount: row['tls_reason_count']! as int,
@@ -103,7 +103,7 @@ class AlarmAuditEntry {
       value == null ? null : DateTime.parse(value as String);
 }
 
-/// All revisions for one daily alarm, newest first.
+/// All revisions for one scheduled alarm, newest first.
 class AlarmAuditDay {
   const AlarmAuditDay({required this.date, required this.revisions});
 

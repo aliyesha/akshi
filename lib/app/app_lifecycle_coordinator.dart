@@ -10,7 +10,7 @@ typedef AppLifecycleErrorReporter = void Function(
 
 /// Owns startup sequencing and independent foreground operations.
 ///
-/// Reminder and monitor work share one coalesced data session behind separate
+/// Reminder and domain work share one coalesced data session behind separate
 /// error boundaries. Notification maintenance owns another coalesced operation,
 /// so a slow plugin cannot keep later data sessions from starting, while a
 /// failed initialization remains retryable.
@@ -20,14 +20,14 @@ final class AppLifecycleCoordinator {
     required void Function() attachNotificationNavigation,
     required AppLifecycleTask configureNotificationPermission,
     required AppLifecycleTask reconcileReminders,
-    required AppLifecycleTask refreshMonitors,
+    required AppLifecycleTask refreshDomains,
     required AppLifecycleErrorReporter reportError,
   }) => AppLifecycleCoordinator._(
     initializeNotifications,
     attachNotificationNavigation,
     configureNotificationPermission,
     reconcileReminders,
-    refreshMonitors,
+    refreshDomains,
     reportError,
   );
 
@@ -36,7 +36,7 @@ final class AppLifecycleCoordinator {
     this._attachNotificationNavigation,
     this._configureNotificationPermission,
     this._reconcileReminders,
-    this._refreshMonitors,
+    this._refreshDomains,
     this._reportError,
   );
 
@@ -44,7 +44,7 @@ final class AppLifecycleCoordinator {
   final void Function() _attachNotificationNavigation;
   final AppLifecycleTask _configureNotificationPermission;
   final AppLifecycleTask _reconcileReminders;
-  final AppLifecycleTask _refreshMonitors;
+  final AppLifecycleTask _refreshDomains;
   final AppLifecycleErrorReporter _reportError;
 
   Future<void>? _startupOperation;
@@ -90,7 +90,7 @@ final class AppLifecycleCoordinator {
         'app.foreground.reminders.reconcile.failed',
         _reconcileReminders,
       ),
-      _runTask('app.foreground.monitors.refresh.failed', _refreshMonitors),
+      _runTask('app.foreground.domains.refresh.failed', _refreshDomains),
     ]);
   }
 

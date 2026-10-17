@@ -13,7 +13,7 @@ import 'package:akshi/core/services/notification_service.dart';
 import 'package:akshi/core/services/rdap_service.dart';
 import 'package:akshi/core/services/site_icon_service.dart';
 import 'package:akshi/core/services/tls_check_service.dart';
-import 'package:akshi/features/monitors/data/monitor_repository.dart';
+import 'package:akshi/features/domains/data/domain_repository.dart';
 import 'package:akshi/features/reminders/application/alarm_reconciler.dart';
 import 'package:akshi/features/reminders/data/alarm_audit_repository.dart';
 import 'package:akshi/features/reminders/domain/alarm_audit.dart';
@@ -71,8 +71,8 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return database;
 });
 
-final monitorRepositoryProvider = Provider<MonitorRepository>(
-  (ref) => MonitorRepository(ref.watch(databaseProvider)),
+final domainRepositoryProvider = Provider<DomainRepository>(
+  (ref) => DomainRepository(ref.watch(databaseProvider)),
 );
 
 final tagRepositoryProvider = Provider<TagRepository>(

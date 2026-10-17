@@ -1,5 +1,5 @@
 import 'package:akshi/core/services/system_dns_service.dart';
-import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
+import 'package:akshi/features/domains/domain/dns_snapshot.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

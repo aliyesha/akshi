@@ -1,4 +1,4 @@
-import 'package:akshi/features/monitors/domain/hostname.dart';
+import 'package:akshi/features/domains/domain/hostname.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

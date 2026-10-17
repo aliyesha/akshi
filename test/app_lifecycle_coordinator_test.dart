@@ -21,8 +21,8 @@ void main() {
         reconcileReminders: () async {
           calls.add('reminders');
         },
-        refreshMonitors: () async {
-          calls.add('monitors');
+        refreshDomains: () async {
+          calls.add('domains');
         },
         reportError: (event, _, _) => errors.add(event),
       );
@@ -32,7 +32,7 @@ void main() {
 
       expect(
         calls,
-        containsAll(<String>['initialize', 'reminders', 'monitors']),
+        containsAll(<String>['initialize', 'reminders', 'domains']),
       );
       expect(calls, isNot(contains('navigation')));
       expect(calls, isNot(contains('permission')));
@@ -63,15 +63,15 @@ void main() {
         reconcileReminders: () async {
           calls.add('reminders');
         },
-        refreshMonitors: () async {
-          calls.add('monitors');
+        refreshDomains: () async {
+          calls.add('domains');
         },
         reportError: (event, _, _) => errors.add(event),
       );
 
       await coordinator.start();
       await Future<void>.delayed(Duration.zero);
-      expect(calls, <String>['initialize', 'reminders', 'monitors']);
+      expect(calls, <String>['initialize', 'reminders', 'domains']);
 
       calls.clear();
       await coordinator.refresh();
@@ -83,14 +83,14 @@ void main() {
           'navigation',
           'permission',
           'reminders',
-          'monitors',
+          'domains',
         ]),
       );
 
       calls.clear();
       await coordinator.refresh();
       await Future<void>.delayed(Duration.zero);
-      expect(calls, <String>['permission', 'reminders', 'monitors']);
+      expect(calls, <String>['permission', 'reminders', 'domains']);
       expect(errors, <String>[
         'app.foreground.notifications.initialize.failed',
       ]);
@@ -111,8 +111,8 @@ void main() {
       reconcileReminders: () async {
         calls.add('reminders');
       },
-      refreshMonitors: () async {
-        calls.add('monitors');
+      refreshDomains: () async {
+        calls.add('domains');
       },
       reportError: (event, _, _) => errors.add(event),
     );
@@ -127,7 +127,7 @@ void main() {
         'navigation',
         'permission',
         'reminders',
-        'monitors',
+        'domains',
       ]),
     );
     expect(errors, <String>['app.foreground.notifications.permission.failed']);
@@ -137,10 +137,10 @@ void main() {
     'foreground tasks are isolated and overlapping refreshes coalesce',
     () async {
       final reminders = Completer<void>();
-      final monitors = Completer<void>();
+      final domains = Completer<void>();
       final errors = <String>[];
       var reminderCalls = 0;
-      var monitorCalls = 0;
+      var domainCalls = 0;
       final coordinator = AppLifecycleCoordinator(
         initializeNotifications: () async {},
         attachNotificationNavigation: () {},
@@ -149,9 +149,9 @@ void main() {
           reminderCalls++;
           return reminders.future;
         },
-        refreshMonitors: () {
-          monitorCalls++;
-          return monitors.future;
+        refreshDomains: () {
+          domainCalls++;
+          return domains.future;
         },
         reportError: (event, _, _) => errors.add(event),
       );
@@ -161,16 +161,16 @@ void main() {
       expect(identical(first, joined), isTrue);
       await Future<void>.delayed(Duration.zero);
       expect(reminderCalls, 1);
-      expect(monitorCalls, 1);
+      expect(domainCalls, 1);
 
       reminders.completeError(StateError('reminders failed'));
-      monitors.complete();
+      domains.complete();
       await first;
 
       expect(errors, <String>['app.foreground.reminders.reconcile.failed']);
       await coordinator.refresh();
       expect(reminderCalls, 2);
-      expect(monitorCalls, 2);
+      expect(domainCalls, 2);
     },
   );
 
@@ -188,19 +188,19 @@ void main() {
         reconcileReminders: () async {
           calls.add('reminders');
         },
-        refreshMonitors: () async {
-          calls.add('monitors');
+        refreshDomains: () async {
+          calls.add('domains');
         },
         reportError: (_, _, _) {},
       );
 
       await coordinator.start().timeout(const Duration(seconds: 2));
       expect(calls.where((call) => call == 'reminders'), hasLength(1));
-      expect(calls.where((call) => call == 'monitors'), hasLength(1));
+      expect(calls.where((call) => call == 'domains'), hasLength(1));
 
       await coordinator.refresh();
       expect(calls.where((call) => call == 'reminders'), hasLength(2));
-      expect(calls.where((call) => call == 'monitors'), hasLength(2));
+      expect(calls.where((call) => call == 'domains'), hasLength(2));
       expect(calls, isNot(contains('navigation')));
       expect(calls, isNot(contains('permission')));
 

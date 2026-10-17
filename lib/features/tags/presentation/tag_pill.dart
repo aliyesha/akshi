@@ -1,4 +1,4 @@
-import 'package:akshi/features/tags/domain/monitor_tag.dart';
+import 'package:akshi/features/tags/domain/domain_tag.dart';
 import 'package:material_ui/material_ui.dart';
 
 class TagPill extends StatelessWidget {
@@ -9,7 +9,7 @@ class TagPill extends StatelessWidget {
     super.key,
   });
 
-  final MonitorTag tag;
+  final DomainTag tag;
   final bool selected;
   final VoidCallback? onTap;
 

@@ -5,8 +5,8 @@ import 'dart:io';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/bounded_response_reader.dart';
 import 'package:akshi/core/services/mta_sts_policy.dart';
-import 'package:akshi/features/monitors/domain/dns_snapshot.dart';
-import 'package:akshi/features/monitors/domain/email_posture.dart';
+import 'package:akshi/features/domains/domain/dns_snapshot.dart';
+import 'package:akshi/features/domains/domain/email_posture.dart';
 
 /// Evaluates practical email DNS and MTA-STS posture from one DNS snapshot.
 ///
