@@ -1,9 +1,9 @@
 # Akshi
 
-Akshi is a local-first Flutter application for monitoring domain registration,
-website X.509 certificates, and published email-domain configuration on iOS and
-Android. It performs checks while the app is active and schedules consolidated
-expiry reminders on the device.
+Akshi is a private domain portfolio companion for reviewing domain registration,
+TLS certificates, DNS records, and published email configuration on
+iOS and Android. It performs checks while the app is active and schedules
+consolidated expiry reminders on the device.
 
 The name comes from Sanskrit **akṣi** (अक्षि), meaning **eye**: the app keeps a
 quiet eye on renewal dates and directs attention only when action is useful.
@@ -15,7 +15,7 @@ Read the [product guide](app_usage.md), [privacy policy](PRIVACY.md),
 ## Technical principles
 
 - No application server, account system, analytics, or advertising.
-- SQLite stores monitored endpoints and their most recent check results.
+- SQLite stores saved domains and their most recent check results.
 - RDAP provides domain-registration expiry, registration/change dates,
   registrar, public registrant, and nameservers where the registry publishes
   them.
@@ -27,7 +27,7 @@ Read the [product guide](app_usage.md), [privacy policy](PRIVACY.md),
   second set of lookups.
 - Website icons are discovered from declared HTML icons and /favicon.ico,
   decoded if necessary, and cached locally.
-- Checks run at launch, foreground resume, manual refresh, and after endpoint
+- Checks run at launch, foreground resume, manual refresh, and after check-configuration
   changes. Akshi does not perform hidden background network scans.
 - Local expiry alarms are incrementally reconciled with the latest stored
   results whenever a check or reminder setting can change the desired plan.
@@ -36,7 +36,7 @@ Read the [product guide](app_usage.md), [privacy policy](PRIVACY.md),
 
 Akshi targets indie developers, consultants, small teams, and hands-on
 operators whose renewal risk is real but whose portfolio does not justify a
-central monitoring service. A conventional service adds hosting, authentication,
+hosted portfolio service. A conventional service adds hosting, authentication,
 stored credentials, background workers, operational upkeep, and another system
 that must remain available. Akshi deliberately avoids that footprint.
 
@@ -44,7 +44,7 @@ Foreground-only checking is an explicit product boundary. It improves privacy,
 keeps ownership on the device, and removes server and continuous-scanning costs.
 The trade-off is equally explicit: results are only as recent as the last active
 check. Akshi is a focused renewal companion, not a replacement for real-time
-availability monitoring or registrar safeguards on critical infrastructure.
+uptime checks or registrar safeguards on critical infrastructure.
 
 ## Toolchain
 
@@ -66,20 +66,6 @@ flutter run
 The project contains native shells for both supported mobile platforms. Choose
 the connected simulator or device through the usual Flutter tooling.
 
-### Offline physical-device work
-
-Prepare one platform while the laptop is online, then connect the real phone by
-USB and use Flutter normally with Pub disabled:
-
-```sh
-./tool/offline prepare android  # or: ./tool/offline prepare ios
-flutter run --release --no-pub -d <device-id>
-```
-
-The complete prerequisites, cache boundaries, cleanup procedure, offline proof,
-signing requirements, space checks, and recovery steps are in
-[OFFLINE.md](OFFLINE.md).
-
 ## Quality checks
 
 Run the complete local verification set before submitting changes:
@@ -92,11 +78,11 @@ flutter test
 
 Unit tests cover hostname normalization, expiry boundaries, status precedence,
 settings behavior, persistence mapping, DNS record decoding, mail-policy parsing,
-daily reminder aggregation, native resource contracts, backup exclusion, and
+reminder date grouping, native resource contracts, backup exclusion, and
 release-signing safeguards. Widget tests cover refresh feedback, notification
 permission states, modal ownership, and navigation history on Android and iOS.
 
-## Domain assets and checks
+## Domains and checks
 
 Each normalized domain is stored once. Registration is always checked, while
 TLS certificate and Email configuration checks default off and can be enabled
@@ -123,7 +109,7 @@ as resolver context but excluded from change detection because routine TTL
 changes are not configuration incidents. ACME and provider values remain
 ordinary DNS evidence; any recognizable label is presentation only.
 
-Registration, TLS, and Email retain separate statuses. The asset's aggregate
+Registration, TLS, and Email retain separate statuses. The domain's aggregate
 status is the most urgent enabled result; the Attention screen identifies the
 exact component or components that need review.
 
@@ -135,20 +121,20 @@ The code is organized by feature and responsibility:
 lib/
   app/                       application setup, routing, providers
   core/                      database, services, theme, shared widgets
-  features/monitors/         monitoring domain, data, controller, screens
+  features/domains/         domain portfolio model, data, controller, screens
   features/reminders/        alarm planning, reconciliation, proof ledger
   features/settings/         reminder, notification, and appearance settings
-  features/tags/             reusable monitor labels
+  features/tags/             reusable domain labels
 test/                        domain, persistence, widget, and platform contracts
 ```
 
-`MonitorController` coordinates foreground checks and persistence.
-`MonitorEntry` stores independent registration, certificate, Email posture,
-and DNS snapshot data. The monitor route is a compact overview; Domain, TLS,
+`DomainController` coordinates foreground checks and persistence.
+`DomainEntry` stores independent registration, certificate, Email posture,
+and DNS snapshot data. The domain route is a compact overview; Domain, TLS,
 Email, and DNS use focused child routes rather than tabs or one growing page.
 `NotificationService` is the thin platform scheduling adapter. Reminder
 planning and date grouping live in `features/reminders/domain/expiry_alarm.dart`.
-Settings, monitor detail, tags, diagnostics, and dated ledger pages form nested
+Settings, domain detail, tags, diagnostics, and dated ledger pages form nested
 routes: drill-in actions preserve Back history, while validated notification
 destinations reconstruct a canonical route stack. Settings always provides a
 safe return to the portfolio, including when opened directly as a root route.
@@ -187,13 +173,13 @@ timing, such as `example.com · TLS certificate expires in 10 days` or
 `example.com · domain + TLS certificate expire in 5 days`, and then reports
 any remaining count. Ordinary state changes do not trigger notifications.
 
-Akshi schedules only the earliest 60 daily digests. This stays within practical
-mobile notification limits; opening the app recalculates the schedule and rolls
+Akshi schedules only the earliest 60 date-grouped expiry reminders. This stays within
+practical mobile notification limits; opening the app recalculates the schedule and rolls
 the window forward.
 
 ## Network and data behavior
 
-Akshi has no central server. It sends no monitor list, results, telemetry, or
+Akshi has no central server. It sends no domain list, results, telemetry, or
 account data to aliyesha.com or to an Akshi-operated service. Stored data remains
 in the application's local SQLite database. Android and iOS backup exclusion is
 enabled so ordinary device and cloud backups do not copy Akshi's private data.
@@ -210,7 +196,7 @@ The app makes only these task-specific network requests while it is active:
 - `https://<TLS-hostname>[:port]/` to read standard HTML icon
   declarations, then the declared HTTPS icon URLs and
   `https://<TLS-hostname>[:port]/favicon.ico` as a fallback;
-- explicit A, AAAA, CNAME, MX, NS, TXT, and CAA lookups at the monitored domain
+- explicit A, AAAA, CNAME, MX, NS, TXT, and CAA lookups at the saved domain
   through the device-configured system DNS resolver;
 - role-appropriate TXT lookups at `_dmarc.<domain>`,
   `_mta-sts.<domain>`, `_smtp._tls.<domain>`, and user-entered
@@ -237,7 +223,7 @@ Akshi reconciles DNS by complete requested RRset and Email by individual
 finding dependency set. Conclusive answers and confirmed absence update
 normally; unavailable or malformed answers retain their previous complete
 verified evidence and carry the latest error.
-Successful parts of a partial run still update, while the monitor's full
+Successful parts of a partial run still update, while the domain's full
 verification time does not advance. **Settings → Network destinations** shows
 the services and domain-specific endpoints Akshi can contact. Opening that page
 does not initiate any of the listed connections.
@@ -260,8 +246,9 @@ architecture, testing, and contribution guidance is maintained in
 
 ## F-Droid preparation
 
-Fastlane-compatible listing text and release notes live under `fastlane/`.
-The draft F-Droid build recipe under `fdroid/` pins the Flutter revision
-recorded by this project. Before submission, the public source repository,
-release tag, icon, screenshots, dependency scan, and isolated F-Droid build
-must all be verified as described in [fdroid/README.md](fdroid/README.md).
+Fastlane-compatible listing text and release assets are maintained under
+**fastlane/**; their editorial, image, and versioning rules are documented in
+[the store metadata guide](fastlane/README.md). The candidate F-Droid recipe
+under **fdroid/** pins the reviewed Flutter revision. Tagging, validation,
+signing boundaries, submission, and future updates are documented in the
+[F-Droid release guide](fdroid/README.md).

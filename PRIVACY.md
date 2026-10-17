@@ -9,8 +9,8 @@ the choices available to you. Questions may be sent to
 
 ## Summary
 
-Akshi has no account system, analytics, advertising, tracking SDK, or central
-monitoring server. Aliyesha does not receive your monitor list, check results,
+Akshi has no account system, analytics, advertising, tracking SDK, or Akshi-operated
+server. Aliyesha does not receive your domain list, check results,
 diagnostic reports, or notification history. The application performs checks
 directly from your device while it is active.
 
@@ -28,7 +28,7 @@ Akshi stores the following information in its private application storage:
 - bounded local crash diagnostics containing the time, error type, message,
   technical context, stack trace, and operating-system version.
 
-Crash diagnostics are stored separately from the monitor database and are
+Crash diagnostics are stored separately from the domain database and are
 limited to the 50 most recent entries. They are never uploaded automatically.
 You may inspect, copy, or delete individual reports, or clear all reports, from
 Settings.
@@ -44,7 +44,7 @@ the enabled checks, it may contact:
 
 - `https://data.iana.org/rdap/dns.json` and the registry RDAP services listed
   in that document;
-- the TLS hostname and port configured for a monitor;
+- the TLS hostname and port configured for a domain;
 - HTTPS pages and icon URLs on the configured website;
 - the DNS resolver configured by the device or network; and
 - `https://mta-sts.<domain>/.well-known/mta-sts.txt` when the domain publishes
@@ -68,7 +68,7 @@ or send notification or reminder-ledger data to Aliyesha.
 The local Reminder Ledger records what Akshi computed, handed to the platform,
 and later found in pending notification inventory. It does not prove delivery.
 You may inspect a domain-bearing snapshot in Settings and explicitly copy a
-proof receipt that omits raw payloads and internal monitor IDs.
+proof receipt that omits raw payloads and internal domain IDs.
 
 ## Backups
 
@@ -79,7 +79,7 @@ outside these application controls.
 
 ## Retention and deletion
 
-Monitor data remains on the device until you delete the corresponding monitor
+Domain data remains on the device until you delete the corresponding domain
 or remove the application. Reminder-ledger revisions are retained for at most
 365 days and are capped at 1,000 entries. Crash diagnostics remain until
 removed by you or discarded by the 50-entry retention limit. Uninstalling the application
@@ -93,7 +93,7 @@ through the application.
 
 Akshi is a technical operations utility and is not directed specifically at
 children. Aliyesha does not knowingly collect personal information through
-Akshi. Avoid placing confidential or personal information in monitor names,
+Akshi. Avoid placing confidential or personal information in domain names,
 tags, or diagnostic reports that you choose to share.
 
 ## Policy changes

@@ -33,13 +33,13 @@ replace the device time zone with UTC.
 
 The engine is a desired-state reconciler:
 
-1. Read the latest persisted monitors and reminder settings.
+1. Read the latest persisted domains and reminder settings.
 2. Compute a complete desired alarm plan in memory.
 3. Read Akshi's pending notification inventory.
 4. Compare desired and observed alarms by stable alarm identity.
 5. Apply only create, replace, and delete operations.
 6. Re-read pending inventory and verify that it matches desired state.
-7. Recompute failed work from persisted monitors/settings on the next request.
+7. Recompute failed work from persisted domains/settings on the next request.
 
 This follows the established controller pattern: continuously move observed
 state toward desired state with idempotent operations.
@@ -60,26 +60,27 @@ Cross-platform pending-alarm inventory has an important constraint:
 
 Akshi therefore uses two views:
 
-- **Desired plan:** freshly computed from monitors, settings, current time, and
+- **Desired plan:** freshly computed from domains, settings, current time, and
   the device time zone. This is authoritative.
 - **Pending inventory:** the plugin's pending requests, filtered to Akshi expiry
   alarms. This is evidence of what the platform adapter believes is scheduled.
 
 The pending payload includes the local date, requested time, time-zone ID, and
-complete canonical plan snapshot and revision. This makes the otherwise date-less plugin inventory useful
-without pretending that Android provides an authoritative alarm database.
+complete canonical plan snapshot and revision. This makes the plugin's
+otherwise date-less inventory useful without pretending that Android provides
+an authoritative alarm database.
 
 ## Domain model
 
-### Alarm key
+### Alarm date
 
 There is at most one Akshi expiry notification for a local calendar date.
 
-`AlarmKey` is therefore the local calendar date, represented without a time
+`AlarmDate` is therefore the local calendar date, represented without a time
 zone or clock component:
 
 ```text
-AlarmKey(year, month, day)
+AlarmDate(year, month, day)
 ```
 
 A date key is stable when the user changes the reminder time. That change
@@ -87,45 +88,42 @@ becomes a replace operation rather than a delete plus create.
 
 ### Alarm item
 
-An `AlarmItem` identifies one monitor participating in that day's digest:
+An `ExpiryAlarmItem` identifies one domain participating in that date's
+reminder:
 
 ```text
-AlarmItem
-  monitorId
+ExpiryAlarmItem
+  domainId
   hostname
   reasons[]
 ```
 
-Each reason contains:
+Each reason records:
 
 ```text
-ExpiryReason
+ExpiryAlarmReason
   kind: domainRegistration | tlsCertificate
-  expiryLocalDate
+  expiryDate
   warningDays
 ```
 
-Monitor ID, not hostname or label, is the identity. Two monitors may
-intentionally share a hostname. Labels and tags never affect an alarm plan.
+The domain ID is the durable alarm identity. The database also requires each
+saved hostname to be unique, but alarm reconciliation does not use a mutable
+label or tag as identity. Labels and tags never affect an alarm plan.
 
 ### Alarm specification
 
 ```text
-AlarmSpec
-  key
-  notificationId
-  requestedLocalTime
+ExpiryAlarmSpec
+  date
+  scheduledAt
   timeZoneId
-  scheduledInstant
-  sortedItems[]
-  title
-  body
-  revision
-  payload
+  items[]
+  derived: notificationId, title, body, revision, payload
 ```
 
-The revision is SHA-256 calculated from a canonical representation of every field
-that affects delivery or content. Collections are sorted before hashing.
+The revision is SHA-256 calculated from a canonical representation of every
+field that affects delivery or content. Collections are sorted before hashing.
 Runtime object hashes must not be used because they are not stable across
 processes.
 
@@ -148,9 +146,9 @@ Dirty state is derived, not mutable state stored inside an alarm:
 
 ```text
 AlarmComparison
-  key
-  current: AlarmSpec?
-  desired: AlarmSpec?
+  date
+  current: ObservedExpiryAlarm?
+  desired: ExpiryAlarmSpec?
   change: create | replace | delete | unchanged
 
   isDirty = change != unchanged
@@ -161,11 +159,11 @@ This provides the requested date-to-domains plus dirty view without allowing an
 
 ## Desired-plan computation
 
-The planner is pure. It receives monitors, reminder settings, an explicit
+The planner is pure. It receives domains, reminder settings, an explicit
 current instant, and an explicit time-zone location. It performs no database,
 clock, plugin, or platform calls.
 
-For each enabled monitor:
+For each reminder-enabled domain:
 
 1. Include domain registration when an expiry exists.
 2. Include TLS only when certificate checking is enabled and an expiry exists.
@@ -175,18 +173,18 @@ For each enabled monitor:
 5. Combine that date with the configured local reminder time.
 6. Resolve it in the explicit device time zone.
 7. Exclude the candidate when its instant is equal to or earlier than `now`.
-8. Add the reason to that monitor's item for the alarm date.
-9. Deduplicate the same monitor/reason/offset tuple.
+8. Add the reason to that domain's item for the alarm date.
+9. Deduplicate the same domain/reason/offset tuple.
 10. Sort reasons, items, and alarm dates deterministically.
 
-Different reasons for the same monitor and date become one item. Different
-monitors for the same date become one daily digest.
+Different reasons for the same domain and date become one item. Different
+domains for the same date become one date-grouped reminder.
 
 The final plan is capped to the earliest 60 dates. This stays below iOS's
 64-pending-notification limit and leaves room for platform behavior. The cap is
 applied before any platform call.
 
-An empty monitor set or a set with no usable future expiry produces an empty
+An empty domain set or a set with no usable future expiry produces an empty
 desired plan.
 
 ## One alarm per local calendar date
@@ -200,11 +198,11 @@ number of pending Akshi expiry alarms for one local date <= 1
 The desired plan is a map whose key is the local date:
 
 ```text
-Map<AlarmKey, AlarmSpec>
+Map<AlarmDate, ExpiryAlarmSpec>
 ```
 
 It is never a map from one date to a list of separate alarms. Domains and
-reasons are collected inside that date's single `AlarmSpec`.
+reasons are collected inside that date's single `ExpiryAlarmSpec`.
 
 ### Example: one domain with two reasons on the same day
 
@@ -256,7 +254,7 @@ Assume the same current date, time, and offsets:
 The desired map contains:
 
 ```text
-AlarmKey(2026-05-14) -> AlarmSpec
+AlarmDate(2026-05-14) -> ExpiryAlarmSpec
   notificationId: stable ID for 2026-05-14
   scheduledAt: 2026-05-14 09:00 in the device time zone
   items:
@@ -338,7 +336,7 @@ Input ordering has no semantic effect.
 
 Only one reconciliation may execute at a time. Requests are serialized, and
 each queued run reads repositories at execution time rather than using a stale
-monitor snapshot captured when it was queued. An unchanged follow-up performs
+domain snapshot captured when it was queued. An unchanged follow-up performs
 zero platform writes.
 
 The sequence is:
@@ -346,7 +344,7 @@ The sequence is:
 1. Initialize the notification adapter and resolve the device time zone.
 2. If time-zone resolution fails, stop. Keep existing alarms untouched and
    report the engine as needing repair. Never fall back to UTC.
-3. Read the newest persisted monitors and reminder settings.
+3. Read the newest persisted domains and reminder settings.
 4. Build and validate the entire desired plan before changing platform state.
 5. Attempt to record each desired date/revision as **Computed** in the local
    proof ledger.
@@ -378,10 +376,10 @@ All callers use one `AlarmReconciler.reconcile()` entry point:
 
 - initial application startup;
 - application resume;
-- initial monitor check after an add;
-- monitor edit;
-- monitor delete;
-- one-monitor refresh;
+- initial domain check after an add;
+- domain edit;
+- domain delete;
+- one-domain refresh;
 - refresh all;
 - reminder warning-day change;
 - reminder-time change;
@@ -398,13 +396,13 @@ desired plan.
 
 ## Persistence and failure policy
 
-Monitor/settings persistence and operating-system scheduling cannot form one
+Domain/settings persistence and operating-system scheduling cannot form one
 atomic transaction.
 
 Akshi treats persisted user data as desired truth and platform alarms as a
 reconcilable side effect:
 
-- save the user's monitor or reminder setting;
+- save the user's domain or reminder setting;
 - invoke reconciliation;
 - if scheduling fails, keep the saved user choice;
 - expose “reminders need repair” rather than rolling the user choice back;
@@ -475,9 +473,8 @@ Enabling performs this sequence:
 
 Until permission becomes allowed, Akshi schedules no new alarms and removes any
 owned pending expiry alarms. The card never describes this state as healthy.
-
-If the user cancels the permission flow, the enable intent is cleared and the
-card returns to **Expiry reminders off**.
+Choosing **Not now** leaves the Akshi preference enabled and the card in
+**Notification permission needed**; it does not mislabel the preference as off.
 
 ### Needs attention
 
@@ -521,7 +518,7 @@ time.
 
 ## Explaining a notification
 
-Title and body are generated only from `AlarmSpec`. They state the actual
+Title and body are generated only from `ExpiryAlarmSpec`. They state the actual
 reason and remaining time, for example:
 
 ```text
@@ -529,10 +526,10 @@ Expiry reminder for example.com
 example.com · TLS certificate expires in 5 days
 ```
 
-The payload routes to the expiry-reminder screen with the affected monitor IDs,
-alarm date, and canonical revision. The screen explains that the notification used the
-saved expiry information available when the alarm was created and identifies
-results that have since been resolved.
+The payload routes to the expiry-reminder screen with the affected domain IDs,
+alarm date, and canonical revision. The screen explains that the notification
+used the saved expiry information available when the alarm was created and
+identifies results that have since been resolved.
 
 ## Repair operation
 
@@ -558,7 +555,7 @@ Repair performs:
 If automatic repair succeeds, the user sees the normal Ready state. If it
 fails, the Settings card shows **Reminders need attention**, the concrete
 reason, the last attempted time, and a **Repair reminders** action. Manual
-repair runs the same bounded operation; it does not modify monitors, expiry
+repair runs the same bounded operation; it does not modify domains, expiry
 dates, warning settings, tags, or other user data.
 
 Because expiry reminders are Akshi's only notification type,
@@ -576,17 +573,17 @@ It never claims the notification fired, was displayed, made a sound, or was
 seen. After a verified handoff, delivery is controlled by Android or iOS,
 including battery policy, Focus modes, and notification settings.
 
-One list card represents one daily alarm date, matching the engine invariant.
-Multiple monitors and Domain/TLS reasons are shown inside that card rather than
-as separate alarms. The newest revision is visible; prior revisions are nested
-in the detail screen as replaced/cancelled history.
+One list card represents one scheduled alarm date, matching the engine
+invariant. Multiple domains and registration/TLS reasons are shown inside that
+card rather than as separate alarms. The newest revision is visible; prior
+revisions are nested in the detail screen as replaced/cancelled history.
 
 Each immutable date/revision snapshot contains:
 
 - alarm date, stable notification ID, requested local time, time zone, and UTC
   instant;
-- canonical revision and full grouped Domain/TLS items;
-- monitor and reason counts;
+- canonical revision and full grouped registration/TLS items;
+- domain and reason counts;
 - platform and OS version;
 - `computedAt`, `submittedAt`, `verifiedAt`, `cancelledAt`, or `failedAt`;
 - a sanitized error category when work fails.
@@ -610,7 +607,7 @@ states this distinction plainly.
 
 The ledger is private application data. Domain names appear because the user
 explicitly opened a local alarm snapshot. A copied proof receipt excludes raw
-payload JSON and monitor IDs but includes the date, timing, notification ID,
+payload JSON and domain IDs but includes the date, timing, notification ID,
 revision, counts, platform, and proof timestamps.
 
 Repair remains available on the ledger screen and uses the same bounded engine
@@ -633,17 +630,18 @@ operation. The ledger itself is never a repair input.
 
 All alarm-engine fixtures use February through August 2026. The suite covers:
 
-- one monitor and multiple monitors, including same-day reason collisions;
+- one domain and multiple domains, including same-day reason collisions;
 - add, delete, replace, and unchanged set comparisons;
 - stable IDs when an earlier date is inserted or reminder time changes;
-- disabled reminders/monitors, null/past expiries, and the exact-now boundary;
+- globally disabled reminders, per-domain reminder exclusion, null/past
+  expiries, and the exact-now boundary;
 - February/March calendar boundaries and explicit time-zone conversion;
 - deterministic ordering, canonical payload integrity, and the 60-date cap;
 - zero-write idempotence on a second unchanged reconciliation;
 - malformed owned inventory, bounded automatic repair, and verification;
 - schedule failure without routine cancel-all, plus bounded failed repair;
 - empty desired state cancelling and verifying all owned alarms;
-- notification routing with affected monitor IDs and alarm date;
+- notification routing with affected domain IDs and alarm date;
 - ledger snapshot decoding, one-card-per-date grouping, revision ordering,
   lifecycle ordering, failure recording, and isolation of every audit-write
   failure from scheduling, repair, verification, and reminder health.

@@ -6,7 +6,7 @@ from a user action to the screen and local notification. It is intended for
 contributors who are new to Flutter as well as engineers reviewing the code on
 GitHub.
 
-Akshi is a local-first Flutter application for iOS and Android. It monitors
+Akshi is a local-first Flutter application for iOS and Android. It checks
 domain registration, direct TLS/X.509 certificates, and selected public email
 DNS configuration while the application is active. There is no Akshi server,
 account system, analytics pipeline, or background network scanner.
@@ -58,11 +58,11 @@ lib/
     theme/                          colors, typography, component defaults
     widgets/                        reusable visual components
   features/
-    monitors/
+    domains/
       domain/                       immutable business models and rules
       data/                         SQLite repository
       application/                  Riverpod controller and check orchestration
-      presentation/                 screens and monitor widgets
+      presentation/                 screens and domain widgets
     reminders/                      alarm planning, reconciliation, proof ledger
     settings/                       settings model, repository, controller, UI
     tags/                           tag model, repository, controller, UI
@@ -84,13 +84,14 @@ contain rules that can be tested without Flutter.
 
 ## Application startup and lifecycle
 
-`lib/main.dart` calls `runApp` with `AkshiApp`. `AkshiApp` creates the Riverpod
-scope, selects the light/dark theme, and owns the app lifecycle observer. On a
-foreground transition it asks the monitor controller to refresh enabled
-monitors and asks the reminder controller to reconcile the local schedule.
+`lib/main.dart` wraps `AkshiApp` in Riverpod's `ProviderScope` and passes it to
+`runApp`. `AkshiApp` selects the light/dark theme and owns the app lifecycle
+observer. On a foreground transition it asks the domain controller
+to refresh saved domains and asks the reminder controller to reconcile the
+local schedule.
 
 `AppLifecycleCoordinator` owns every future launched by the post-frame startup
-callback and lifecycle observer. Reminder reconciliation and monitor refresh
+callback and lifecycle observer. Reminder reconciliation and domain refresh
 share one coalesced foreground data session and run behind independent error
 boundaries. Notification maintenance starts alongside that session but owns a
 separate coalesced operation.
@@ -99,18 +100,18 @@ Notification maintenance initializes the plugin, attaches navigation once, and
 checks whether the first-run permission prompt is needed. A failed initialization
 remains retryable after its operation settles. A slow or never-completing plugin
 cannot keep the data operation active, so later foreground transitions can still
-refresh monitors and reminders.
+refresh domains and reminders.
 
 Disposal prevents a later phase from beginning; an already running platform call
 is allowed to settle and its result is contained.
 `NotificationService` joins concurrent initialization calls, clears a failed
 attempt for retry, rejects use after disposal, and closes its owned navigation
 stream when the Riverpod provider is disposed. Startup failures do not replace
-saved monitor state with an error screen: monitor state remains readable,
+saved domain state with an error screen: domain state remains readable,
 reminder health reports its own degraded state, and sanitized details stay in
 local logs.
 
-`appRouter` is a `GoRouter` tree. The home route lists monitors. A monitor route
+`appRouter` is a `GoRouter` tree. The home route lists domains. A domain route
 opens a compact overview, with child routes for `domain`, `tls`, `email`, and
 `dns`. Settings owns child routes for tags, crash reports, the Reminder Ledger,
 dated ledger detail, and About. A route is URL-like state, which makes
@@ -119,7 +120,7 @@ notification taps and internal destinations deterministic and testable.
 The detail flow deliberately has three levels:
 
 ```text
-monitor list → monitor overview → one focused information page
+domain list → domain overview → one focused information page
 ```
 
 The overview is the decision page. Focused pages keep Domain, TLS, Email, and
@@ -129,19 +130,19 @@ attention tap lands at the exact subject.
 
 ## Navigation design
 
-Navigation describes visible location and history; it does not own monitor,
+Navigation describes visible location and history; it does not own domain,
 settings, tag, or reminder state. Route builders receive stable identity such
-as a monitor ID or ledger date, then watch repository-backed providers for
+as a domain ID or ledger date, then watch repository-backed providers for
 current data. Passing a complete mutable model through route arguments would
 make long-lived pages vulnerable to stale data.
 
 The current route hierarchy is:
 
 ```text
-/                                  monitor portfolio
+/                                  domain portfolio
 ├── attention                       current findings
-├── monitor/new                     create form
-├── monitor/:id                     monitor overview
+├── domain/new                     create form
+├── domain/:id                     domain overview
 │   ├── domain
 │   ├── tls
 │   ├── email
@@ -160,7 +161,7 @@ Choose the router operation from user intent:
 
 | Intent | Operation | History contract |
 | --- | --- | --- |
-| Drill from the current page into Settings, Tags, a monitor, or a focused detail | `push` | Back returns to the exact caller |
+| Drill from the current page into Settings, Tags, a domain, or a focused detail | `push` | Back returns to the exact caller |
 | Close a page, dialog, or bottom sheet whose parent already exists | `pop` | Reveal the existing parent without rebuilding history |
 | Open a validated notification or direct internal destination | `go` | Reconstruct the canonical matched page stack |
 | Finish creation or leave a deleted entity | `go` | Remove a transient or invalid location from usable history |
@@ -171,7 +172,7 @@ the ledger, and dated detail as matched page levels. An ordinary child action
 that means “return to Settings” pops; it does not call `go('/settings')`, because
 `go` is a location replacement and may intentionally make Settings the root.
 
-Settings has an explicit **Back to monitors** action. It pops when a caller is
+Settings has an explicit **Back to domains** action. It pops when a caller is
 present and otherwise goes to `/`. The fallback is part of the route contract:
 Settings may legitimately be opened without prior history by a validated
 notification or explicit internal location change. The page must never rely on
@@ -201,7 +202,7 @@ Notification navigation is deliberately separate:
    integrity revision.
 3. The lifecycle coordinator attaches one navigation listener.
 4. The router goes to the validated canonical destination.
-5. Missing monitors or ledger entries render a designed unavailable state.
+5. Missing domains or ledger entries render a designed unavailable state.
 
 Navigation never starts a network check merely because a route built. User
 commands and lifecycle coordination own external work; shared Riverpod state
@@ -231,54 +232,70 @@ for the raw connection and closes it before completing. The synchronous
 provider disposer owns and logs close failures; explicit lifecycle tests or
 other callers that require completion await `close()` directly.
 
-`monitorControllerProvider` exposes an `AsyncNotifier<List<MonitorEntry>>`.
+## Domain state and commands
+
+`domainControllerProvider` exposes an `AsyncNotifier<List<DomainEntry>>`.
 The notifier loads the repository in `build`, performs add/edit/delete/check
 commands, then assigns fresh `AsyncData` after persistence. Screens watch the
 provider and render loading, error, or data states. A screen should not mutate
 the database directly.
 
 The controller uses a single `_refreshOperation` for portfolio refreshes.
-`monitorRefreshProvider` is the canonical cross-screen refresh session: it
-records the start time, total and completed monitor counts, the latest successful
+
+Use Riverpod access according to intent:
+
+| Access | Meaning in Akshi |
+| --- | --- |
+| `ref.watch(provider)` | Subscribe to state; rebuild the widget or recompute the provider when it changes. |
+| `ref.read(provider)` | Read once inside a callback or operation; it creates no UI subscription. |
+| `ref.read(provider.notifier)` | Obtain the controller and issue a command such as add, refresh, save, or repair. |
+
+Repository and network work returns `Future` values. Application controllers
+publish `AsyncValue` where loading or failure belongs in the visible state.
+After an `await`, presentation code checks `mounted` or `context.mounted`
+before changing local widget state, showing feedback, or navigating.
+
+`domainRefreshProvider` is the canonical cross-screen refresh session: it
+records the start time, total and completed domain counts, the latest successful
 completion, and an unresolved failed attempt. Screens must use that state
 instead of maintaining private portfolio-refresh flags.
 
-A manual check is also one complete coalesced operation per monitor: source I/O,
+A manual check is also one complete coalesced operation per domain: source I/O,
 observation persistence, list reload, and reminder reconciliation all share one
-future. `monitorCheckActivityProvider` publishes the active monitor IDs so every
+future. `domainCheckActivityProvider` publishes the active domain IDs so every
 screen renders the same busy state across navigation.
 
 A shared FIFO `AsyncConcurrencyGate` admits only submitted leaf I/O and caps
 active external operations at ten. It is a small semaphore built only from the
 standard `dart:collection` `Queue` and `dart:async` `Completer` APIs. RDAP
 requests, TLS handshakes, icon fetches, MTA-STS fetches, and individual DNS
-queries acquire that gate. Never acquire the same gate around a whole monitor
-check: the monitor would then wait for child work that cannot acquire a slot,
+queries acquire that gate. Never acquire the same gate around a whole domain
+check: the domain would then wait for child work that cannot acquire a slot,
 which can deadlock when all ten parent slots are occupied. The gate is a
 resource ceiling, not a batch size.
 
 ## Refresh consistency contract
 
 Akshi treats a portfolio refresh as one foreground snapshot transaction. It is
-asynchronous, but it is not background monitoring and it does not pretend that
+asynchronous, but it is not background checking and it does not pretend that
 partly refreshed data is a new coherent state.
 
 Before a remote operation starts, the controller performs one conservative OS
 transport check. If every reported transport is `none`, it returns
-`MonitorRefreshOutcome.skippedOffline` for a portfolio refresh. A manual check
-throws the typed `MonitorOfflineException`. Creating a monitor and saving any
-monitor edit are also rejected while the device is known offline. These
+`DomainRefreshOutcome.skippedOffline` for a portfolio refresh. A manual check
+throws the typed `DomainOfflineException`. Creating a domain and saving any
+domain edit are also rejected while the device is known offline. These
 decisions happen before persistence, refresh activity, FIFO admission,
 external requests, attempt timestamps, or observation writes. A positive
 transport result is only permission to try; it does not assert that the
 internet or any individual source is reachable.
 
-1. The controller freezes enabled monitor definitions from SQLite at the start
+1. The controller freezes saved domain definitions from SQLite at the start
    of the session. Checks only read those immutable values.
-2. Each monitor is prepared in memory. Independent sources run concurrently;
+2. Each domain is prepared in memory. Independent sources run concurrently;
    the shared cap-ten gate limits only external leaf I/O.
-3. Progress is published through `monitorRefreshProvider`. It distinguishes
-   source preparation, per-monitor progress, and final database publication.
+3. Progress is published through `domainRefreshProvider`. It distinguishes
+   source preparation, per-domain progress, and final database publication.
    Existing screens remain readable and navigable, with an explicit "showing
    saved results" notice, while the list itself remains the last committed
    snapshot. A failed session keeps its sanitized failure notice visible until a
@@ -286,7 +303,7 @@ internet or any individual source is reachable.
    data.
 4. Add, edit, delete, tag-mutation, and manual-check commands fail fast
    with the typed
-   `MonitorRefreshInProgressException` while a portfolio refresh is active.
+   `DomainRefreshInProgressException` while a portfolio refresh is active.
    Disabled UI controls are a convenience; the controller check is the command
    boundary.
 5. After all checks finish, the repository writes observation columns for all
@@ -296,20 +313,20 @@ internet or any individual source is reachable.
    also matches the frozen definition's `updated_at` revision; a stale result
    rolls back instead of attaching old observations to a new definition.
 6. Riverpod publishes the committed list once, and reminders reconcile once.
-   No intermediate monitor result is exposed to readers.
+   No intermediate domain result is exposed to readers.
 7. Startup and resume refreshes may use a freshness window to avoid repeating
    a just-completed session. An explicit user refresh always runs.
 
 The observation-only database boundary is required even though mutation
 controls are disabled. Lifecycle callbacks and already-running form saves can
 overlap by a few instructions; a refresh that cannot write definitions remains
-safe under those races. Initial provisioning and a one-monitor manual check use
+safe under those races. Initial provisioning and a one-domain manual check use
 the same observation-only write shape but are not portfolio transactions. While
 a manual check is active, its shared activity state disables repeat checks and
-definition mutations for that monitor in overview and detail UI. Calls that do
+definition mutations for that domain in overview and detail UI. Calls that do
 repeat still join the original complete command at the controller boundary.
 
-## Monitor creation and editing
+## Domain creation and editing
 
 The form normalizes the entered hostname using `normalizeHostname`. Domain
 registration is always enabled. TLS and Email are independent optional checks;
@@ -322,44 +339,44 @@ shows how to copy the selector prefix from a name such as
 configuration facts. They do not test mail delivery, reputation, or live mail
 flow.
 
-Create and edit are explicit form modes. Edit waits for monitor state to load.
+Create and edit are explicit form modes. Edit waits for domain state to load.
 A missing id renders a not-found state, and an edit save can call only
-`updateMonitor`; it never falls through to `add`.
+`updateDomain`; it never falls through to `add`.
 Both form modes show the shared offline notice and disable their save action
 while the device is known offline. The controller repeats that guard before
 persistence so a direct call or a connectivity change during interaction
 cannot bypass it.
 
-`MonitorController.add` commits the immutable monitor definition and tag links
+`DomainController.add` commits the immutable domain definition and tag links
 in one SQLite transaction, reloads Riverpod, and returns immediately. The form
 navigates to the summary without waiting for the network.
-`monitorProvisioningProvider` carries the live initial-check stage across that
+`domainProvisioningProvider` carries the live initial-check stage across that
 navigation. The summary explains that source and connection speed determine
 the duration and remains usable while checks run.
 
 The initial observation is a second atomic boundary. Domain, DNS, TLS, and site
 identity start concurrently when selected; Email starts after the exact DNS
 snapshot it analyzes is available. Results join in memory and replace the
-monitor row once, so readers see either the saved definition with no snapshot
+domain row once, so readers see either the saved definition with no snapshot
 or one internally consistent domain/TLS/Email snapshot—never a partially
 updated mixture. Expected source failures are stored as typed unavailable
 observations; an orchestration failure leaves the definition intact and exposes
 a retry message on the summary.
 
-`updateMonitor` uses the same preparation-before-persistence boundary. A changed
+`updateDomain` uses the same preparation-before-persistence boundary. A changed
 check definition clears obsolete results before preparing fresh observations;
-a label, tag, or enabled-state-only edit skips external checks and retains
-existing result data, but an edit is still saved only while a transport is
-available. This keeps the form's save contract uniform.
+a label, tag, or reminder-participation-only edit skips external checks and
+retains existing result data, but an edit is still saved only while a transport
+is available. This keeps the form's save contract uniform.
 
-`MonitorRepository.delete` removes monitor-tag links and the monitor row in one
+`DomainRepository.delete` removes domain-tag links and the domain row in one
 transaction. SQLite foreign keys are enabled as an additional cascade safety
 net. The controller reloads state and rebuilds reminders after deletion, so a
-deleted monitor cannot remain in an in-memory list or scheduled digest.
+deleted domain cannot remain in an in-memory list or scheduled digest.
 
 ## One foreground check
 
-`MonitorController._prepareCheck` is a pure orchestration boundary: it starts
+`DomainController._prepareCheck` is a pure orchestration boundary: it starts
 independent selected work concurrently through the shared dynamic I/O gate and
 returns one immutable result without writing SQLite. Its callers select the
 persistence boundary: an initial or manual check writes one observation set;
@@ -389,7 +406,7 @@ portfolio refresh collects every result before one batch transaction.
    completion.
 
    The process-lifetime service caches the completed IANA bootstrap map. While
-   the first bootstrap download is still active, concurrent monitor checks join
+   the first bootstrap download is still active, concurrent domain checks join
    its single in-flight `Future` instead of issuing duplicate requests. The
    temporary reference is cleared after success or failure: a successful map
    remains cached, while a failed load can be retried by a later check. A caller
@@ -434,8 +451,8 @@ portfolio refresh collects every result before one batch transaction.
    The current MX RRset is compared with the validated patterns only after all
    those transport and syntax checks pass.
 6. After every admitted run finishes, the controller advances `lastAttemptedAt`.
-   It advances `lastVerifiedAt` only when Domain and every enabled TLS or Email
-   activity completed in that same run, every requested DNS query was answered
+   It advances `lastVerifiedAt` only when registration and every enabled TLS or
+   Email activity completed in that same run, every requested DNS query was answered
    or confirmed absent, and no Email finding is unavailable. A successfully
    observed unhealthy result—such as an expired certificate or invalid mail
    policy—is verified evidence and therefore advances both timestamps. A source,
@@ -491,7 +508,7 @@ Failure classification turns platform exceptions, timeouts, connectivity lost
 after admission, and invalid responses into user-readable `CheckFailure` values.
 
 Expected external failures are data, not orchestration exceptions. They are
-contained per source and per monitor, so another host can still prepare its
+contained per source and per domain, so another host can still prepare its
 result. An unexpected programming or invariant error remains exceptional and
 aborts the portfolio transaction; readers continue seeing the preceding
 committed portfolio instead of an unexplained partial internal result.
@@ -507,10 +524,10 @@ additional-section data; the native bridge extracts only the requested `IN`
 RRset for Dart. `DnsRecord` stores one member's owner, type, TTL, value, and
 optional MX priority. `DnsQueryResult` stores the whole requested RRset, its
 outcome, latest attempt, latest conclusive verification, and latest error.
-`DnsSnapshot` contains the independently observed RRsets for one monitor run.
+`DnsSnapshot` contains the independently observed RRsets for one domain run.
 
 Akshi asks for A, AAAA, CNAME, MX, NS, TXT, and CAA individually at the
-monitored name. A/AAAA carry IP addresses, CNAME carries an alias, MX carries
+saved domain. A/AAAA carry IP addresses, CNAME carries an alias, MX carries
 mail routing, NS carries authoritative nameservers, TXT carries opaque text,
 and CAA carries certificate-authority authorization. Decoding preserves the
 record owner, type, TTL, value, and MX priority where present. No TXT value,
@@ -534,8 +551,8 @@ RRset. When no prior observation exists, the RRset remains failed.
 The planned questions are known before the run; Akshi does not need and cannot
 reliably enumerate an entire public zone. If a plan has eight questions and
 five complete while three fail, the five conclusive RRsets advance and the
-three failed RRsets retain their saved observations. The monitor run is marked
-partial and its monitor-wide verification time does not advance.
+three failed RRsets retain their saved observations. The domain run is marked
+partial and its domain-wide verification time does not advance.
 `DnsSnapshot.hasFailures` detects both unresolved failures and latest-attempt
 errors retained beside saved evidence.
 
@@ -606,13 +623,13 @@ change. A failed refresh is not treated as a configuration change or
 notification event.
 
 Settings → Network destinations is a presentation-only disclosure derived from
-monitor definitions and saved source URLs. It lists the IANA bootstrap, dynamic
+domain definitions and saved source URLs. It lists the IANA bootstrap, dynamic
 registry source, system DNS names, direct TLS endpoint, website/icon sources,
 conditional MTA-STS URL, and the manually opened project link. It contains no
 editable network override and does not initiate a connection.
 
 The portfolio's global offline notice is live device state, not persisted
-monitor evidence. `deviceOfflineProvider` performs an initial platform query,
+domain evidence. `deviceOfflineProvider` performs an initial platform query,
 then listens for transport changes; application resume invalidates it so a
 transition missed while suspended is queried again. A reconnect only removes
 the transient notice. It neither mutates saved `CheckActivity` failures nor
@@ -629,15 +646,15 @@ reconciliation boundary.
 ## Persistence
 
 `AppDatabase` opens the local `akshi.db` SQLite database with foreign keys
-enabled. The `monitors` table stores the monitor definition, latest domain/TLS/
-Email values, activities, cached icon, and serialized DNS snapshot. Tags use a
-normalized many-to-many `monitor_tags` table. `TagPolicy` caps reusable tags
+enabled. The `domains` table stores the domain definition, latest registration,
+TLS and Email values, activities, cached icon, and serialized DNS snapshot.
+Tags use a normalized many-to-many `domain_tags` table. `TagPolicy` caps reusable tags
 at ten; `TagRepository.create` enforces that limit inside the insert
 transaction so rapid create intents cannot bypass the UI count.
 
-`MonitorEntry.toMap` is the storage boundary. Dates are UTC ISO-8601 strings,
+`DomainEntry.toMap` is the storage boundary. Dates are UTC ISO-8601 strings,
 boolean values are SQLite integers, lists and rich results are JSON, and icon
-bytes are a BLOB. `MonitorEntry.fromMap` performs the inverse conversion.
+bytes are a BLOB. `DomainEntry.fromMap` performs the inverse conversion.
 Repositories never expose raw SQLite rows to presentation code.
 
 Schema version 1 is the current pre-release schema. Incompatible development
@@ -646,13 +663,14 @@ their application data before running against the new shape.
 
 ## Expiry notification behavior
 
-`ExpiryAlarmPlanner` is pure domain code. For each enabled Domain/TLS expiry,
-it subtracts the two configurable calendar-day offsets and fixed one-day
+`ExpiryAlarmPlanner` is pure domain code. For each reminder-enabled domain, it
+derives alarm dates from the registration and enabled TLS expiries. It
+subtracts the two configurable calendar-day offsets and the fixed one-day
 offset, resolves the configured local time in the explicit device time zone,
 drops non-future instants, and groups all collisions into one alarm per local
 date. DNS, Email, connectivity, and ordinary state changes never notify.
 
-`ReminderController` serializes every request from startup, resume, monitor
+`ReminderController` serializes every request from startup, resume, domain
 CRUD/refresh, settings changes, and manual repair. Each run reads fresh
 repositories. `AlarmReconciler` compares the pure desired map with decoded
 pending requests and incrementally creates, replaces, or deletes only changed
@@ -666,8 +684,9 @@ post-write comparison. Audit writes are isolated and locally logged: they never
 stop scheduling, cancellation, repair, or verification, and they never change
 reminder health. Desired plans and observed OS pending inventory are
 authoritative. The ledger retains at most 365 days and 1,000 alarm revisions.
-Settings → Reminder ledger groups rows by daily alarm and exposes the available
-Domain/TLS snapshot history. It explicitly does not claim delivery.
+Settings → Reminder ledger groups rows by scheduled date and exposes the
+available registration/TLS snapshot history. It explicitly does not claim
+delivery.
 
 On Android, the plugin schedules with `AlarmManager` and its pending API reads
 the plugin's private persisted scheduled-notification cache. On iOS, pending
@@ -677,13 +696,14 @@ not request exact-alarm access. The operating system controls final delivery.
 Settings persistence is desired truth: save first, then reconcile. Failure
 keeps the user's choice and exposes Needs attention for a later retry; there is
 no compensating rollback. Versioned notification payloads route to the
-explanatory expiry-reminder screen with the alarm date and affected monitor
+explanatory expiry-reminder screen with the alarm date and affected domain
 IDs. Generated and observed payloads share a 32 KiB UTF-8 ceiling. Generation
 fails before an oversized payload reaches a platform bridge; incoming or
 pending oversized values are rejected before JSON decoding.
 
 Akshi does not run a background network checker or keep persistent domain
-connections.
+connections. The complete alarm invariants, repair policy, and platform limits
+are defined in [alarm_engine_design.md](alarm_engine_design.md).
 
 ## UI, theme, fonts, and icons
 
@@ -704,7 +724,7 @@ widget should use semantic labels or tooltips for icon-only actions. Avoid
 inventing one-off painted logos when an existing open-source icon communicates
 the intent.
 
-Monitor record cards use the shared `MonitorSurface` and `MonitorIconBadge`
+Domain record cards use the shared `DomainSurface` and `DomainIconBadge`
 components so Domain, TLS, Email, and DNS have the same clipping, radius, base
 surface, and icon geometry on every supported device. Status borders and tints
 remain intentional data signals. Interactive cards use `Material` plus `InkWell`
@@ -721,12 +741,12 @@ snapshots:
 | Test file | Contract covered |
 | --- | --- |
 | `hostname_test.dart` | URL/hostname normalization and validation |
-| `monitor_status_test.dart` | expiry boundaries and severity precedence |
-| `monitor_finding_test.dart` | independent Domain/TLS/Email findings |
-| `monitor_entry_test.dart` | model defaults, copy semantics, row mapping, and definition/observation separation |
+| `domain_status_test.dart` | expiry boundaries and severity precedence |
+| `domain_finding_test.dart` | independent registration/TLS/Email findings |
+| `domain_entry_test.dart` | model defaults, copy semantics, row mapping, and definition/observation separation |
 | `async_concurrency_gate_test.dart` | cap enforcement, FIFO queue order, error release, and invalid limits |
-| `monitor_refresh_*_test.dart` | session freshness/progress and controller-level mutation rejection |
-| `monitor_check_activity_test.dart` | immutable cross-screen manual-check activity by monitor ID |
+| `domain_refresh_*_test.dart` | session freshness/progress and controller-level mutation rejection |
+| `domain_check_activity_test.dart` | immutable cross-screen manual-check activity by domain ID |
 | `app_lifecycle_coordinator_test.dart` | startup failure isolation, notification retry, foreground coalescing, and disposal boundaries |
 | `notification_service_test.dart` | initialization joining/retry and provider-owned stream disposal |
 | `app_database_lifecycle_test.dart` | one in-flight open, retry, terminal close, and disposal ownership |
@@ -739,14 +759,14 @@ snapshots:
 | `site_icon_service_test.dart` | byte-exact image handling, safety/decode bounds, and operation-deadline cancellation |
 | `certificate_*_test.dart` | human-readable subject and algorithm formatting |
 | `tls_endpoint_test.dart` | protocol-neutral port bounds and DNS/reachability/handshake failures |
-| `reminder_*_test.dart` | daily grouping, offsets, duplicate checks, and limits |
+| `reminder_*_test.dart` | date grouping, offsets, duplicate checks, and limits |
 | `notification_destination_test.dart` | payload routing, encoding, integrity, byte boundary, and strict calendar dates |
 | `async_error_view_test.dart` | safe retryable load failure presentation |
-| `settings_alarm_transaction_test.dart` | serialized alarm commit, rollback, and non-schedule settings |
+| `settings_alarm_transaction_test.dart` | persist-before-reconcile ordering and non-schedule settings |
 | `settings_navigation_test.dart` | Settings/Tags overlay history, root fallback, and Android/iOS route semantics |
 | `settings_reminder_debounce_test.dart` | three-second restartable confirmation and cancel restore |
 | `notification_settings_screen_test.dart` | visible permission progress and complete alarm refresh |
-| `app_settings_test.dart` / `monitor_tag_test.dart` | settings and tag persistence/domain rules |
+| `app_settings_test.dart` / `domain_tag_test.dart` | settings and tag persistence/domain rules |
 | `crash_log_test.dart` | diagnostic serialization, retention, deletion, and concurrent writes |
 | `platform_privacy_resources_test.dart` | backup exclusion and release-signing safeguards |
 
@@ -785,7 +805,7 @@ grouping, persistence conversion, notification reconciliation, and navigation
 destination selection.
 
 Comments must describe current behavior, not an abandoned implementation or a
-future promise. If a rule is user-visible—such as one daily digest, no DNS
+future promise. If a rule is user-visible—such as one reminder per date, no DNS
 `ANY`, or preserving repeated TXT values—document it in both the relevant code
 and the public guide.
 
@@ -796,16 +816,6 @@ and leave them uncommitted until `dart format`, `flutter analyze`, `flutter
 test`, and the relevant platform builds pass in the Flutter environment. Use
 small commits only after verification, with a subject describing the behavior
 and a multiline body explaining the design decision and test coverage.
-
-### Offline physical-device work
-
-The complete operator runbook is [OFFLINE.md](OFFLINE.md). It is the single
-source for online preparation, USB-device release runs, cache locations,
-cleanup, platform signing, offline verification, disk-space checks, and
-troubleshooting.
-
-Keep operational instructions in that runbook. Do not duplicate shell-script
-internals or an alternative workflow in this developer guide.
 
 Before opening a pull request, check:
 
@@ -820,35 +830,32 @@ Before opening a pull request, check:
 
 Akshi is licensed under `GPL-3.0-or-later`; legal and privacy material lives in
 `LICENSE`, `COPYRIGHT`, `PRIVACY.md`, and `THIRD_PARTY_NOTICES.md`. Android and
-iOS exclude the application data directories from ordinary device and cloud
-backups. The Android release configuration intentionally contains no debug
-signing assignment because release channels provide their own signing keys.
+iOS exclude application data from ordinary device and cloud backups. The
+Android project intentionally has no debug signing assignment for release
+builds; the release channel supplies its own signing identity.
 
-Before creating a public release:
+Keep release procedures in their dedicated guides:
 
-1. run formatting, analysis, tests, and both platform builds;
-2. verify every direct and transitive dependency remains FLOSS;
-3. confirm the public repository and issue-tracker URLs;
-4. add the Fastlane icon and representative phone screenshots;
-5. update `CHANGELOG.md` and the version-code changelog;
-6. commit the verified release state and create a matching immutable tag; and
-7. run `fdroid rewritemeta`, `fdroid lint`, and an isolated F-Droid build.
+- [fastlane/README.md](fastlane/README.md) owns store text, graphics, screenshot
+  order, and metadata review;
+- [fdroid/README.md](fdroid/README.md) owns the release contract, tag sequence,
+  `fdroiddata` submission, reproducibility checks, and signing expectations.
 
-The upstream listing text is in `fastlane/metadata/android/en-US`. The
-`fdroid/com.aliyesha.akshi.yml` file is a submission draft; the finalized
-version belongs in the external `fdroiddata` repository.
+The upstream listing text is in `fastlane/metadata/android/en-US`.
+`fdroid/com.aliyesha.akshi.yml` is the local submission draft; finalized
+metadata belongs in the external `fdroiddata` repository.
 
 ## Useful source-reading order
 
 For a first contribution, read these files in order:
 
 1. `lib/main.dart`, `lib/app/akshi_app.dart`, and `lib/app/app_router.dart`;
-2. `lib/app/providers.dart` and `monitor_controller.dart`;
-3. `monitor_entry.dart`, `dns_snapshot.dart`, and `email_posture.dart`;
-4. `monitor_repository.dart` and `app_database.dart`;
+2. `lib/app/providers.dart` and `domain_controller.dart`;
+3. `domain_entry.dart`, `dns_snapshot.dart`, and `email_posture.dart`;
+4. `domain_repository.dart` and `app_database.dart`;
 5. `system_dns_service.dart`, `email_posture_service.dart`, `rdap_service.dart`,
    and `tls_check_service.dart`;
-6. the monitor presentation screens;
+6. the domain presentation screens;
 7. the matching tests before changing behavior.
 
 This order follows the direction of data through the application and keeps UI
@@ -871,7 +878,7 @@ reports from Settings. No report is uploaded automatically.
 
 Tests for this subsystem should cover malformed JSON, retention trimming,
 deletion, storage-failure boundaries, and the distinction between a saved
-monitor with unavailable checks and a failed database transaction.
+domain with unavailable checks and a failed database transaction.
 
 ## Runtime logging
 
@@ -881,7 +888,7 @@ workflow starts, service stages, persistence boundaries, lifecycle refreshes,
 and notification scheduling. SEVERE records describe caught failures and carry
 the Dart stack trace so a failure can be located without reproducing it.
 
-Every monitor add, edit, refresh, check, and delete workflow receives a short
+Every domain add, edit, refresh, check, and delete workflow receives a short
 flow ID. Service records use stable event names such as
 `service.tls.check.started` and `service.dns.query.failed`; this makes one
 operation searchable in device logs. The logger is observational only: it does
