@@ -1,22 +1,23 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Android notification icon exists and is referenced by the app', () {
-    final notificationIcon = File(
-      'android/app/src/main/res/drawable/ic_notification.xml',
-    );
+  test('Android notifications use the approved monochrome Akshi icon', () {
+    final icon = File('android/app/src/main/res/drawable/ic_notification.png');
     final service = File('lib/core/services/notification_service.dart')
         .readAsStringSync();
 
-    expect(notificationIcon.existsSync(), isTrue);
-    expect(notificationIcon.readAsStringSync(), contains('<vector'));
+    expect(icon.existsSync(), isTrue);
+    expect(
+      sha256.convert(icon.readAsBytesSync()).toString(),
+      '7264f1fab3ae8a2cc4f92a8a79629d1594b95a1d0e8bbe8d2e4e70fa4f3ecd0c',
+    );
     expect(
       service,
       contains("AndroidInitializationSettings('ic_notification')"),
     );
-    expect(service, contains("icon: 'ic_notification'"));
   });
 
   test('Android manifest declares scheduled notification recovery', () {

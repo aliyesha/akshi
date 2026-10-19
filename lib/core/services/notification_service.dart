@@ -191,7 +191,6 @@ class NotificationService implements AlarmPlatformGateway {
           'Consolidated registration and certificate expiry reminders',
       importance: Importance.high,
       priority: Priority.high,
-      icon: 'ic_notification',
       styleInformation: BigTextStyleInformation(body),
     ),
     iOS: const DarwinNotificationDetails(
