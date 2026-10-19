@@ -701,6 +701,21 @@ IDs. Generated and observed payloads share a 32 KiB UTF-8 ceiling. Generation
 fails before an oversized payload reaches a platform bridge; incoming or
 pending oversized values are rejected before JSON decoding.
 
+The Settings presentation layer groups successive warning-day adjustments into
+one draft. Each valid tap or held-repeat step restarts a passive three-second
+countdown. A subtly primary-tinted, theme-aware notice displays the whole-number
+3, 2, 1 sequence without actions and is removed before confirmation opens. The
+settings model remains the authority for the two-day minimum, warning order,
+and 90-day maximum. Held input stops at a boundary. At 90 days the
+first-warning control shows a persistent inline maximum state; another increase
+does not create a draft, restart the timer, or show a transient notice. The time
+picker is already an explicit editing boundary, so Cancel makes no change and
+OK proceeds directly to the same reminder confirmation.
+
+No setting is persisted and no alarm is reconciled until confirmation succeeds.
+After reconciliation, a healthy empty desired plan is reported as **No upcoming
+reminders**; the valid settings remain saved for future expiry data.
+
 Akshi does not run a background network checker or keep persistent domain
 connections. The complete alarm invariants, repair policy, and platform limits
 are defined in [alarm_engine_design.md](alarm_engine_design.md).
@@ -723,6 +738,11 @@ sections; regular icons are used where a quiet action glyph reads better. A
 widget should use semantic labels or tooltips for icon-only actions. Avoid
 inventing one-off painted logos when an existing open-source icon communicates
 the intent.
+
+Android notifications use the approved transparent monochrome Akshi drawable
+as their small icon. Android applies the visible tint; the detailed full-color
+launcher artwork is not reused because it collapses into an unrecognizable
+shape in the system notification template.
 
 Domain record cards use the shared `DomainSurface` and `DomainIconBadge`
 components so Domain, TLS, Email, and DNS have the same clipping, radius, base
@@ -761,10 +781,11 @@ snapshots:
 | `tls_endpoint_test.dart` | protocol-neutral port bounds and DNS/reachability/handshake failures |
 | `reminder_*_test.dart` | date grouping, offsets, duplicate checks, and limits |
 | `notification_destination_test.dart` | payload routing, encoding, integrity, byte boundary, and strict calendar dates |
+| `android_notification_resources_test.dart` | approved Akshi small-icon identity and scheduled-notification manifest wiring |
 | `async_error_view_test.dart` | safe retryable load failure presentation |
 | `settings_alarm_transaction_test.dart` | persist-before-reconcile ordering and non-schedule settings |
 | `settings_navigation_test.dart` | Settings/Tags overlay history, root fallback, and Android/iOS route semantics |
-| `settings_reminder_debounce_test.dart` | three-second restartable confirmation and cancel restore |
+| `settings_reminder_debounce_test.dart` | visible restartable three-second countdown, bounded held repeat, inline maximum state, and cancel restore |
 | `notification_settings_screen_test.dart` | visible permission progress and complete alarm refresh |
 | `app_settings_test.dart` / `domain_tag_test.dart` | settings and tag persistence/domain rules |
 | `crash_log_test.dart` | diagnostic serialization, retention, deletion, and concurrent writes |
