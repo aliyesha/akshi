@@ -4,7 +4,6 @@ import 'package:akshi/app/providers.dart';
 import 'package:akshi/core/formatters/date_time_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/services/system_settings_service.dart';
-import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/async_error_view.dart';
 import 'package:akshi/features/reminders/application/reminder_controller.dart';
@@ -26,7 +25,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     with WidgetsBindingObserver {
   AppSettings? _reminderDraft;
   Timer? _reminderDebounce;
-  var _secondsUntilReminderPrompt = 0;
+  var _reminderCountdownSeconds = 0;
   var _reminderDialogOpen = false;
   var _committingReminder = false;
   var _notificationRequestOpen = false;
@@ -103,7 +102,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     value: reminder.firstWarningDays,
                     minimum: reminder.secondWarningDays + 1,
                     maximum: AppSettings.maximumWarningDays,
-                    onChanged: (value) => _stageReminderChange(
+                    onChanged: (value) => _stageDayChange(
                       reminder.copyWith(firstWarningDays: value),
                     ),
                     onMinimumReached: () => showAkshiNotice(
@@ -114,13 +113,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                           'earlier than the second warning.',
                       tone: AkshiNoticeTone.warning,
                     ),
-                    onMaximumReached: () => showAkshiNotice(
-                      context,
-                      title: 'Maximum warning reached',
-                      message:
-                          'The earliest reminder is 90 days before expiry.',
-                      tone: AkshiNoticeTone.warning,
-                    ),
+                    boundaryMessage:
+                        reminder.firstWarningDays ==
+                            AppSettings.maximumWarningDays
+                        ? 'Maximum reached'
+                        : null,
                   ),
                   const Divider(),
                   _DayControl(
@@ -128,7 +125,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     value: reminder.secondWarningDays,
                     minimum: AppSettings.minimumWarningDays,
                     maximum: reminder.firstWarningDays - 1,
-                    onChanged: (value) => _stageReminderChange(
+                    onChanged: (value) => _stageDayChange(
                       reminder.copyWith(secondWarningDays: value),
                     ),
                     onMinimumReached: () => showAkshiNotice(
@@ -170,13 +167,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   ),
                 ],
               ),
-              if (reminderChanged &&
-                  _secondsUntilReminderPrompt > 0) ...<Widget>[
+              if (reminderChanged && _reminderCountdownSeconds > 0) ...<Widget>[
                 const SizedBox(height: 12),
-                _ReminderDraftActions(
-                  secondsUntilPrompt: _secondsUntilReminderPrompt,
-                  onUndo: _discardReminderDraft,
-                  onReviewNow: _promptReminderChange,
+                _ReminderChangePending(
+                  secondsRemaining: _reminderCountdownSeconds,
                 ),
               ],
               const SizedBox(height: 14),
@@ -376,7 +370,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       ),
     );
     if (selected == null || !mounted) return;
-    _stageReminderChange(
+    _confirmTimeChange(
       reminder.copyWith(
         notificationHour: selected.hour,
         notificationMinute: selected.minute,
@@ -387,29 +381,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   Future<void> _save(AppSettings settings) =>
       ref.read(settingsControllerProvider.notifier).saveSettings(settings);
 
-  /// Stages reminder settings locally and restarts the three-second quiet
-  /// period. Platform alarms are untouched until the user confirms.
-  void _stageReminderChange(AppSettings candidate) {
+  /// Stages changed warning days and restarts the three-second countdown.
+  /// Platform alarms are untouched until the user confirms.
+  void _stageDayChange(AppSettings candidate) {
     if (_committingReminder) return;
     _reminderDebounce?.cancel();
     setState(() {
       _reminderDraft = candidate;
-      _secondsUntilReminderPrompt = _reminderConfirmationDelay.inSeconds;
+      _reminderCountdownSeconds = _reminderConfirmationDelay.inSeconds;
     });
     _reminderDebounce = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      if (_secondsUntilReminderPrompt > 1) {
-        setState(() => _secondsUntilReminderPrompt--);
+      if (_reminderCountdownSeconds > 1) {
+        setState(() {
+          _reminderCountdownSeconds--;
+        });
         return;
       }
       timer.cancel();
       _reminderDebounce = null;
-      setState(() => _secondsUntilReminderPrompt = 0);
-      unawaited(_promptReminderChange());
+      setState(() => _reminderCountdownSeconds = 0);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            _reminderDebounce?.isActive == true ||
+            _reminderCountdownSeconds != 0) {
+          return;
+        }
+        unawaited(_promptReminderChange());
+      });
     });
+  }
+
+  /// The time picker already provides its own editing step, so accepting it
+  /// proceeds directly to the reminder confirmation.
+  void _confirmTimeChange(AppSettings candidate) {
+    if (_committingReminder) return;
+    _reminderDebounce?.cancel();
+    _reminderDebounce = null;
+    setState(() {
+      _reminderDraft = candidate;
+      _reminderCountdownSeconds = 0;
+    });
+    unawaited(_promptReminderChange());
   }
 
   void _discardReminderDraft() {
@@ -418,7 +434,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     if (!mounted) return;
     setState(() {
       _reminderDraft = null;
-      _secondsUntilReminderPrompt = 0;
+      _reminderCountdownSeconds = 0;
     });
   }
 
@@ -441,7 +457,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _reminderDebounce?.cancel();
     _reminderDebounce = null;
     setState(() {
-      _secondsUntilReminderPrompt = 0;
+      _reminderCountdownSeconds = 0;
       _reminderDialogOpen = true;
     });
     try {
@@ -452,9 +468,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           icon: const PhosphorIcon(PhosphorIconsDuotone.bellRinging, size: 34),
           title: const Text('Update expiry reminders?'),
           content: Text(
-            'Akshi will schedule reminders ${candidate.firstWarningDays} '
+            'Akshi will use warning intervals of ${candidate.firstWarningDays} '
             'days, ${candidate.secondWarningDays} days, and 1 day before '
-            'each saved expiry, around $reminderTime.',
+            'saved expiries, around $reminderTime.',
           ),
           actions: <Widget>[
             TextButton(
@@ -482,22 +498,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           operation: () => _save(candidate),
         );
         if (!mounted) return;
-        setState(() {
-          _reminderDraft = null;
-          _secondsUntilReminderPrompt = 0;
-        });
+        setState(() => _reminderDraft = null);
+        final health = ref.read(reminderControllerProvider);
+        final noUpcoming =
+            health.kind == ReminderHealthKind.ready && health.desiredCount == 0;
         showAkshiNotice(
           context,
-          title: 'Reminders updated',
-          message: 'Your new expiry warning schedule is active.',
-          tone: AkshiNoticeTone.success,
+          title: noUpcoming ? 'No upcoming reminders' : 'Reminders updated',
+          message: noUpcoming
+              ? 'Your settings were saved. Akshi will schedule reminders '
+                    'when a saved expiry matches them.'
+              : 'Your new expiry warning schedule is active.',
+          tone: noUpcoming ? AkshiNoticeTone.info : AkshiNoticeTone.success,
         );
       } catch (_) {
         if (!mounted) return;
-        setState(() {
-          _reminderDraft = null;
-          _secondsUntilReminderPrompt = 0;
-        });
+        setState(() => _reminderDraft = null);
         showAkshiNotice(
           context,
           title: 'Could not update reminders',
@@ -752,6 +768,7 @@ class _NotificationAccessCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final ready = health.kind == ReminderHealthKind.ready;
     final needsAttention = health.kind == ReminderHealthKind.needsAttention;
+    final noUpcoming = ready && health.desiredCount == 0;
     final label = switch (health.kind) {
       ReminderHealthKind.checking => 'Checking…',
       ReminderHealthKind.off => 'Off in Akshi',
@@ -783,8 +800,11 @@ class _NotificationAccessCard extends StatelessWidget {
           ),
           title: const Text('Expiry reminders'),
           subtitle: Text(
-            'Only domain and TLS certificate expiries. '
-            'OS permission: ${health.permission.label}.',
+            noUpcoming
+                ? 'No upcoming expiry reminders. '
+                      'OS permission: ${health.permission.label}.'
+                : 'Only domain and TLS certificate expiries. '
+                      'OS permission: ${health.permission.label}.',
           ),
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -837,68 +857,69 @@ class _NotificationAccessCard extends StatelessWidget {
   }
 }
 
-class _ReminderDraftActions extends StatelessWidget {
-  const _ReminderDraftActions({
-    required this.secondsUntilPrompt,
-    required this.onUndo,
-    required this.onReviewNow,
-  });
+class _ReminderChangePending extends StatelessWidget {
+  const _ReminderChangePending({required this.secondsRemaining});
 
-  final int secondsUntilPrompt;
-  final VoidCallback onUndo;
-  final VoidCallback onReviewNow;
+  final int secondsRemaining;
 
   @override
   Widget build(BuildContext context) {
-    final countdown = secondsUntilPrompt.clamp(1, 3);
-    final colors = AkshiTheme.progressSurface(Theme.of(context).colorScheme);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: colors.background,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Reminder changes ready',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: colors.foreground,
-              fontWeight: FontWeight.w700,
+    final scheme = Theme.of(context).colorScheme;
+    final background = Color.alphaBlend(
+      scheme.primary.withValues(alpha: 0.1),
+      scheme.surfaceContainerHigh,
+    );
+    return Semantics(
+      key: const ValueKey<String>('reminder-change-pending'),
+      liveRegion: true,
+      label:
+          'Reminder changes pending. Confirmation opens in '
+          '$secondsRemaining seconds.',
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: background,
+          border: Border.all(color: scheme.primary.withValues(alpha: 0.38)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: <Widget>[
+            PhosphorIcon(
+              PhosphorIconsDuotone.clock,
+              size: 21,
+              color: scheme.primary,
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            'Review or undo before the confirmation opens in $countdown '
-            '${countdown == 1 ? 'second' : 'seconds'}.',
-            style: TextStyle(color: colors.foreground),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: <Widget>[
-              OutlinedButton(
-                onPressed: onUndo,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: colors.foreground,
-                  side: BorderSide(color: colors.accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Confirmation opens automatically. '
+                'Continue adjusting if needed.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w600,
                 ),
-                child: const Text('Undo'),
               ),
-              const SizedBox(width: 4),
-              FilledButton(
-                onPressed: onReviewNow,
-                style: FilledButton.styleFrom(
-                  backgroundColor: colors.accent,
-                  foregroundColor: colors.background,
+            ),
+            const SizedBox(width: 10),
+            Container(
+              key: const ValueKey<String>('reminder-change-countdown'),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$secondsRemaining',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: scheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w800,
                 ),
-                child: const Text('Review now'),
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -925,7 +946,8 @@ class _DayControl extends StatelessWidget {
     required this.maximum,
     required this.onChanged,
     required this.onMinimumReached,
-    required this.onMaximumReached,
+    this.onMaximumReached,
+    this.boundaryMessage,
   });
   final String title;
   final int value;
@@ -933,7 +955,8 @@ class _DayControl extends StatelessWidget {
   final int maximum;
   final ValueChanged<int> onChanged;
   final VoidCallback onMinimumReached;
-  final VoidCallback onMaximumReached;
+  final VoidCallback? onMaximumReached;
+  final String? boundaryMessage;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -947,29 +970,139 @@ class _DayControl extends StatelessWidget {
               Text(title, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 3),
               Text('$value days before expiry'),
+              if (boundaryMessage != null) ...<Widget>[
+                const SizedBox(height: 4),
+                Row(
+                  key: ValueKey<String>('day-control-$title-boundary'),
+                  children: <Widget>[
+                    PhosphorIcon(
+                      PhosphorIconsDuotone.info,
+                      size: 15,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        boundaryMessage!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
-        IconButton.filledTonal(
+        _RepeatingDayButton(
           key: ValueKey<String>('day-control-$title-decrease'),
           tooltip: value > minimum
               ? 'Move one day later'
               : 'Why this cannot go later',
-          onPressed: () =>
-              value > minimum ? onChanged(value - 1) : onMinimumReached(),
+          onStep: () {
+            if (value <= minimum) {
+              onMinimumReached();
+              return false;
+            }
+            onChanged(value - 1);
+            return true;
+          },
           icon: const PhosphorIcon(PhosphorIconsRegular.minus, size: 17),
         ),
         const SizedBox(width: 7),
-        IconButton.filledTonal(
+        _RepeatingDayButton(
           key: ValueKey<String>('day-control-$title-increase'),
           tooltip: value < maximum
               ? 'Move one day earlier'
-              : 'Why this cannot go earlier',
-          onPressed: () =>
-              value < maximum ? onChanged(value + 1) : onMaximumReached(),
+              : boundaryMessage ?? 'Why this cannot go earlier',
+          onStep: () {
+            if (value >= maximum) {
+              onMaximumReached?.call();
+              return false;
+            }
+            onChanged(value + 1);
+            return true;
+          },
           icon: const PhosphorIcon(PhosphorIconsRegular.plus, size: 17),
         ),
       ],
     ),
   );
+}
+
+class _RepeatingDayButton extends StatefulWidget {
+  const _RepeatingDayButton({
+    super.key,
+    required this.tooltip,
+    required this.onStep,
+    required this.icon,
+  });
+
+  final String tooltip;
+  final bool Function() onStep;
+  final Widget icon;
+
+  @override
+  State<_RepeatingDayButton> createState() => _RepeatingDayButtonState();
+}
+
+class _RepeatingDayButtonState extends State<_RepeatingDayButton> {
+  Timer? _repeatTimer;
+
+  static const _repeatInterval = Duration(milliseconds: 100);
+
+  @override
+  void dispose() {
+    _stopRepeating();
+    super.dispose();
+  }
+
+  void _startRepeating() {
+    _stopRepeating();
+    if (!widget.onStep()) return;
+    _repeatTimer = Timer.periodic(_repeatInterval, (timer) {
+      if (!mounted || !widget.onStep()) {
+        timer.cancel();
+        if (identical(_repeatTimer, timer)) _repeatTimer = null;
+      }
+    });
+  }
+
+  void _stopRepeating() {
+    _repeatTimer?.cancel();
+    _repeatTimer = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Listener(
+      onPointerUp: (_) => _stopRepeating(),
+      onPointerCancel: (_) => _stopRepeating(),
+      child: Tooltip(
+        message: widget.tooltip,
+        triggerMode: TooltipTriggerMode.manual,
+        child: Material(
+          color: scheme.secondaryContainer,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkResponse(
+            onTap: () => widget.onStep(),
+            onLongPress: _startRepeating,
+            containedInkWell: true,
+            customBorder: const CircleBorder(),
+            child: SizedBox.square(
+              dimension: 40,
+              child: IconTheme(
+                data: IconThemeData(color: scheme.onSecondaryContainer),
+                child: Center(child: widget.icon),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

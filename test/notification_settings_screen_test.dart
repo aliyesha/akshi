@@ -139,6 +139,33 @@ void main() {
     expect(find.text('Turn off reminders'), findsOneWidget);
   });
 
+  testWidgets('ready empty plan explains that no reminders are upcoming', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(AppSettings(remindersEnabled: true)),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.ready,
+                permission: NotificationPermissionStatus.allowed,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No upcoming expiry reminders'), findsOneWidget);
+    expect(find.text('Ready'), findsOneWidget);
+  });
+
   testWidgets('first-run permission can be allowed or turned off in Akshi', (
     tester,
   ) async {

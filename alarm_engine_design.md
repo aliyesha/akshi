@@ -184,8 +184,15 @@ The final plan is capped to the earliest 60 dates. This stays below iOS's
 64-pending-notification limit and leaves room for platform behavior. The cap is
 applied before any platform call.
 
-An empty domain set or a set with no usable future expiry produces an empty
-desired plan.
+Every domain, expiry reason, and warning offset is evaluated independently. A
+past candidate for one domain never suppresses a future candidate for another.
+If at least one future candidate remains, the planner schedules that resulting
+date group and omits only the passed candidates.
+
+An empty domain set or a set with no usable future scheduled instant produces
+an empty desired plan. This is a healthy result rather than an error: no
+platform alarm is created, valid settings remain persisted, and future saved
+expiry data is evaluated against those settings during the next reconciliation.
 
 ## One alarm per local calendar date
 
