@@ -8,6 +8,7 @@ import 'package:akshi/core/widgets/offline_notice.dart';
 import 'package:akshi/features/domains/application/domain_controller.dart';
 import 'package:akshi/features/domains/domain/dns_snapshot.dart';
 import 'package:akshi/features/domains/domain/domain_entry.dart';
+import 'package:akshi/features/domains/presentation/widgets/domain_identity_header.dart';
 import 'package:akshi/features/domains/presentation/widgets/domain_refresh_banner.dart';
 import 'package:akshi/features/domains/presentation/widgets/domain_surface.dart';
 import 'package:flutter/services.dart';
@@ -110,11 +111,8 @@ class _DomainDnsScreenState extends ConsumerState<DomainDnsScreen> {
               LinearProgressIndicator(value: checkProgress.fraction),
               const SizedBox(height: 14),
             ],
-            Text(
-              domain.hostname,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 6),
+            DomainIdentityHeader(domain: domain),
+            const SizedBox(height: 12),
             Text(
               'A snapshot from this device’s system DNS resolver. Akshi asks for specific record types; it does not use an incomplete ANY response.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(

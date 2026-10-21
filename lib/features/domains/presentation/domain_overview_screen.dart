@@ -10,11 +10,10 @@ import 'package:akshi/features/domains/application/domain_controller.dart';
 import 'package:akshi/features/domains/domain/domain_entry.dart';
 import 'package:akshi/features/domains/domain/domain_finding.dart';
 import 'package:akshi/features/domains/domain/domain_status.dart';
+import 'package:akshi/features/domains/presentation/widgets/domain_identity_header.dart';
 import 'package:akshi/features/domains/presentation/widgets/domain_refresh_banner.dart';
-import 'package:akshi/features/domains/presentation/widgets/site_identity.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
-import 'package:akshi/features/tags/presentation/tag_pill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -117,39 +116,7 @@ class _DomainOverviewScreenState extends ConsumerState<DomainOverviewScreen> {
               const OfflineNotice(),
               const SizedBox(height: 14),
             ],
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                SiteIdentity(domain: domain, size: 56),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        domain.displayName,
-                        style: Theme.of(context).textTheme.displaySmall,
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        domain.hostname,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (domain.tags.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: domain.tags.map((tag) => TagPill(tag: tag)).toList(),
-              ),
-            ],
+            DomainIdentityHeader(domain: domain),
             const SizedBox(height: 18),
             if (provisioning != null) ...<Widget>[
               _DomainProgressCard(
