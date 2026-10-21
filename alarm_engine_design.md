@@ -410,13 +410,20 @@ Akshi treats persisted user data as desired truth and platform alarms as a
 reconcilable side effect:
 
 - save the user's domain or reminder setting;
-- invoke reconciliation;
+- invoke reconciliation and return its verified `ReminderHealth` result to the
+  caller;
 - if scheduling fails, keep the saved user choice;
-- expose “reminders need repair” rather than rolling the user choice back;
+- show success only for a verified Ready result or a verified Off result;
+- expose “reminders need attention” rather than rolling the user choice back;
 - retry at the next startup, resume, relevant action, or explicit refresh.
 
 This is safer than compensating rollback, which can itself fail and can leave
 both settings and alarms uncertain.
+
+Settings serializes saves. Reminder schedule changes, enable, disable, repair,
+and permission recovery share one UI operation boundary. Starting any of those
+operations cancels an unconfirmed warning-day countdown and clears its draft,
+so an older draft cannot re-enable reminders or overwrite a newer choice.
 
 The reconciler is idempotent and uses stable IDs. Desired work never needs a
 separate dirty record because it is recomputed from persisted user data.
@@ -435,8 +442,7 @@ grant or revoke operating-system permission directly.
 
 ### Ready
 
-Use a positive bell/alarm-with-check treatment and the label
-**Expiry reminders ready** when:
+Use a positive bell/alarm-with-check treatment and the label **Ready** when:
 
 - reminders are enabled in Akshi;
 - notification permission is allowed;
@@ -459,17 +465,23 @@ The operating-system permission may remain allowed. Akshi simply stops using it.
 
 ### Paused in Akshi
 
-Use a neutral slashed-bell icon and the label **Expiry reminders off** when the
+Use a neutral slashed-bell icon and the label **Off in Akshi** when the
 user has turned reminders off in Akshi. No alarm is scheduled even if device
 permission remains allowed. The primary action is **Enable reminders**.
 
 ### Permission needed
 
-Use a neutral slashed-bell icon and the label **Notification permission
-needed** when the user is enabling reminders but device permission is denied or
-has not been granted.
+Use a neutral slashed-bell icon and the label **Permission needed** when the
+user is enabling reminders but device permission is denied or has not been
+granted.
 
-Enabling performs this sequence:
+On a fresh installation, iOS requests alert, badge, and sound authorization
+during notification initialization. Android requests `POST_NOTIFICATIONS`
+through `NotificationService` when startup observes that permission is still
+undetermined. The same service handles the user's **Allow notifications**
+action in Settings.
+
+First launch and enabling perform this sequence:
 
 1. Record the user's enable intent.
 2. If permission is undetermined, request it.
@@ -481,16 +493,22 @@ Enabling performs this sequence:
 Until permission becomes allowed, Akshi schedules no new alarms and removes any
 owned pending expiry alarms. The card never describes this state as healthy.
 Choosing **Not now** leaves the Akshi preference enabled and the card in
-**Notification permission needed**; it does not mislabel the preference as off.
+**Permission needed**; it does not mislabel the preference as off.
+
+Akshi does not repeatedly prompt after a denial; the operating-system settings
+route is the recovery path. On Android, a disabled `expiry_reminders` channel
+is also treated as unavailable even when the app-wide permission remains
+allowed. Restoring permission or the channel and resuming the app rebuilds the
+desired alarms from saved settings and expiry data.
 
 ### Needs attention
 
-Use a warning treatment and the label **Reminders need attention** only when
-reminders are enabled and permission is allowed, but desired and pending state
+Use a warning treatment and the label **Needs attention** only when reminders
+are enabled and permission is allowed, but desired and pending state
 could not be reconciled or verified.
 
 The card explains the concrete reason, such as time-zone detection failure or a
-rejected platform operation, and offers **Retry reminder setup**. Akshi must not
+rejected platform operation, and offers **Repair reminders**. Akshi must not
 show the Ready state merely because a scheduling API call returned; it verifies
 the resulting pending inventory first.
 
@@ -560,7 +578,7 @@ Repair performs:
 4. re-read and verify pending inventory against desired state.
 
 If automatic repair succeeds, the user sees the normal Ready state. If it
-fails, the Settings card shows **Reminders need attention**, the concrete
+fails, the Settings card shows **Needs attention**, the concrete
 reason, the last attempted time, and a **Repair reminders** action. Manual
 repair runs the same bounded operation; it does not modify domains, expiry
 dates, warning settings, tags, or other user data.
@@ -642,7 +660,7 @@ All alarm-engine fixtures use February through August 2026. The suite covers:
 - stable IDs when an earlier date is inserted or reminder time changes;
 - globally disabled reminders, per-domain reminder exclusion, null/past
   expiries, and the exact-now boundary;
-- February/March calendar boundaries and explicit time-zone conversion;
+- February/March calendar boundaries, explicit time-zone conversion, and spring/fall DST transitions;
 - deterministic ordering, canonical payload integrity, and the 60-date cap;
 - zero-write idempotence on a second unchanged reconciliation;
 - malformed owned inventory, bounded automatic repair, and verification;

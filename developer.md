@@ -96,11 +96,15 @@ share one coalesced foreground data session and run behind independent error
 boundaries. Notification maintenance starts alongside that session but owns a
 separate coalesced operation.
 
-Notification maintenance initializes the plugin, attaches navigation once, and
-checks whether the first-run permission prompt is needed. A failed initialization
-remains retryable after its operation settles. A slow or never-completing plugin
-cannot keep the data operation active, so later foreground transitions can still
-refresh domains and reminders.
+Notification maintenance initializes the plugin and attaches navigation once.
+On iOS, initialization deliberately requests alert, badge, and sound
+authorization on first launch. On Android, the startup permission check calls
+`NotificationService` when reminders are enabled and `POST_NOTIFICATIONS` is
+still undetermined. Android status also treats a blocked `expiry_reminders`
+channel as unavailable. A denial is not prompted again on every resume. A
+failed initialization remains retryable after its operation settles. A slow or
+never-completing plugin cannot keep the data operation active, so later
+foreground transitions can still refresh domains and reminders.
 
 Disposal prevents a later phase from beginning; an already running platform call
 is allowed to settle and its result is contained.
@@ -663,6 +667,12 @@ their application data before running against the new shape.
 
 ## Expiry notification behavior
 
+Expiry status, summaries, cards, and detail panels all use
+`localCalendarDayDifference`. It compares local civil-date components through
+UTC date anchors, so “tomorrow” remains one day away across midnight and across
+23- or 25-hour daylight-saving transitions. Exact expiration still compares the
+original instants.
+
 `ExpiryAlarmPlanner` is pure domain code. For each reminder-enabled domain, it
 derives alarm dates from the registration and enabled TLS expiries. It
 subtracts the two configurable calendar-day offsets and the fixed one-day
@@ -695,11 +705,15 @@ not request exact-alarm access. The operating system controls final delivery.
 
 Settings persistence is desired truth: save first, then reconcile. Failure
 keeps the user's choice and exposes Needs attention for a later retry; there is
-no compensating rollback. Versioned notification payloads route to the
-explanatory expiry-reminder screen with the alarm date and affected domain
-IDs. Generated and observed payloads share a 32 KiB UTF-8 ceiling. Generation
-fails before an oversized payload reaches a platform bridge; incoming or
-pending oversized values are rejected before JSON decoding.
+no compensating rollback. `SettingsController.saveSettings` returns the exact
+`ReminderHealth` produced by reconciliation for an alarm-affecting save and
+returns null for an unrelated appearance change. Presentation maps that result
+through one notice policy: success requires verified Ready or verified Off;
+permission and reconciliation failures remain warnings. Versioned notification
+payloads route to the explanatory expiry-reminder screen with the alarm date
+and affected domain IDs. Generated and observed payloads share a 32 KiB UTF-8
+ceiling. Generation fails before an oversized payload reaches a platform
+bridge; incoming or pending oversized values are rejected before JSON decoding.
 
 The Settings presentation layer groups successive warning-day adjustments into
 one draft. Each valid tap or held-repeat step restarts a passive three-second
@@ -712,9 +726,16 @@ does not create a draft, restart the timer, or show a transient notice. The time
 picker is already an explicit editing boundary, so Cancel makes no change and
 OK proceeds directly to the same reminder confirmation.
 
+Schedule save, enable, disable, repair, and permission recovery use one shared
+reminder-operation gate. Starting one cancels the countdown, clears its draft,
+and disables other reminder controls until completion. A confirmed draft merges
+only reminder fields into the latest settings value, preserving a concurrent
+theme change.
+
 No setting is persisted and no alarm is reconciled until confirmation succeeds.
-After reconciliation, a healthy empty desired plan is reported as **No upcoming
-reminders**; the valid settings remain saved for future expiry data.
+After reconciliation, a healthy empty desired plan is reported as **Settings
+saved** with no upcoming expiry reminders; the valid settings remain saved for
+future expiry data.
 
 Akshi does not run a background network checker or keep persistent domain
 connections. The complete alarm invariants, repair policy, and platform limits
@@ -783,10 +804,10 @@ snapshots:
 | `notification_destination_test.dart` | payload routing, encoding, integrity, byte boundary, and strict calendar dates |
 | `android_notification_resources_test.dart` | approved Akshi small-icon identity and scheduled-notification manifest wiring |
 | `async_error_view_test.dart` | safe retryable load failure presentation |
-| `settings_alarm_transaction_test.dart` | persist-before-reconcile ordering and non-schedule settings |
+| `settings_alarm_transaction_test.dart` | persist-before-reconcile ordering, returned health, and non-schedule settings |
 | `settings_navigation_test.dart` | Settings/Tags overlay history, root fallback, and Android/iOS route semantics |
-| `settings_reminder_debounce_test.dart` | visible restartable three-second countdown, bounded held repeat, inline maximum state, and cancel restore |
-| `notification_settings_screen_test.dart` | visible permission progress and complete alarm refresh |
+| `settings_reminder_debounce_test.dart` | restartable countdown, bounded repeat, cancel restore, unhealthy outcomes, and turn-off race prevention |
+| `notification_settings_screen_test.dart` | permission states, operation progress, and failed-cleanup warnings |
 | `app_settings_test.dart` / `domain_tag_test.dart` | settings and tag persistence/domain rules |
 | `crash_log_test.dart` | diagnostic serialization, retention, deletion, and concurrent writes |
 | `platform_privacy_resources_test.dart` | backup exclusion and release-signing safeguards |

@@ -218,6 +218,24 @@ Akshi shows its reminder switch separately from the operating system's
 notification permission. Turning reminders off in Akshi removes its scheduled
 expiry alerts; it does not stop domain checks or change the system permission.
 
+Reminders are enabled by default on a fresh installation. On first use, Akshi
+asks the operating system for notification access. If you decline, or later
+turn notifications off for the app or its expiry-reminder category in system
+settings, Akshi keeps your in-app reminder choice but schedules no expiry
+alerts while access is unavailable. It does not repeat the system prompt every
+time you open the app. Settings instead shows **Permission needed** and offers
+**Open system settings**.
+
+After you restore notification access and return to Akshi, the app checks the
+saved expiries and rebuilds the applicable future reminders. You do not need to
+re-enter the warning days.
+
+When warning days, reminder time, or the Akshi reminder switch changes, Akshi
+saves the choice and then verifies its scheduled alerts. A success notice means
+that verification completed. If scheduling or cleanup could not be verified,
+Settings shows a warning and keeps the saved choice so you can review the
+Reminder Ledger and try **Repair reminders**.
+
 The Reminder Ledger shows Akshi's local history for scheduled expiry reminders.
 It can help confirm that a reminder was prepared and was still known to the
 device, but it cannot prove that Android or iOS displayed it. If reminder health
