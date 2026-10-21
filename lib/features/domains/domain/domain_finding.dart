@@ -1,3 +1,4 @@
+import 'package:akshi/core/time/calendar_day.dart';
 import 'package:akshi/features/domains/domain/check_activity.dart';
 import 'package:akshi/features/domains/domain/domain_entry.dart';
 import 'package:akshi/features/domains/domain/domain_status.dart';
@@ -183,7 +184,7 @@ String _unavailableSummary(String label, String? detail) {
 
 String _summary(DomainStatus status, DateTime? expiry, DateTime now) {
   if (expiry == null) return 'Expiry date unavailable';
-  final days = expiry.difference(now).inDays;
+  final days = localCalendarDayDifference(from: now, to: expiry);
   return switch (status) {
     DomainStatus.expired =>
       days == 0

@@ -72,6 +72,29 @@ void main() {
     );
   });
 
+  test('summary calls a near tomorrow one calendar day away', () {
+    final evening = DateTime(2026, 5, 1, 20);
+    final findings = findingsForDomain(
+      domain(domainExpiry: DateTime(2026, 5, 2, 8)),
+      now: evening,
+    );
+
+    expect(findings.first.summary, 'Expires in 1 day');
+  });
+
+  test('summary calls a recent yesterday one calendar day ago', () {
+    final morning = DateTime(2026, 5, 2, 8);
+    final findings = findingsForDomain(
+      domain(
+        domainExpiry: DateTime(2026, 5, 1, 20),
+        certificateExpiry: DateTime(2026, 6, 1),
+      ),
+      now: morning,
+    );
+
+    expect(findings.first.summary, 'Expired 1 day ago');
+  });
+
   test('offline refresh does not create attention findings', () {
     final failure = CheckFailure(
       kind: CheckFailureKind.offline,

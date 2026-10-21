@@ -7,6 +7,7 @@ import 'package:akshi/core/errors/user_facing_error.dart';
 import 'package:akshi/core/formatters/certificate_algorithm_formatter.dart';
 import 'package:akshi/core/logging/app_logger.dart';
 import 'package:akshi/core/formatters/certificate_name_formatter.dart';
+import 'package:akshi/core/time/calendar_day.dart';
 import 'package:akshi/core/theme/akshi_theme.dart';
 import 'package:akshi/core/widgets/akshi_notice.dart';
 import 'package:akshi/core/widgets/offline_notice.dart';
@@ -886,7 +887,11 @@ class _ExpiryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final days = date?.difference(DateTime.now()).inDays;
+    final now = DateTime.now();
+    final expiry = date;
+    final days = expiry == null
+        ? null
+        : localCalendarDayDifference(from: now, to: expiry);
     final focusedFinding = focus;
     final accent = focusedFinding == null
         ? scheme.primary
@@ -945,10 +950,14 @@ class _ExpiryPanel extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Text(
-            days == null
+            expiry == null
                 ? 'Not available'
-                : days < 0
+                : !expiry.isAfter(now)
                 ? 'Expired'
+                : days == 0
+                ? 'Expires today'
+                : days == 1
+                ? '1 day left'
                 : '$days days left',
             style: Theme.of(context).textTheme.headlineMedium,
           ),

@@ -1,3 +1,5 @@
+import 'package:akshi/core/time/calendar_day.dart';
+
 enum DomainStatus {
   unknown,
   healthy,
@@ -33,9 +35,12 @@ DomainStatus statusForExpiry(
   if (expiry == null) return DomainStatus.unknown;
   final referenceTime = now ?? DateTime.now();
   if (!expiry.isAfter(referenceTime)) return DomainStatus.expired;
-  final remaining = expiry.difference(referenceTime);
-  if (remaining <= Duration(days: criticalDays)) return DomainStatus.critical;
-  if (remaining <= Duration(days: warningDays)) return DomainStatus.warning;
+  final remainingDays = localCalendarDayDifference(
+    from: referenceTime,
+    to: expiry,
+  );
+  if (remainingDays <= criticalDays) return DomainStatus.critical;
+  if (remainingDays <= warningDays) return DomainStatus.warning;
   return DomainStatus.healthy;
 }
 

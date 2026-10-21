@@ -1,3 +1,4 @@
+import 'package:akshi/core/time/calendar_day.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:phosphor_icons/phosphor_icons.dart';
 
@@ -18,14 +19,20 @@ class ExpiryMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final days = date?.difference(DateTime.now()).inDays;
-    final value = switch (days) {
-      null => '—',
-      < 0 => 'Expired',
-      0 => 'Today',
-      1 => '1 day',
-      _ => '$days days',
-    };
+    final now = DateTime.now();
+    final expiry = date;
+    final days = expiry == null
+        ? null
+        : localCalendarDayDifference(from: now, to: expiry);
+    final value = expiry == null
+        ? '—'
+        : !expiry.isAfter(now)
+        ? 'Expired'
+        : switch (days!) {
+            0 => 'Today',
+            1 => '1 day',
+            _ => '$days days',
+          };
     final urgent = days != null && days <= 5;
     final identityBackground = accent.withValues(
       alpha: scheme.brightness == Brightness.dark ? .18 : .10,

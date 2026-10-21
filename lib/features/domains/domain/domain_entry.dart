@@ -146,9 +146,6 @@ class DomainEntry {
     );
   }
 
-  /// Calculates a user-facing whole-day distance from now to an expiry value.
-  int? daysUntil(DateTime? value) => value?.difference(DateTime.now()).inDays;
-
   /// Combines domain, certificate, and email states using the most severe one.
   ///
   /// Availability failures are distinct from expiry failures so the UI can

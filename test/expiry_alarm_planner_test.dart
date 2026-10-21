@@ -211,6 +211,41 @@ void main() {
     expect(plan, contains(const AlarmDate(2026, 2, 27)));
   });
 
+  test('warning time follows the named zone across both DST transitions', () {
+    final newYork = tz.getLocation('America/New_York');
+
+    ExpiryAlarmSpec tenDayWarningFor(tz.TZDateTime localExpiry) {
+      final plan = const ExpiryAlarmPlanner().build(
+        domains: <DomainEntry>[
+          domain(
+            id: 'dst',
+            hostname: 'dst.example',
+            domainExpiry: localExpiry.toUtc(),
+          ),
+        ],
+        settings: AppSettings(remindersEnabled: true, notificationHour: 9),
+        now: DateTime.utc(2026, 1, 1),
+        location: newYork,
+      );
+      final warningDate = AlarmDate.fromDateTime(
+        localExpiry.subtract(const Duration(days: 10)),
+      );
+      return plan[warningDate]!;
+    }
+
+    final spring = tenDayWarningFor(tz.TZDateTime(newYork, 2026, 3, 18, 12));
+    expect(spring.date, const AlarmDate(2026, 3, 8));
+    expect(spring.scheduledAt.hour, 9);
+    expect(spring.scheduledAt.minute, 0);
+    expect(spring.scheduledAt.timeZoneOffset, const Duration(hours: -4));
+
+    final autumn = tenDayWarningFor(tz.TZDateTime(newYork, 2026, 11, 11, 12));
+    expect(autumn.date, const AlarmDate(2026, 11, 1));
+    expect(autumn.scheduledAt.hour, 9);
+    expect(autumn.scheduledAt.minute, 0);
+    expect(autumn.scheduledAt.timeZoneOffset, const Duration(hours: -5));
+  });
+
   test('same hostname remains two items because domain ID is identity', () {
     final expiry = DateTime.utc(2026, 6, 20);
     final plan = const ExpiryAlarmPlanner().build(

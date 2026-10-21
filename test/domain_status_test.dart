@@ -38,6 +38,14 @@ void main() {
     );
   });
 
+  test('warning thresholds follow local calendar dates', () {
+    final late = DateTime(2026, 6, 1, 23);
+    expect(
+      statusForExpiry(DateTime(2026, 6, 6, 23, 30), now: late),
+      DomainStatus.critical,
+    );
+  });
+
   test('treats the exact expiry instant as expired', () {
     expect(statusForExpiry(now, now: now), DomainStatus.expired);
   });
