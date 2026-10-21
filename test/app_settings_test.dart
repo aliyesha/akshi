@@ -78,4 +78,25 @@ void main() {
       isFalse,
     );
   });
+
+  test('schedule merge preserves unrelated settings', () {
+    final current = AppSettings(
+      firstWarningDays: 30,
+      secondWarningDays: 15,
+      themeMode: AkshiThemeMode.dark,
+    );
+    final draft = AppSettings(
+      remindersEnabled: false,
+      firstWarningDays: 20,
+      secondWarningDays: 8,
+      notificationHour: 18,
+      notificationMinute: 30,
+      themeMode: AkshiThemeMode.light,
+    );
+
+    final merged = current.withReminderScheduleFrom(draft);
+
+    expect(merged.hasSameReminderSchedule(draft), isTrue);
+    expect(merged.themeMode, AkshiThemeMode.dark);
+  });
 }

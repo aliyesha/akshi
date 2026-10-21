@@ -15,7 +15,7 @@ void main() {
           throw StateError('notification bootstrap failed');
         },
         attachNotificationNavigation: () => calls.add('navigation'),
-        configureNotificationPermission: () async {
+        requestInitialNotificationPermission: () async {
           calls.add('permission');
         },
         reconcileReminders: () async {
@@ -57,7 +57,7 @@ void main() {
           }
         },
         attachNotificationNavigation: () => calls.add('navigation'),
-        configureNotificationPermission: () async {
+        requestInitialNotificationPermission: () async {
           calls.add('permission');
         },
         reconcileReminders: () async {
@@ -104,7 +104,7 @@ void main() {
         calls.add('initialize');
       },
       attachNotificationNavigation: () => calls.add('navigation'),
-      configureNotificationPermission: () async {
+      requestInitialNotificationPermission: () async {
         calls.add('permission');
         throw StateError('permission lookup failed');
       },
@@ -130,7 +130,9 @@ void main() {
         'domains',
       ]),
     );
-    expect(errors, <String>['app.foreground.notifications.permission.failed']);
+    expect(errors, <String>[
+      'app.foreground.notifications.initial_permission.failed',
+    ]);
   });
 
   test(
@@ -144,7 +146,7 @@ void main() {
       final coordinator = AppLifecycleCoordinator(
         initializeNotifications: () async {},
         attachNotificationNavigation: () {},
-        configureNotificationPermission: () async {},
+        requestInitialNotificationPermission: () async {},
         reconcileReminders: () {
           reminderCalls++;
           return reminders.future;
@@ -182,7 +184,7 @@ void main() {
       final coordinator = AppLifecycleCoordinator(
         initializeNotifications: () => initialization.future,
         attachNotificationNavigation: () => calls.add('navigation'),
-        configureNotificationPermission: () async {
+        requestInitialNotificationPermission: () async {
           calls.add('permission');
         },
         reconcileReminders: () async {

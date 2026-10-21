@@ -1,6 +1,7 @@
 package com.aliyesha.akshi
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -105,13 +106,21 @@ class MainActivity : FlutterActivity() {
 
     private fun notificationPermissionStatus(): String {
         val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        val expiryChannel = getSystemService(NotificationManager::class.java)
+            .getNotificationChannel(EXPIRY_REMINDER_CHANNEL)
+        val expiryChannelEnabled =
+            expiryChannel == null || expiryChannel.importance != NotificationManager.IMPORTANCE_NONE
+        if (!expiryChannelEnabled) return "notAllowed"
+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return if (notificationsEnabled) "allowed" else "notAllowed"
         }
 
         val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted && notificationsEnabled) return "allowed"
+        if (granted) {
+            return if (notificationsEnabled) "allowed" else "notAllowed"
+        }
 
         val requested = getSharedPreferences(NOTIFICATION_PREFERENCES, MODE_PRIVATE)
             .getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)
@@ -273,6 +282,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private companion object {
+        const val EXPIRY_REMINDER_CHANNEL = "expiry_reminders"
         const val NOTIFICATION_PREFERENCES = "akshi_notification_permissions"
         const val NOTIFICATION_PERMISSION_REQUESTED = "requested"
     }

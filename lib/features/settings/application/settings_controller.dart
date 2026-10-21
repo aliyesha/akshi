@@ -19,7 +19,7 @@ class SettingsController extends AsyncNotifier<AppSettings> {
   /// Preferences and OS alarms cannot form one transaction. Rolling the user's
   /// choice back after a platform failure is misleading, so reminder health
   /// owns that failure and gives the user a deterministic Repair action.
-  Future<void> saveSettings(AppSettings value) {
+  Future<ReminderHealth?> saveSettings(AppSettings value) {
     final request = _saveTail.then((_) => _commitSettings(value));
     _saveTail = request.then<void>(
       (_) {},
@@ -28,14 +28,17 @@ class SettingsController extends AsyncNotifier<AppSettings> {
     return request;
   }
 
-  Future<void> _commitSettings(AppSettings value) async {
+  /// Returns the verified platform result when alarm-affecting values changed.
+  /// Appearance-only saves return null because no reconciliation was needed.
+  Future<ReminderHealth?> _commitSettings(AppSettings value) async {
     final repository = ref.read(settingsRepositoryProvider);
     final previous = state.value ?? await repository.load();
     await repository.save(value);
     state = AsyncData(value);
 
     if (!previous.hasSameReminderSchedule(value)) {
-      await ref.read(reminderControllerProvider.notifier).reconcile();
+      return ref.read(reminderControllerProvider.notifier).reconcile();
     }
+    return null;
   }
 }

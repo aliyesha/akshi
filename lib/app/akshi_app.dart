@@ -41,7 +41,7 @@ class _AkshiAppState extends ConsumerState<AkshiApp>
         final pendingRoute = notifications.takePendingRoute();
         if (pendingRoute != null) _navigateFromNotification(pendingRoute);
       },
-      configureNotificationPermission: () async {
+      requestInitialNotificationPermission: () async {
         final settings = await ref.read(settingsControllerProvider.future);
         if (!mounted) return;
         var permission =

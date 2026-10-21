@@ -16,8 +16,9 @@ class _TestSettingsController extends SettingsController {
   Future<AppSettings> build() async => AppSettings(remindersEnabled: false);
 
   @override
-  Future<void> saveSettings(AppSettings value) async {
+  Future<ReminderHealth?> saveSettings(AppSettings value) async {
     state = AsyncData(value);
+    return null;
   }
 }
 

@@ -3,21 +3,24 @@ import 'package:akshi/features/reminders/application/reminder_controller.dart';
 import 'package:akshi/features/settings/application/settings_controller.dart';
 import 'package:akshi/features/settings/domain/app_settings.dart';
 import 'package:akshi/features/settings/presentation/settings_screen.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 class _TestSettingsController extends SettingsController {
-  _TestSettingsController(this.value);
+  _TestSettingsController(this.value, {this.saveResult});
 
   final AppSettings value;
+  final ReminderHealth? saveResult;
 
   @override
   Future<AppSettings> build() async => value;
 
   @override
-  Future<void> saveSettings(AppSettings value) async {
+  Future<ReminderHealth?> saveSettings(AppSettings value) async {
     state = AsyncData(value);
+    return saveResult;
   }
 }
 
@@ -34,6 +37,17 @@ class _TestReminderController extends ReminderController {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const systemSettingsChannel = MethodChannel(
+    'com.aliyesha.akshi/system_settings',
+  );
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+  tearDown(() {
+    messenger.setMockMethodCallHandler(systemSettingsChannel, null);
+  });
+
   testWidgets('shows app switch and current OS permission separately', (
     tester,
   ) async {
@@ -248,6 +262,12 @@ void main() {
   });
 
   testWidgets('denied OS permission exposes system settings', (tester) async {
+    MethodCall? settingsCall;
+    messenger.setMockMethodCallHandler(systemSettingsChannel, (call) async {
+      settingsCall = call;
+      return true;
+    });
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -268,6 +288,63 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open system settings'), findsOneWidget);
+    final openSettings = find.text('Open system settings');
+    await tester.ensureVisible(openSettings);
+    await tester.pump();
+    await tester.tap(openSettings);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notification permission needed'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Open system settings'));
+    await tester.pumpAndSettle();
+
+    expect(settingsCall?.method, 'openNotificationSettings');
+    expect(settingsCall?.arguments, isNull);
+  });
+
+  testWidgets('failed turn-off cleanup is not presented as success', (
+    tester,
+  ) async {
+    const unhealthy = ReminderHealth(
+      kind: ReminderHealthKind.needsAttention,
+      permission: NotificationPermissionStatus.notAllowed,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(
+              AppSettings(remindersEnabled: true),
+              saveResult: unhealthy,
+            ),
+          ),
+          reminderControllerProvider.overrideWith(
+            () => _TestReminderController(
+              const ReminderHealth(
+                kind: ReminderHealthKind.permissionNeeded,
+                permission: NotificationPermissionStatus.notAllowed,
+              ),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final turnOffButton = find.text('Turn off Akshi reminders');
+    await tester.ensureVisible(turnOffButton);
+    await tester.pump();
+    await tester.tap(turnOffButton);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Reminders are off in Akshi'), findsOneWidget);
+    expect(
+      find.textContaining('cleanup could not be verified'),
+      findsOneWidget,
+    );
+    expect(find.text('Reminders are off'), findsNothing);
   });
 }

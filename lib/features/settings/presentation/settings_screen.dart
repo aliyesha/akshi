@@ -27,8 +27,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   Timer? _reminderDebounce;
   var _reminderCountdownSeconds = 0;
   var _reminderDialogOpen = false;
-  var _committingReminder = false;
-  var _notificationRequestOpen = false;
+  var _reminderOperationOpen = false;
 
   static const _reminderConfirmationDelay = Duration(seconds: 3);
 
@@ -78,6 +77,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           final reminder =
               _reminderDraft?.copyWith(themeMode: settings.themeMode) ??
               settings;
+          final reminderControlsEnabled =
+              !_reminderDialogOpen && !_reminderOperationOpen;
           final reminderChanged = !settings.hasSameReminderSchedule(reminder);
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
@@ -102,6 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     value: reminder.firstWarningDays,
                     minimum: reminder.secondWarningDays + 1,
                     maximum: AppSettings.maximumWarningDays,
+                    enabled: reminderControlsEnabled,
                     onChanged: (value) => _stageDayChange(
                       reminder.copyWith(firstWarningDays: value),
                     ),
@@ -125,6 +127,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     value: reminder.secondWarningDays,
                     minimum: AppSettings.minimumWarningDays,
                     maximum: reminder.firstWarningDays - 1,
+                    enabled: reminderControlsEnabled,
                     onChanged: (value) => _stageDayChange(
                       reminder.copyWith(secondWarningDays: value),
                     ),
@@ -163,7 +166,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       ),
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    onTap: () => _pickTime(context, reminder),
+                    onTap: reminderControlsEnabled
+                        ? () => _pickTime(context, reminder)
+                        : null,
                   ),
                 ],
               ),
@@ -177,9 +182,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               _NotificationAccessCard(
                 health: reminderHealth,
                 remindersEnabled: settings.remindersEnabled,
+                operationBusy: _reminderOperationOpen,
                 onPressed: () =>
                     _handleReminderAction(context, settings, reminderHealth),
-                onTurnOff: () => _turnOffReminders(context, settings),
+                onTurnOff: () => _runReminderOperation(
+                  context,
+                  () => _turnOffReminders(context, settings),
+                ),
               ),
               const SizedBox(height: 30),
               Text(
@@ -378,13 +387,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     );
   }
 
-  Future<void> _save(AppSettings settings) =>
+  Future<ReminderHealth?> _save(AppSettings settings) =>
       ref.read(settingsControllerProvider.notifier).saveSettings(settings);
+
+  Future<ReminderHealth> _saveReminderSettings(AppSettings settings) async =>
+      await _save(settings) ?? ref.read(reminderControllerProvider);
 
   /// Stages changed warning days and restarts the three-second countdown.
   /// Platform alarms are untouched until the user confirms.
   void _stageDayChange(AppSettings candidate) {
-    if (_committingReminder) return;
+    if (_reminderDialogOpen || _reminderOperationOpen) return;
     _reminderDebounce?.cancel();
     setState(() {
       _reminderDraft = candidate;
@@ -418,7 +430,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   /// The time picker already provides its own editing step, so accepting it
   /// proceeds directly to the reminder confirmation.
   void _confirmTimeChange(AppSettings candidate) {
-    if (_committingReminder) return;
+    if (_reminderDialogOpen || _reminderOperationOpen) return;
     _reminderDebounce?.cancel();
     _reminderDebounce = null;
     setState(() {
@@ -439,12 +451,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Future<void> _promptReminderChange() async {
-    if (_reminderDialogOpen || _committingReminder) return;
+    if (_reminderDialogOpen || _reminderOperationOpen) return;
     final previous = ref.read(settingsControllerProvider).value;
     final draft = _reminderDraft;
     if (previous == null || draft == null) return;
 
-    final candidate = draft.copyWith(themeMode: previous.themeMode);
+    final candidate = previous.withReminderScheduleFrom(draft);
     final reminderTime = format24HourTime(
       hour: candidate.notificationHour,
       minute: candidate.notificationMinute,
@@ -490,41 +502,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         return;
       }
 
-      setState(() => _committingReminder = true);
+      final latest = ref.read(settingsControllerProvider).value;
+      if (latest == null) {
+        _discardReminderDraft();
+        return;
+      }
+      final committedCandidate = latest.withReminderScheduleFrom(draft);
+      setState(() {
+        _reminderDraft = null;
+        _reminderOperationOpen = true;
+      });
       try {
-        await _withBlockingProgress<void>(
+        final health = await _withBlockingProgress<ReminderHealth>(
           title: 'Updating expiry reminders',
           message: 'Saving your settings and verifying local alarms…',
-          operation: () => _save(candidate),
+          operation: () => _saveReminderSettings(committedCandidate),
         );
         if (!mounted) return;
-        setState(() => _reminderDraft = null);
-        final health = ref.read(reminderControllerProvider);
-        final noUpcoming =
-            health.kind == ReminderHealthKind.ready && health.desiredCount == 0;
-        showAkshiNotice(
-          context,
-          title: noUpcoming ? 'No upcoming reminders' : 'Reminders updated',
-          message: noUpcoming
-              ? 'Your settings were saved. Akshi will schedule reminders '
-                    'when a saved expiry matches them.'
-              : 'Your new expiry warning schedule is active.',
-          tone: noUpcoming ? AkshiNoticeTone.info : AkshiNoticeTone.success,
-        );
+        _showSavedReminderResult(context, committedCandidate, health);
       } catch (_) {
         if (!mounted) return;
-        setState(() => _reminderDraft = null);
         showAkshiNotice(
           context,
           title: 'Could not update reminders',
-          message: 'Your previous warning schedule is unchanged.',
+          message:
+              'Akshi could not finish the update. '
+              'Review Settings and try again.',
           tone: AkshiNoticeTone.error,
         );
       } finally {
-        if (mounted) setState(() => _committingReminder = false);
+        if (mounted) {
+          setState(() => _reminderOperationOpen = false);
+        }
       }
     } finally {
-      _reminderDialogOpen = false;
+      if (mounted) {
+        setState(() => _reminderDialogOpen = false);
+      } else {
+        _reminderDialogOpen = false;
+      }
     }
   }
 
@@ -571,16 +587,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     AppSettings settings,
     ReminderHealth health,
   ) async {
-    if (_notificationRequestOpen) return;
-    _notificationRequestOpen = true;
-    try {
+    await _runReminderOperation(context, () async {
       if (!settings.remindersEnabled) {
-        await _withBlockingProgress<void>(
+        final result = await _withBlockingProgress<ReminderHealth>(
           title: 'Enabling reminders',
           message: 'Saving your choice and checking notification access…',
-          operation: () => _save(settings.copyWith(remindersEnabled: true)),
+          operation: () =>
+              _saveReminderSettings(settings.copyWith(remindersEnabled: true)),
         );
         if (!context.mounted) return;
+        if (result.permission == NotificationPermissionStatus.allowed) {
+          _showSavedReminderResult(
+            context,
+            settings.copyWith(remindersEnabled: true),
+            result,
+          );
+          return;
+        }
         final permission =
             await SystemSettingsService.notificationPermissionStatus();
         if (!context.mounted) return;
@@ -614,6 +637,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       }
 
       await _turnOffReminders(context, settings);
+    });
+  }
+
+  Future<void> _runReminderOperation(
+    BuildContext context,
+    Future<void> Function() operation,
+  ) async {
+    if (_reminderDialogOpen || _reminderOperationOpen) return;
+    _reminderDebounce?.cancel();
+    _reminderDebounce = null;
+    setState(() {
+      _reminderDraft = null;
+      _reminderCountdownSeconds = 0;
+      _reminderOperationOpen = true;
+    });
+    try {
+      await operation();
     } catch (error, stackTrace) {
       appLogger.error('ui.settings.reminders.action.failed', error, stackTrace);
       if (!context.mounted) return;
@@ -624,7 +664,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         tone: AkshiNoticeTone.error,
       );
     } finally {
-      _notificationRequestOpen = false;
+      if (mounted) {
+        setState(() => _reminderOperationOpen = false);
+      }
     }
   }
 
@@ -719,21 +761,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     showAkshiNotice(context, title: title, message: message, tone: tone);
   }
 
+  void _showSavedReminderResult(
+    BuildContext context,
+    AppSettings settings,
+    ReminderHealth health,
+  ) {
+    final notice = _savedReminderNotice(settings, health);
+    _showReminderResult(
+      context,
+      title: notice.title,
+      message: notice.message,
+      tone: notice.tone,
+    );
+  }
+
   Future<void> _turnOffReminders(
     BuildContext context,
     AppSettings settings,
   ) async {
-    await _withBlockingProgress<void>(
+    final health = await _withBlockingProgress<ReminderHealth>(
       title: 'Turning off reminders',
       message: 'Removing Akshi expiry alarms and verifying they are gone…',
-      operation: () => _save(settings.copyWith(remindersEnabled: false)),
+      operation: () =>
+          _saveReminderSettings(settings.copyWith(remindersEnabled: false)),
     );
     if (!context.mounted) return;
-    showAkshiNotice(
+    _showSavedReminderResult(
       context,
-      title: 'Reminders are off',
-      message: 'Akshi removed its scheduled expiry alerts.',
-      tone: AkshiNoticeTone.success,
+      settings.copyWith(remindersEnabled: false),
+      health,
     );
   }
 
@@ -750,16 +806,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 }
 
+typedef _ReminderNotice = ({
+  String title,
+  String message,
+  AkshiNoticeTone tone,
+});
+
+_ReminderNotice _savedReminderNotice(
+  AppSettings settings,
+  ReminderHealth health,
+) {
+  if (!settings.remindersEnabled) {
+    if (health.kind == ReminderHealthKind.off) {
+      return (
+        title: 'Reminders are off',
+        message: 'Akshi removed its scheduled expiry alerts.',
+        tone: AkshiNoticeTone.success,
+      );
+    }
+    return (
+      title: 'Reminders are off in Akshi',
+      message:
+          'Scheduled-alert cleanup could not be verified. '
+          'Review the Reminder Ledger and try Repair reminders.',
+      tone: AkshiNoticeTone.warning,
+    );
+  }
+
+  if (health.kind == ReminderHealthKind.ready) {
+    if (health.hasNoUpcoming) {
+      return (
+        title: 'Settings saved',
+        message: 'There are no upcoming expiry reminders to schedule.',
+        tone: AkshiNoticeTone.info,
+      );
+    }
+    return (
+      title: 'Reminders updated',
+      message: 'Your expiry reminders are scheduled and verified.',
+      tone: AkshiNoticeTone.success,
+    );
+  }
+
+  if (health.kind == ReminderHealthKind.permissionNeeded) {
+    return (
+      title: 'Settings saved',
+      message:
+          'Notification permission is needed before Akshi can deliver '
+          'expiry reminders.',
+      tone: AkshiNoticeTone.warning,
+    );
+  }
+
+  return (
+    title: 'Settings saved, but reminders need attention',
+    message:
+        'Akshi could not verify the scheduled expiry alerts. '
+        'Review the Reminder Ledger and try Repair reminders.',
+    tone: AkshiNoticeTone.warning,
+  );
+}
+
 class _NotificationAccessCard extends StatelessWidget {
   const _NotificationAccessCard({
     required this.health,
     required this.remindersEnabled,
+    required this.operationBusy,
     required this.onPressed,
     required this.onTurnOff,
   });
 
   final ReminderHealth health;
   final bool remindersEnabled;
+  final bool operationBusy;
   final VoidCallback onPressed;
   final VoidCallback onTurnOff;
 
@@ -768,7 +887,7 @@ class _NotificationAccessCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final ready = health.kind == ReminderHealthKind.ready;
     final needsAttention = health.kind == ReminderHealthKind.needsAttention;
-    final noUpcoming = ready && health.desiredCount == 0;
+    final noUpcoming = health.hasNoUpcoming;
     final label = switch (health.kind) {
       ReminderHealthKind.checking => 'Checking…',
       ReminderHealthKind.off => 'Off in Akshi',
@@ -776,8 +895,11 @@ class _NotificationAccessCard extends StatelessWidget {
       ReminderHealthKind.ready => 'Ready',
       ReminderHealthKind.needsAttention => 'Needs attention',
     };
-    final action = health.isBusy
-        ? 'Checking reminders…'
+    final busy = health.isBusy || operationBusy;
+    final action = busy
+        ? operationBusy
+              ? 'Updating reminders…'
+              : 'Checking reminders…'
         : !remindersEnabled
         ? 'Enable reminders'
         : health.permission == NotificationPermissionStatus.notDetermined
@@ -831,7 +953,7 @@ class _NotificationAccessCard extends StatelessWidget {
           child: Column(
             children: <Widget>[
               OutlinedButton.icon(
-                onPressed: health.isBusy ? null : onPressed,
+                onPressed: busy ? null : onPressed,
                 icon: PhosphorIcon(
                   ready
                       ? PhosphorIconsDuotone.bellSlash
@@ -846,7 +968,7 @@ class _NotificationAccessCard extends StatelessWidget {
                   (health.kind == ReminderHealthKind.permissionNeeded ||
                       needsAttention))
                 TextButton(
-                  onPressed: health.isBusy ? null : onTurnOff,
+                  onPressed: busy ? null : onTurnOff,
                   child: const Text('Turn off Akshi reminders'),
                 ),
             ],
@@ -944,6 +1066,7 @@ class _DayControl extends StatelessWidget {
     required this.value,
     required this.minimum,
     required this.maximum,
+    required this.enabled,
     required this.onChanged,
     required this.onMinimumReached,
     this.onMaximumReached,
@@ -953,6 +1076,7 @@ class _DayControl extends StatelessWidget {
   final int value;
   final int minimum;
   final int maximum;
+  final bool enabled;
   final ValueChanged<int> onChanged;
   final VoidCallback onMinimumReached;
   final VoidCallback? onMaximumReached;
@@ -998,6 +1122,7 @@ class _DayControl extends StatelessWidget {
         ),
         _RepeatingDayButton(
           key: ValueKey<String>('day-control-$title-decrease'),
+          enabled: enabled,
           tooltip: value > minimum
               ? 'Move one day later'
               : 'Why this cannot go later',
@@ -1014,6 +1139,7 @@ class _DayControl extends StatelessWidget {
         const SizedBox(width: 7),
         _RepeatingDayButton(
           key: ValueKey<String>('day-control-$title-increase'),
+          enabled: enabled,
           tooltip: value < maximum
               ? 'Move one day earlier'
               : boundaryMessage ?? 'Why this cannot go earlier',
@@ -1036,11 +1162,13 @@ class _RepeatingDayButton extends StatefulWidget {
   const _RepeatingDayButton({
     super.key,
     required this.tooltip,
+    required this.enabled,
     required this.onStep,
     required this.icon,
   });
 
   final String tooltip;
+  final bool enabled;
   final bool Function() onStep;
   final Widget icon;
 
@@ -1054,6 +1182,12 @@ class _RepeatingDayButtonState extends State<_RepeatingDayButton> {
   static const _repeatInterval = Duration(milliseconds: 100);
 
   @override
+  void didUpdateWidget(covariant _RepeatingDayButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled && !widget.enabled) _stopRepeating();
+  }
+
+  @override
   void dispose() {
     _stopRepeating();
     super.dispose();
@@ -1061,6 +1195,7 @@ class _RepeatingDayButtonState extends State<_RepeatingDayButton> {
 
   void _startRepeating() {
     _stopRepeating();
+    if (!widget.enabled) return;
     if (!widget.onStep()) return;
     _repeatTimer = Timer.periodic(_repeatInterval, (timer) {
       if (!mounted || !widget.onStep()) {
@@ -1085,18 +1220,24 @@ class _RepeatingDayButtonState extends State<_RepeatingDayButton> {
         message: widget.tooltip,
         triggerMode: TooltipTriggerMode.manual,
         child: Material(
-          color: scheme.secondaryContainer,
+          color: widget.enabled
+              ? scheme.secondaryContainer
+              : scheme.surfaceContainerHighest,
           shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkResponse(
-            onTap: () => widget.onStep(),
-            onLongPress: _startRepeating,
+            onTap: widget.enabled ? () => widget.onStep() : null,
+            onLongPress: widget.enabled ? _startRepeating : null,
             containedInkWell: true,
             customBorder: const CircleBorder(),
             child: SizedBox.square(
               dimension: 40,
               child: IconTheme(
-                data: IconThemeData(color: scheme.onSecondaryContainer),
+                data: IconThemeData(
+                  color: widget.enabled
+                      ? scheme.onSecondaryContainer
+                      : scheme.onSurfaceVariant,
+                ),
                 child: Center(child: widget.icon),
               ),
             ),

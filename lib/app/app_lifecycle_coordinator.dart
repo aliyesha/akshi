@@ -18,14 +18,14 @@ final class AppLifecycleCoordinator {
   factory AppLifecycleCoordinator({
     required AppLifecycleTask initializeNotifications,
     required void Function() attachNotificationNavigation,
-    required AppLifecycleTask configureNotificationPermission,
+    required AppLifecycleTask requestInitialNotificationPermission,
     required AppLifecycleTask reconcileReminders,
     required AppLifecycleTask refreshDomains,
     required AppLifecycleErrorReporter reportError,
   }) => AppLifecycleCoordinator._(
     initializeNotifications,
     attachNotificationNavigation,
-    configureNotificationPermission,
+    requestInitialNotificationPermission,
     reconcileReminders,
     refreshDomains,
     reportError,
@@ -34,7 +34,7 @@ final class AppLifecycleCoordinator {
   AppLifecycleCoordinator._(
     this._initializeNotifications,
     this._attachNotificationNavigation,
-    this._configureNotificationPermission,
+    this._requestInitialNotificationPermission,
     this._reconcileReminders,
     this._refreshDomains,
     this._reportError,
@@ -42,7 +42,7 @@ final class AppLifecycleCoordinator {
 
   final AppLifecycleTask _initializeNotifications;
   final void Function() _attachNotificationNavigation;
-  final AppLifecycleTask _configureNotificationPermission;
+  final AppLifecycleTask _requestInitialNotificationPermission;
   final AppLifecycleTask _reconcileReminders;
   final AppLifecycleTask _refreshDomains;
   final AppLifecycleErrorReporter _reportError;
@@ -124,8 +124,8 @@ final class AppLifecycleCoordinator {
       );
     }
     await _runTask(
-      'app.foreground.notifications.permission.failed',
-      _configureNotificationPermission,
+      'app.foreground.notifications.initial_permission.failed',
+      _requestInitialNotificationPermission,
     );
   }
 

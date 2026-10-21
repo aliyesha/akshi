@@ -41,7 +41,7 @@ void main() {
     expect(plugin.initializeCalls, 1);
   });
 
-  test('iOS initialization requests visible notification permission', () async {
+  test('iOS initialization requests notification permission', () async {
     final plugin = _FakeNotificationPlugin();
     final service = NotificationService(plugin: plugin);
     addTearDown(service.dispose);

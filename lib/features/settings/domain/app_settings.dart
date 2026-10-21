@@ -91,6 +91,15 @@ class AppSettings {
     themeMode: themeMode ?? this.themeMode,
   );
 
+  /// Applies only alarm-affecting values while preserving unrelated settings.
+  AppSettings withReminderScheduleFrom(AppSettings source) => copyWith(
+    remindersEnabled: source.remindersEnabled,
+    firstWarningDays: source.firstWarningDays,
+    secondWarningDays: source.secondWarningDays,
+    notificationHour: source.notificationHour,
+    notificationMinute: source.notificationMinute,
+  );
+
   /// Only these values affect the set and delivery time of expiry alarms.
   bool hasSameReminderSchedule(AppSettings other) =>
       remindersEnabled == other.remindersEnabled &&

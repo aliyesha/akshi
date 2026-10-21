@@ -66,7 +66,7 @@ void main() {
       addTearDown(container.dispose);
 
       expect(await container.read(settingsControllerProvider.future), previous);
-      await container
+      final health = await container
           .read(settingsControllerProvider.notifier)
           .saveSettings(candidate);
 
@@ -78,6 +78,7 @@ void main() {
         container.read(reminderControllerProvider).kind,
         ReminderHealthKind.needsAttention,
       );
+      expect(health?.kind, ReminderHealthKind.needsAttention);
     },
   );
 
@@ -95,11 +96,12 @@ void main() {
     addTearDown(container.dispose);
     await container.read(settingsControllerProvider.future);
 
-    await container
+    final health = await container
         .read(settingsControllerProvider.notifier)
         .saveSettings(candidate);
 
     expect(repository.current, candidate);
     expect(reminders.reconciliations, 0);
+    expect(health, isNull);
   });
 }

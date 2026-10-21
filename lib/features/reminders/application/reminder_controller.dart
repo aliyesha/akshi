@@ -54,6 +54,9 @@ class ReminderHealth {
   final bool repaired;
 
   bool get isBusy => kind == ReminderHealthKind.checking;
+
+  bool get hasNoUpcoming =>
+      kind == ReminderHealthKind.ready && desiredCount == 0;
 }
 
 /// Reads fresh persisted state for every request and serializes platform work.

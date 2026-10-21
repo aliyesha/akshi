@@ -9,17 +9,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 class _TestSettingsController extends SettingsController {
-  _TestSettingsController([AppSettings? initial])
+  _TestSettingsController([AppSettings? initial, this.saveResult])
     : initial = initial ?? AppSettings();
 
+  final ReminderHealth? saveResult;
   final AppSettings initial;
+  final savedSettings = <AppSettings>[];
 
   @override
   Future<AppSettings> build() async => initial;
 
   @override
-  Future<void> saveSettings(AppSettings value) async {
+  Future<ReminderHealth?> saveSettings(AppSettings value) async {
+    savedSettings.add(value);
     state = AsyncData(value);
+    return saveResult;
   }
 }
 
@@ -28,6 +32,17 @@ class _OffReminderController extends ReminderController {
   ReminderHealth build() => const ReminderHealth(
     kind: ReminderHealthKind.off,
     permission: NotificationPermissionStatus.notDetermined,
+  );
+
+  @override
+  Future<ReminderHealth> reconcile() async => state;
+}
+
+class _PermissionNeededReminderController extends ReminderController {
+  @override
+  ReminderHealth build() => const ReminderHealth(
+    kind: ReminderHealthKind.permissionNeeded,
+    permission: NotificationPermissionStatus.notAllowed,
   );
 
   @override
@@ -224,5 +239,96 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
     expect(find.text('Update expiry reminders?'), findsNothing);
     expect(find.text('Maximum reached'), findsOneWidget);
+  });
+
+  testWidgets('unverified day changes are not presented as success', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => _TestSettingsController(
+              AppSettings(),
+              const ReminderHealth(
+                kind: ReminderHealthKind.needsAttention,
+                permission: NotificationPermissionStatus.allowed,
+              ),
+            ),
+          ),
+          reminderControllerProvider.overrideWith(_OffReminderController.new),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('day-control-First warning-decrease')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(find.text('Update expiry reminders?'), findsOneWidget);
+
+    await tester.tap(find.text('Update reminders'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.text('Settings saved, but reminders need attention'),
+      findsOneWidget,
+    );
+    expect(find.text('Reminders updated'), findsNothing);
+  });
+
+  testWidgets('turning reminders off cancels a pending day change', (
+    tester,
+  ) async {
+    late _TestSettingsController settingsController;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsControllerProvider.overrideWith(
+            () => settingsController = _TestSettingsController(
+              AppSettings(),
+              const ReminderHealth(
+                kind: ReminderHealthKind.off,
+                permission: NotificationPermissionStatus.notAllowed,
+              ),
+            ),
+          ),
+          reminderControllerProvider.overrideWith(
+            _PermissionNeededReminderController.new,
+          ),
+        ],
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('day-control-First warning-decrease')),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('reminder-change-pending')),
+      findsOneWidget,
+    );
+
+    final turnOffButton = find.text('Turn off Akshi reminders');
+    await tester.ensureVisible(turnOffButton);
+    await tester.pump();
+    await tester.tap(turnOffButton);
+    await tester.pumpAndSettle();
+
+    expect(settingsController.savedSettings, hasLength(1));
+    expect(settingsController.savedSettings.single.remindersEnabled, isFalse);
+    expect(settingsController.savedSettings.single.firstWarningDays, 10);
+
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('Update expiry reminders?'), findsNothing);
+    expect(settingsController.savedSettings, hasLength(1));
   });
 }
