@@ -13,15 +13,18 @@ whose licenses continue to apply to those components.
   bundled license is available at
   [`assets/fonts/OFL-JetBrainsMono.txt`](assets/fonts/OFL-JetBrainsMono.txt).
 
-## Interface icons
+## Interface and notification icons
 
 Akshi uses Phosphor Icons through the `phosphor_icons` Flutter package.
-Phosphor Icons are distributed under the MIT License.
+The Android small-notification icon is derived from Phosphor's Bird Fill icon.
+Phosphor Icons are distributed under the MIT License; the authoritative license
+is available from the
+[Phosphor Icons core repository](https://github.com/phosphor-icons/core/blob/main/LICENSE).
 
 ## Project artwork
 
-The Akshi launcher and notification artwork is owned by aliyesha.com
-(Aliyesha) and is released with this project under `GPL-3.0-or-later`.
+The Akshi launcher artwork is owned by aliyesha.com (Aliyesha) and is released
+with this project under `GPL-3.0-or-later`.
 
 ## Software dependencies
 
